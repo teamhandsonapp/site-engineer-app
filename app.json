@@ -1,0 +1,88 @@
+{
+  "expo": {
+    "name": "PMC Portal",
+    "slug": "mobile-portal",
+    "version": "2.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "mobileportal",
+    "userInterfaceStyle": "light",
+    "jsEngine": "hermes",
+    "experiments": {
+      "typedRoutes": true
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.pmcportal.mobile"
+    },
+    "android": {
+      "package": "com.pmcportal.mobile",
+      "adaptiveIcon": {
+        "backgroundColor": "#F0A227",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyCmPCnsTu_zLkdBVPrY0x7-CZXEV1-ybm0"
+        }
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 180,
+          "resizeMode": "contain",
+          "backgroundColor": "#0F1F33"
+        }
+      ],
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#0F1F33",
+          "sounds": ["./assets/sounds/boundary_exit.wav", "./assets/sounds/redzone_entry.wav"]
+        }
+      ],
+      "expo-secure-store",
+      "@react-native-community/datetimepicker",
+      "expo-background-task",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "PMC Portal checks your location while the app is open and in the background to confirm you're at your assigned project site during work hours.",
+          "locationWhenInUsePermission": "PMC Portal uses your location to confirm you're at your assigned project site.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "PMC Portal needs access to your photos to attach them to a Daily Update.",
+          "cameraPermission": "PMC Portal needs access to your camera to take a photo for a Daily Update."
+        }
+      ],
+      "@sentry/react-native"
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "f2027d89-90fa-40e0-8c6d-2acb138861b6"
+      }
+    },
+    "owner": "kabilan12"
+  }
+}
