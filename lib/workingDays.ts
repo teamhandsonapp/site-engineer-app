@@ -60,6 +60,21 @@ export function countWorkingDaysBetween(start: Date, end: Date, blockedDates: Se
 }
 
 // Ported verbatim from admin-web's lib/utils/working-days.ts's own
+// workingDaysBetween — a step/gap count (0 when from/to are the same day),
+// not the inclusive span countWorkingDaysBetween above returns. Added for
+// the General Parameter report's Type 1 (Preconstruction) delay figure.
+export function workingDaysBetween(from: Date, to: Date, blockedDates: Set<string>): number {
+  const cursor = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
+  const end = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate()));
+  let count = 0;
+  while (cursor.getTime() !== end.getTime()) {
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    if (isWorkingDay(cursor, blockedDates)) count++;
+  }
+  return count;
+}
+
+// Ported verbatim from admin-web's lib/utils/working-days.ts's own
 // addWorkingDaysFromAnchor — the Flowchart Template Kit's "apply" half.
 // Unlike addWorkingDaysSync above (which answers "the Nth working day
 // on/after `date`" and clamps to a minimum of 1), this answers "step N

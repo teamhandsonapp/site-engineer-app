@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { fetchUnresolvedAccountLockouts } from './accountLockouts';
 
 // Admin/manager-facing "review the team's attendance" data layer — reads
 // the SAME underlying tables the field role's own lib/attendance.ts writes
@@ -277,13 +278,17 @@ export async function fetchEngineerDailyAttendance(userId: string, options: Rang
     .gte('entered_at', rangeStartISO);
   if (options.projectId) zoneQuery = zoneQuery.eq('project_id', options.projectId);
 
-  // Only Addition A's two reasons count toward "degraded tracking" for
+  // Only the degraded-tracking reasons count toward "degraded tracking" for
   // scoring — 'permission'/'services' are the separate whole-app gate.
+  // 'no_heartbeat' (supabase/tracking-silence-watcher.sql's server-side
+  // silence detector) counts the same as the other two — a background-
+  // killed device not reporting for X minutes is exactly as much
+  // "degraded tracking" as a revoked permission, just a different cause.
   const disabledQuery = supabase
     .from('location_disabled_alerts')
     .select('disabled_at, enabled_at, reason')
     .eq('user_id', userId)
-    .in('reason', ['background_permission', 'gps_disabled'])
+    .in('reason', ['background_permission', 'gps_disabled', 'no_heartbeat'])
     .lte('disabled_at', now.toISOString())
     .or(`enabled_at.is.null,enabled_at.gte.${rangeStartISO}`);
 
@@ -436,6 +441,11 @@ export interface EngineerAttendanceSummary {
   todayRedZoneEntries: RedZoneEntryEpisode[];
   liveTrackingStatus: string | null;
   liveTrackingStatusReason: string | null;
+  liveTrackingStatusAt: Date | null;
+  // Section 5's GPS-lockout flag — batched from fetchUnresolvedAccountLockouts
+  // (one query for the whole list) rather than a per-engineer lookup, same
+  // reasoning as every other N-query-avoidance in this file.
+  isLocked: boolean;
 }
 
 // The team-wide list — scoped to the currently-selected project via
@@ -456,15 +466,19 @@ export async function fetchTeamAttendanceSummary(projectId: string | null, days 
 
   let engineerQuery = supabase
     .from('user_profiles')
-    .select('id, full_name, role, tracking_status, tracking_status_reason')
+    .select('id, full_name, role, tracking_status, tracking_status_reason, tracking_status_at')
     .in('role', ['site_engineer', 'senior_site_engineer'])
     .is('deleted_at', null)
     .order('full_name', { ascending: true });
   if (engineerIds) engineerQuery = engineerQuery.in('id', engineerIds);
 
-  const { data: engineers, error } = await engineerQuery;
+  const [{ data: engineers, error }, unresolvedLockouts] = await Promise.all([
+    engineerQuery,
+    fetchUnresolvedAccountLockouts(),
+  ]);
   if (error) throw new Error(error.message);
   if (!engineers || engineers.length === 0) return [];
+  const lockedUserIds = new Set(unresolvedLockouts.map((l) => l.userId));
 
   const now = new Date();
   const summaries = await Promise.all(
@@ -503,6 +517,8 @@ export async function fetchTeamAttendanceSummary(projectId: string | null, days 
         todayRedZoneEntries: today?.redZoneEntries ?? [],
         liveTrackingStatus: e.tracking_status as string | null,
         liveTrackingStatusReason: e.tracking_status_reason as string | null,
+        liveTrackingStatusAt: e.tracking_status_at ? new Date(e.tracking_status_at as string) : null,
+        isLocked: lockedUserIds.has(e.id as string),
       };
     })
   );
@@ -515,4 +531,29 @@ export async function fetchTeamAttendanceSummary(projectId: string | null, days 
   // moment they check in for real (presentDays >= 1), no separate
   // "activate" step needed.
   return summaries.filter((s) => s.presentDays > 0);
+}
+
+export interface LiveTrackingStatus {
+  status: string | null;
+  reason: string | null;
+  at: Date | null;
+}
+
+// The per-engineer detail screen's own equivalent of the columns
+// fetchTeamAttendanceSummary above already reads for the whole list — split
+// out so that screen isn't forced to re-derive the full team summary (and
+// its N fetchEngineerDailyAttendance calls) just to read one person's live
+// status/reason/timestamp.
+export async function fetchLiveTrackingStatus(userId: string): Promise<LiveTrackingStatus> {
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('tracking_status, tracking_status_reason, tracking_status_at')
+    .eq('id', userId)
+    .single();
+  if (error) throw new Error(error.message);
+  return {
+    status: data.tracking_status as string | null,
+    reason: data.tracking_status_reason as string | null,
+    at: data.tracking_status_at ? new Date(data.tracking_status_at as string) : null,
+  };
 }

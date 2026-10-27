@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutChangeEvent, PixelRatio, Pressable, Text, View } from 'react-native';
+import { Alert, LayoutChangeEvent, Modal, PixelRatio, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
+import { appRoleFor, useAuth } from '../../lib/AuthContext';
+import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
 import { EdgeLayer } from './EdgeLayer';
 import { TaskNode } from './TaskNode';
 import { TaskDetailSheet } from './TaskDetailSheet';
 import { TaskActionMenu } from './TaskActionMenu';
-import { RelationshipToolbar, type ToolMode } from './RelationshipToolbar';
+import { LinkTypeModal } from './LinkTypeModal';
+import { PushToEngineerModal } from './PushToEngineerModal';
+import { MilestoneNameModal } from './MilestoneNameModal';
 import { CANVAS_THEMES, GridBackground, type CanvasTheme } from './GridBackground';
 import { CreateTaskSheet } from './CreateTaskSheet';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
@@ -20,10 +23,23 @@ import {
   deleteDependency,
   deleteParallelLink,
   deleteTask,
+  duplicateTask,
+  fetchDependencyTemplate,
   fetchTaskById,
+  pushTasksUrgent,
+  seedDependencyItems,
   updateTaskPosition,
 } from '../../lib/flowchart/data';
 import { getTaskTypeColors } from '../../lib/flowchart/taskTypeColor';
+import {
+  assignTasksToMilestone,
+  createMilestone,
+  deleteMilestone,
+  fetchMilestones,
+  nextMilestoneColor,
+  taskChainBetween,
+  type Milestone,
+} from '../../lib/flowchart/milestones';
 import {
   applyTaskFieldChanges,
   captureTaskDeleteSnapshot,
@@ -38,9 +54,14 @@ import type {
   FlowchartSeriesEdge,
   FlowchartTask,
   PositionedTask,
+  RelationshipType,
   TaskTypeOption,
 } from '../../lib/flowchart/types';
 
+
+// Second toolbar row (New Task / Select / Create Milestone) sits under
+// the Locked/Editing row at top-3.
+const TOOLBAR_ROW2_TOP = 60;
 export function FlowchartCanvas({
   projectId,
   initialTasks,
@@ -48,6 +69,8 @@ export function FlowchartCanvas({
   parallelEdges: initialParallelEdges,
   taskTypes,
   canEdit,
+  canvasTheme,
+  onCanvasThemeChange,
 }: {
   projectId: string;
   initialTasks: FlowchartTask[];
@@ -55,6 +78,14 @@ export function FlowchartCanvas({
   parallelEdges: FlowchartParallelEdge[];
   taskTypes: TaskTypeOption[];
   canEdit: boolean;
+  // Lifted to the parent screen (not local state here) so the screen's own
+  // chrome above the canvas — header background, the completion-warning
+  // bar, the Filter row — can follow the same light/black choice instead of
+  // only the canvas grid changing while everything above it stays fixed
+  // white (the exact mismatch reported live: "when I change the background
+  // it's not changing on the top").
+  canvasTheme: CanvasTheme;
+  onCanvasThemeChange: (theme: CanvasTheme) => void;
 }) {
   // PixelRatio.get() never changes for a mounted app (not a ref/state — a
   // plain device constant), so this is safe to read directly on every
@@ -108,14 +139,20 @@ export function FlowchartCanvas({
   // bare `canEdit` for an edit affordance now checks this instead.
   const editable = canEdit && isUnlocked;
 
-  // Canvas background theme — a plain viewing preference (not gated on
-  // canEdit/editable), so it's available read-only too. Deliberately
-  // session-only, matching admin-web's own darkCanvas convention (its own
-  // toggle isn't persisted either — see CANVAS_THEMES's own comment).
-  const [canvasTheme, setCanvasTheme] = useState<CanvasTheme>('light');
+  // Canvas background theme is now a controlled prop (canvasTheme/
+  // onCanvasThemeChange) — lifted to the parent screen, see this
+  // component's own prop-type comment for why.
 
-  const [activeTool, setActiveTool] = useState<ToolMode>('select');
+  // The old model required picking FS/SS/SF/FF/Parallel from a persistent
+  // bottom toolbar BEFORE tapping the two tasks — that toolbar was itself
+  // one of the recurring off-screen-clipping offenders, and locked in a
+  // type before either task was even chosen. Replaced with: tap a task's
+  // own "Link to Task" action-menu entry (source), tap a second task
+  // (target), THEN choose the type from a prompt — never a silent
+  // default, and one less permanent bottom bar competing for screen
+  // space. Mirrors TemplateCanvas.tsx's identical rework exactly.
   const [pendingSourceId, setPendingSourceId] = useState<string | null>(null);
+  const [linkPromptTargetId, setLinkPromptTargetId] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
 
   // detailTaskId + detailEditable are deliberately separate from "editable"
@@ -125,11 +162,176 @@ export function FlowchartCanvas({
   // sets detailEditable true.
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
   const [detailEditable, setDetailEditable] = useState(false);
+  // Which of TaskDetailSheet's 3 tabs (Edit/Subtasks/Prerequisites) to open
+  // on — by explicit request, "Open" and "Edit" now both open this SAME
+  // sheet instead of Open navigating away to a separate full-page screen;
+  // they just default to a different starting tab, matching each entry's
+  // old purpose (Open = view the checklist, Edit = edit task fields).
+  const [detailInitialTab, setDetailInitialTab] = useState<'edit' | 'subtasks' | 'prerequisites'>('edit');
   const [actionMenuTaskId, setActionMenuTaskId] = useState<string | null>(null);
   const [edgeDeleteConfirmId, setEdgeDeleteConfirmId] = useState<string | null>(null);
   const [deleteTaskConfirmId, setDeleteTaskConfirmId] = useState<string | null>(null);
   const [deletingTask, setDeletingTask] = useState(false);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
+
+  // "Push to Site Engineer" multi-select — admin taps into select mode,
+  // taps 1+ tasks (handleTap's own top branch below), then pushes them to
+  // a chosen engineer (pushTasksUrgent) so they show up under that
+  // engineer's DPR "Urgent" tab regardless of the task's own scheduled
+  // date. Entirely separate from pendingSourceId's link-flow — the two
+  // never run at once (entering select mode below also clears any pending
+  // link, same as the Locked toggle already does).
+  const { state: authState } = useAuth();
+  const pushedByUserId = authState.status === 'signed-in' ? authState.profile.id : null;
+  // Checklist items (Prerequisites tab) and day subtasks follow the SAME
+  // rule /task/[taskId].tsx's own full page already uses — any staff
+  // account can log them, independent of the flowchart's own lock toggle
+  // (see TaskDetailSheet's own canEditChecklist comment).
+  const canEditChecklist = authState.status === 'signed-in' && appRoleFor(authState.profile.role) === 'staff';
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [pushModalOpen, setPushModalOpen] = useState(false);
+  const [pushing, setPushing] = useState(false);
+
+  function toggleSelectMode() {
+    setSelectMode((v) => !v);
+    setSelectedTaskIds(new Set());
+    setPendingSourceId(null);
+    setLinkPromptTargetId(null);
+    setMilestoneMode(false);
+    setMilestoneStartId(null);
+  }
+
+  function toggleTaskSelected(taskId: string) {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }
+
+  async function handlePushToEngineer(engineerId: string) {
+    setPushing(true);
+    try {
+      await pushTasksUrgent(Array.from(selectedTaskIds), engineerId, pushedByUserId);
+      setPushModalOpen(false);
+      setSelectMode(false);
+      setSelectedTaskIds(new Set());
+      Alert.alert('Pushed', 'The selected task(s) will show under that engineer’s DPR Urgent tab.');
+    } catch (err) {
+      Alert.alert('Could not push', err instanceof Error ? err.message : String(err));
+    } finally {
+      setPushing(false);
+    }
+  }
+
+  // Milestone mode builds up a picked set of tasks, then names it. Two ways
+  // to pick, by explicit request: 'pick' toggles any task individually
+  // (e.g. "these 15 tasks"), 'range' is the original "this task to this
+  // task" 2-tap that adds the whole dependency CHAIN between the two taps
+  // (taskChainBetween). Both feed the same milestonePickedIds, so they can
+  // be mixed before tapping Create.
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
+  const [milestoneMode, setMilestoneMode] = useState(false);
+  const [milestonePickStyle, setMilestonePickStyle] = useState<'pick' | 'range'>('pick');
+  const [milestonePickedIds, setMilestonePickedIds] = useState<Set<string>>(new Set());
+  const [milestoneStartId, setMilestoneStartId] = useState<string | null>(null);
+  // Tapping a milestone's legend chip shows ONLY that milestone's tasks
+  // (by explicit request) — filtered at render time inside this canvas
+  // rather than via the screen-level Filter, so it doesn't remount the
+  // canvas (and lose this session's in-memory edits/history) on every tap.
+  const [focusedMilestoneId, setFocusedMilestoneId] = useState<string | null>(null);
+  const [pendingChainTaskIds, setPendingChainTaskIds] = useState<string[] | null>(null);
+  const [milestoneNameError, setMilestoneNameError] = useState<string | null>(null);
+  const [savingMilestone, setSavingMilestone] = useState(false);
+  const milestoneById = new Map(milestones.map((m) => [m.id, m]));
+
+  useEffect(() => {
+    fetchMilestones(projectId).then(setMilestones).catch(() => {}); // the legend/badges are a courtesy, not load-bearing
+  }, [projectId]);
+
+  function toggleMilestoneMode() {
+    setMilestoneMode((v) => !v);
+    setMilestoneStartId(null);
+    setMilestonePickedIds(new Set());
+    setPendingChainTaskIds(null);
+    setFocusedMilestoneId(null);
+    setSelectMode(false);
+    setSelectedTaskIds(new Set());
+    setPendingSourceId(null);
+    setLinkPromptTargetId(null);
+  }
+
+  function handleMilestoneTap(taskId: string) {
+    if (milestonePickStyle === 'pick') {
+      setMilestonePickedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(taskId)) next.delete(taskId);
+        else next.add(taskId);
+        return next;
+      });
+      return;
+    }
+    if (!milestoneStartId) {
+      setMilestoneStartId(taskId);
+      return;
+    }
+    if (milestoneStartId === taskId) {
+      setMilestoneStartId(null); // tapping the same node again cancels
+      return;
+    }
+    const chain = taskChainBetween(milestoneStartId, taskId, seriesEdges);
+    setMilestoneStartId(null);
+    if (!chain) {
+      Alert.alert('No direct chain', "These two tasks aren't connected by a single dependency chain. Switch to Pick to tap tasks one by one.");
+      return;
+    }
+    setMilestonePickedIds((prev) => new Set([...prev, ...chain]));
+  }
+
+  function openMilestoneNamePrompt() {
+    if (milestonePickedIds.size === 0) return;
+    setMilestoneNameError(null);
+    setPendingChainTaskIds(Array.from(milestonePickedIds));
+  }
+
+  async function handleSaveMilestone(name: string) {
+    if (!pendingChainTaskIds) return;
+    setSavingMilestone(true);
+    setMilestoneNameError(null);
+    try {
+      const milestone = await createMilestone(projectId, name, nextMilestoneColor(milestones.length), pushedByUserId);
+      await assignTasksToMilestone(pendingChainTaskIds, milestone.id);
+      setMilestones((prev) => [...prev, milestone]);
+      setTasks((prev) => prev.map((t) => (pendingChainTaskIds.includes(t.id) ? { ...t, milestoneId: milestone.id } : t)));
+      setPendingChainTaskIds(null);
+      setMilestonePickedIds(new Set());
+      setMilestoneMode(false);
+    } catch (err) {
+      setMilestoneNameError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingMilestone(false);
+    }
+  }
+
+  function confirmDeleteMilestone(m: Milestone) {
+    Alert.alert(`Remove ${m.name}?`, 'Its tasks stay on the flowchart — they just stop being grouped under this milestone.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: () => handleDeleteMilestone(m.id) },
+    ]);
+  }
+
+  async function handleDeleteMilestone(milestoneId: string) {
+    try {
+      await deleteMilestone(milestoneId);
+      setMilestones((prev) => prev.filter((m) => m.id !== milestoneId));
+      if (focusedMilestoneId === milestoneId) setFocusedMilestoneId(null);
+      setTasks((prev) => prev.map((t) => (t.milestoneId === milestoneId ? { ...t, milestoneId: null } : t)));
+    } catch (err) {
+      Alert.alert('Could not delete', err instanceof Error ? err.message : String(err));
+    }
+  }
 
   // ─── Undo/redo history — session-only (not persisted across app
   // restarts, per the request), capped at MAX_HISTORY_DEPTH. `past`/
@@ -302,6 +504,14 @@ export function FlowchartCanvas({
   const typeColors = useMemo(() => getTaskTypeColors(taskTypes), [taskTypes]);
 
   const bounds = useMemo(() => computeBounds(tasks), [tasks]);
+  // "Task N of M" position indicator + jump-to-task search — by explicit
+  // request, navigation aids for a 300+ task project where manually
+  // scrolling/panning to find one specific box is impractical. currentRow
+  // is 1-based, recomputed on the same gesture-settle cadence as
+  // gridArea/visibleTasks below (not per-frame — same perf reasoning).
+  const [currentRow, setCurrentRow] = useState(1);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [containerSize, setContainerSize] = useState<{ width: number; height: number } | null>(null);
   // Read only from inside the effect below (never during render) — see the
   // identical boundsRef pattern this mirrors; a task drag changes `tasks`,
@@ -372,6 +582,21 @@ export function FlowchartCanvas({
     )));
   }
 
+  // "Task N of M" — N is this task's rank by Y among all tasks (task order
+  // in the source list, not on-screen reading order, but the closest
+  // approximation available without a real "row index" concept for a
+  // pan/zoom canvas). Whichever task's box currently sits closest to the
+  // viewport's vertical center becomes N. Same settle-only cadence as
+  // recomputeGridArea/recomputeVisibleTasks above, for the same perf reason.
+  function recomputePositionIndicator() {
+    if (!containerSize || tasks.length === 0) return;
+    const centerYContent = (containerSize.height / 2 - translateY.value) / scale.value;
+    const sorted = [...tasks].sort((a, b) => a.y - b.y);
+    let idx = sorted.findIndex((t) => t.y + NODE_HEIGHT / 2 >= centerYContent);
+    if (idx === -1) idx = sorted.length - 1;
+    setCurrentRow(idx + 1);
+  }
+
   // Regression guard for the enableFreeze-based nav-perf fix (app/_layout.tsx)
   // — the drawer now FREEZES this screen while another tab is active instead
   // of leaving it mounted-and-rerendering, the same lifecycle change the
@@ -431,6 +656,7 @@ export function FlowchartCanvas({
     savedTranslateY.value = fit.translateY;
     setGridArea(computeGridArea(fit.scale, fit.translateX, fit.translateY, containerSize.width, containerSize.height));
     recomputeVisibleTasks();
+    recomputePositionIndicator();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [containerSize]);
 
@@ -495,40 +721,48 @@ export function FlowchartCanvas({
   }
 
   function handleTap(taskId: string) {
-    // Not staff, OR staff-but-locked: straight to the full checklist detail
-    // screen — real feedback confirmed the earlier "quick-peek sheet"
-    // (Name/Dates/Type only) wasn't what a plain tap should lead to; the
-    // checklist is the substance of a task, and that screen already
-    // degrades to read-only correctly on its own (its own `canEdit` is
-    // role-based, independent of this canvas's lock toggle — the lock only
-    // ever governed flowchart editing, not the checklist page). The quick
-    // Edit-fields sheet is still reachable, just via the unlocked action
-    // menu's explicit "Edit" option instead of being the default tap target.
-    if (!editable) {
-      router.push(`/task/${taskId}`);
+    if (milestoneMode) {
+      handleMilestoneTap(taskId);
       return;
     }
-    if (activeTool === 'select') {
+    if (selectMode) {
+      toggleTaskSelected(taskId);
+      return;
+    }
+    // Locked canvas: open the same action menu as unlocked, just without
+    // onLink/onDelete (see the render call below) — by explicit request, a
+    // tap should always offer Edit, not only once the canvas is unlocked.
+    // Open (the full checklist screen) is still reachable from that menu;
+    // it's just no longer the sole, instant outcome of a plain tap.
+    if (!editable) {
       setActionMenuTaskId(taskId);
       return;
     }
-    // A relationship type is active: first tap picks the prerequisite/
-    // source, second tap picks the target and creates the link immediately
-    // using whichever type is active — no intermediate "pick a type" modal
-    // anymore, since the type was already chosen from the toolbar.
-    if (!pendingSourceId) {
-      setPendingSourceId(taskId);
+    // A link is pending (started via a task's own "Link to Task" action-
+    // menu entry): this tap either cancels it (tapping the source again)
+    // or picks the target and opens the type prompt — a link's type is
+    // always an explicit choice made AFTER both tasks are picked, never a
+    // silent default from a pre-selected toolbar tool.
+    if (pendingSourceId) {
+      if (pendingSourceId === taskId) {
+        setPendingSourceId(null); // tapping the same node again cancels
+        return;
+      }
+      setLinkPromptTargetId(taskId);
       return;
     }
-    if (pendingSourceId === taskId) {
-      setPendingSourceId(null); // tapping the same node again cancels
-      return;
-    }
-    createLink(activeTool, pendingSourceId, taskId);
+    setActionMenuTaskId(taskId);
   }
 
-  async function createLink(type: ToolMode, source: string, target: string) {
-    if (type === 'select') return;
+  function handleLinkTypeSelected(type: RelationshipType) {
+    if (!pendingSourceId || !linkPromptTargetId) return;
+    const source = pendingSourceId;
+    const target = linkPromptTargetId;
+    setLinkPromptTargetId(null);
+    createLink(type, source, target);
+  }
+
+  async function createLink(type: RelationshipType, source: string, target: string) {
     setPendingSourceId(null);
     setLinkError(null);
 
@@ -568,17 +802,6 @@ export function FlowchartCanvas({
     } catch (err) {
       setLinkError(err instanceof Error ? err.message : 'Could not create the link — try again.');
     }
-    // activeTool is deliberately left untouched here (on both success and
-    // failure) — see RelationshipToolbar's own comment: several links of
-    // the same type should be creatable back to back without re-selecting.
-  }
-
-  function handleToolSelect(tool: ToolMode) {
-    setPendingSourceId(null);
-    setLinkError(null);
-    // Re-tapping the already-active type deactivates it back to Select —
-    // matches admin-web's own RelationshipPanel behavior.
-    setActiveTool((prev) => (prev === tool ? 'select' : tool));
   }
 
   function handleEdgePress(edgeId: string, kind: 'series' | 'parallel') {
@@ -616,13 +839,16 @@ export function FlowchartCanvas({
 
   function handleOpenTask(taskId: string) {
     setActionMenuTaskId(null);
-    router.push(`/task/${taskId}`);
+    setDetailTaskId(taskId);
+    setDetailEditable(false);
+    setDetailInitialTab('prerequisites');
   }
 
   function handleEditTask(taskId: string) {
     setActionMenuTaskId(null);
     setDetailTaskId(taskId);
     setDetailEditable(true);
+    setDetailInitialTab('edit');
   }
 
   function handleDeleteTaskRequest(taskId: string) {
@@ -674,6 +900,27 @@ export function FlowchartCanvas({
     if (edge) setSeriesEdges((prev) => [...prev, edge]);
   }
 
+  // Copy/Duplicate — by explicit request, dates are left blank on the copy
+  // (see duplicateTask's own comment for the full field-by-field rationale);
+  // the checklist is freshly seeded the same way CreateTaskSheet's own task
+  // creation does it, so a duplicated task doesn't open to an empty "Open"
+  // screen. Reuses handleTaskCreated for the actual canvas-state insert —
+  // same "brand new task" placement/edge handling as any other creation
+  // path, not a separate rule invented for copies.
+  async function handleCopyTask(taskId: string) {
+    setActionMenuTaskId(null);
+    try {
+      const newTask = await duplicateTask(taskId);
+      const template = await fetchDependencyTemplate();
+      await seedDependencyItems(newTask.id, template).catch(() => {
+        // Non-fatal — same reasoning as CreateTaskSheet's own seed call.
+      });
+      handleTaskCreated(newTask, null);
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : 'Could not copy the task — try again.');
+    }
+  }
+
   const pinch = Gesture.Pinch()
     .onUpdate((e) => {
       scale.value = Math.min(Math.max(savedScale.value * e.scale, 0.2), 3);
@@ -685,6 +932,7 @@ export function FlowchartCanvas({
       // rather than per-frame.
       runOnJS(recomputeGridArea)();
       runOnJS(recomputeVisibleTasks)();
+      runOnJS(recomputePositionIndicator)();
     });
 
   const pan = Gesture.Pan()
@@ -709,10 +957,14 @@ export function FlowchartCanvas({
       savedTranslateY.value = translateY.value;
       runOnJS(recomputeGridArea)();
       runOnJS(recomputeVisibleTasks)();
+      runOnJS(recomputePositionIndicator)();
     });
 
   const composedGesture = Gesture.Simultaneous(pinch, pan);
-  const insets = useSafeAreaInsets();
+  // No more RelationshipToolbar eating bottom space to reserve room above —
+  // the zoom controls always just clear the safe-area/gesture-bar offset
+  // now, editable or not.
+  const zoomBottomOffset = useSafeBottomOffset(4);
 
   // Explicit +/- controls alongside pinch-to-zoom — pinch alone isn't
   // discoverable (a user has no visual cue it's even possible), and a real
@@ -735,7 +987,84 @@ export function FlowchartCanvas({
     savedTranslateY.value = translateY.value;
     recomputeGridArea();
     recomputeVisibleTasks();
+    recomputePositionIndicator();
   }
+
+  // Jumps straight to the topmost/bottommost row instead of the manual
+  // pan a 300+ task project would otherwise need — by explicit request.
+  // Only translateY moves; translateX/scale stay exactly as they were, so
+  // this reads as "scroll" rather than "re-fit/re-zoom the whole graph".
+  const EDGE_JUMP_PADDING = 80;
+  function scrollToEdge(edge: 'top' | 'bottom') {
+    if (!containerSize || tasks.length === 0) return;
+    const s = scale.value;
+    const newTranslateY =
+      edge === 'top'
+        ? EDGE_JUMP_PADDING - bounds.minY * s
+        : containerSize.height - EDGE_JUMP_PADDING - (bounds.maxY) * s;
+    translateY.value = newTranslateY;
+    savedTranslateY.value = newTranslateY;
+    recomputeGridArea();
+    recomputeVisibleTasks();
+    recomputePositionIndicator();
+  }
+
+  // Jump-to-task search's own "select a result" handler — centers that one
+  // task in the viewport at a legible scale (current scale if it's already
+  // reasonable, otherwise nudged into the same [0.6, 1.3] band
+  // fitInitialViewTransform itself favors) rather than the current
+  // scale verbatim, which could be zoomed out to illegibility.
+  function jumpToTask(taskId: string) {
+    if (!containerSize) return;
+    const target = tasks.find((t) => t.id === taskId);
+    if (!target) return;
+    const targetScale = Math.min(Math.max(scale.value, 0.6), 1.3);
+    const cx = target.x + NODE_WIDTH / 2;
+    const cy = target.y + NODE_HEIGHT / 2;
+    const newTranslateX = containerSize.width / 2 - cx * targetScale;
+    const newTranslateY = containerSize.height / 2 - cy * targetScale;
+    translateX.value = newTranslateX;
+    translateY.value = newTranslateY;
+    scale.value = targetScale;
+    savedScale.value = targetScale;
+    savedTranslateX.value = newTranslateX;
+    savedTranslateY.value = newTranslateY;
+    recomputeGridArea();
+    recomputeVisibleTasks();
+    recomputePositionIndicator();
+    setSearchOpen(false);
+    setSearchQuery('');
+  }
+
+  // Tap a chip: show only that milestone's tasks, framed on its first row
+  // (same fitInitialViewTransform framing the canvas opens with). Tap the
+  // same chip again (or "Show all") to go back to every task.
+  function toggleMilestoneFocus(milestoneId: string) {
+    if (focusedMilestoneId === milestoneId) {
+      setFocusedMilestoneId(null);
+      return;
+    }
+    setFocusedMilestoneId(milestoneId);
+    const members = tasks.filter((t) => t.milestoneId === milestoneId);
+    if (members.length === 0 || !containerSize) return;
+    const fit = fitInitialViewTransform(members, containerSize.width, containerSize.height);
+    scale.value = fit.scale;
+    savedScale.value = fit.scale;
+    translateX.value = fit.translateX;
+    savedTranslateX.value = fit.translateX;
+    translateY.value = fit.translateY;
+    savedTranslateY.value = fit.translateY;
+    recomputeGridArea();
+    recomputeVisibleTasks();
+    recomputePositionIndicator();
+  }
+
+  const searchResults = useMemo(() => {
+    if (!searchOpen) return [];
+    const q = searchQuery.trim().toLowerCase();
+    const pool = q ? tasks.filter((t) => t.taskId.toLowerCase().includes(q) || t.taskName.toLowerCase().includes(q)) : tasks;
+    return pool.slice(0, 30);
+  }, [searchOpen, searchQuery, tasks]);
 
   const canvasStyle = useAnimatedStyle(() => ({
     // transformOrigin defaults to the element's CENTER in CSS — fine for a
@@ -753,6 +1082,17 @@ export function FlowchartCanvas({
       { scale: scale.value },
     ],
   }));
+
+  const focusedMilestone = focusedMilestoneId ? milestoneById.get(focusedMilestoneId) ?? null : null;
+  const focusedMilestoneTaskCount = focusedMilestoneId ? tasks.filter((t) => t.milestoneId === focusedMilestoneId).length : 0;
+  // EdgeLayer already drops any edge whose endpoint isn't in the list it's
+  // given, so filtering the task list alone also hides every edge leading
+  // out of the focused milestone.
+  const renderedTasks = focusedMilestoneId ? visibleTasks.filter((t) => t.milestoneId === focusedMilestoneId) : visibleTasks;
+
+  // Where the first floating overlay (milestone chips / hint bars) starts —
+  // just below however many toolbar rows are showing.
+  const overlayTop = editable ? TOOLBAR_ROW2_TOP + 48 : canEdit ? 60 : 12;
 
   const detailTask = tasks.find((t) => t.id === detailTaskId) ?? null;
   const actionMenuTask = tasks.find((t) => t.id === actionMenuTaskId) ?? null;
@@ -773,13 +1113,13 @@ export function FlowchartCanvas({
               <GridBackground offsetX={gridArea.x} offsetY={gridArea.y} width={gridArea.width} height={gridArea.height} theme={canvasTheme} scale={gridArea.scale} />
             )}
             <EdgeLayer
-              tasks={visibleTasks}
+              tasks={renderedTasks}
               seriesEdges={seriesEdges}
               parallelEdges={parallelEdges}
               onEdgePress={editable ? handleEdgePress : undefined}
               nodeScale={nodeScale}
             />
-            {visibleTasks.map((task) => (
+            {renderedTasks.map((task) => (
               <TaskNode
                 key={task.id}
                 task={task}
@@ -789,8 +1129,11 @@ export function FlowchartCanvas({
                 dragDeltaY={dragDeltaY}
                 onDragStart={handleDragStart}
                 onTap={handleTap}
+                editable={editable}
                 nodeScale={nodeScale}
                 isPendingLinkSource={pendingSourceId === task.id}
+                isSelected={selectedTaskIds.has(task.id) || milestoneStartId === task.id || milestonePickedIds.has(task.id)}
+                milestone={task.milestoneId ? milestoneById.get(task.milestoneId) : null}
               />
             ))}
           </Animated.View>
@@ -798,12 +1141,19 @@ export function FlowchartCanvas({
       )}
 
       {canEdit && (
-        <View className="absolute top-3 left-3 flex-row gap-2">
+        // Row 1: Locked/Editing + Undo/Redo only. right: 172 keeps it clear
+        // of the fixed task-count + theme-toggle group at top-3 right-3.
+        // The action buttons (New Task / Select / Milestone) used to share
+        // this one horizontally-scrolling row, but on a real ~390px phone
+        // they sat scrolled off the right edge with no hint they existed —
+        // real feedback ("the button is hidden"), so they get their own
+        // full-width row 2 below instead.
+        <View className="absolute top-3 left-3 flex-row items-center gap-2" style={{ right: 172 }}>
           <Pressable
             onPress={() => {
               setIsUnlocked((v) => !v);
-              setActiveTool('select');
               setPendingSourceId(null);
+              setLinkPromptTargetId(null);
             }}
             className="flex-row items-center gap-1.5 bg-white rounded-xl border border-neutral-200 px-3 py-2.5"
             style={{ elevation: 3 }}
@@ -832,16 +1182,166 @@ export function FlowchartCanvas({
               >
                 <Ionicons name="arrow-redo-outline" size={18} color="#0F1F33" />
               </Pressable>
-              <Pressable
-                onPress={() => setCreateTaskOpen(true)}
-                className="flex-row items-center gap-1.5 bg-brand-navy rounded-xl px-3 py-2.5"
-                style={{ elevation: 3 }}
-              >
-                <Ionicons name="add" size={16} color="#ffffff" />
-                <Text className="text-2xs font-bold text-white">New Task</Text>
-              </Pressable>
             </>
           )}
+        </View>
+      )}
+
+      {editable && (
+        // Row 2: full width, so all three fit on a phone without scrolling
+        // (still a ScrollView as a safety net for very narrow screens).
+        <View className="absolute left-3 right-3" style={{ top: TOOLBAR_ROW2_TOP }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="flex-row items-center gap-2">
+            <Pressable
+              onPress={() => setCreateTaskOpen(true)}
+              className="flex-row items-center gap-1.5 bg-brand-navy rounded-xl px-3 py-2.5"
+              style={{ elevation: 3 }}
+            >
+              <Ionicons name="add" size={16} color="#ffffff" />
+              <Text className="text-2xs font-bold text-white">New Task</Text>
+            </Pressable>
+            <Pressable
+              onPress={toggleSelectMode}
+              className="flex-row items-center gap-1.5 rounded-xl px-3 py-2.5"
+              style={{ elevation: 3, backgroundColor: selectMode ? '#F0A227' : '#fff', borderWidth: selectMode ? 0 : 1, borderColor: '#E5E5E5' }}
+            >
+              <Ionicons name="checkmark-circle-outline" size={16} color={selectMode ? '#fff' : '#0F1F33'} />
+              <Text className="text-2xs font-bold" style={{ color: selectMode ? '#fff' : '#0F1F33' }}>
+                {selectMode ? `Select (${selectedTaskIds.size})` : 'Select'}
+              </Text>
+            </Pressable>
+            <Pressable
+              onPress={toggleMilestoneMode}
+              className="flex-row items-center gap-1.5 rounded-xl px-3 py-2.5"
+              style={{ elevation: 3, backgroundColor: milestoneMode ? '#7C3AED' : '#fff', borderWidth: milestoneMode ? 0 : 1, borderColor: '#E5E5E5' }}
+            >
+              <Ionicons name="flag-outline" size={16} color={milestoneMode ? '#fff' : '#0F1F33'} />
+              <Text className="text-2xs font-bold" style={{ color: milestoneMode ? '#fff' : '#0F1F33' }}>
+                {milestoneMode ? 'Cancel Milestone' : 'Create Milestone'}
+              </Text>
+            </Pressable>
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Milestone mode's own hint bar — mirrors pendingSourceId's identical
+          "tap another task" hint below, same tap-start/tap-end shape. */}
+      {milestoneMode && (
+        <View className="absolute left-3 right-3 bg-white rounded-xl border border-neutral-200 px-3 py-2 gap-1.5" style={{ top: overlayTop, elevation: 3 }}>
+          <View className="flex-row self-start rounded-lg bg-neutral-100 p-0.5">
+            {(['pick', 'range'] as const).map((style) => (
+              <Pressable
+                key={style}
+                onPress={() => {
+                  setMilestonePickStyle(style);
+                  setMilestoneStartId(null);
+                }}
+                className="px-2.5 py-1 rounded-md"
+                style={{ backgroundColor: milestonePickStyle === style ? '#fff' : 'transparent' }}
+              >
+                <Text className={`text-2xs font-bold ${milestonePickStyle === style ? 'text-neutral-900' : 'text-neutral-400'}`}>
+                  {style === 'pick' ? 'Pick tasks' : 'From → To'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Text className="text-2xs text-neutral-500">
+            {milestonePickStyle === 'pick'
+              ? 'Tap each task to add it to this milestone (tap again to remove)'
+              : milestoneStartId
+                ? 'Tap the last task — every linked task in between is added (tap the first one again to cancel)'
+                : 'Tap the first task in the range'}
+          </Text>
+        </View>
+      )}
+
+      {/* Milestone legend — one horizontally-scrolling line (was a wrapping
+          stack that piled chips on top of the first tasks). Tapping a chip
+          shows only that milestone's tasks (toggleMilestoneFocus); the
+          active chip gets a white ring. Hidden while milestone mode is on —
+          its hint bar takes this same spot. Delete (un-tags every member
+          task, doesn't touch the tasks themselves) asks first — the ✕ sits
+          right next to the chip's own tap target. */}
+      {milestones.length > 0 && !milestoneMode && (
+        <View className="absolute left-3 right-3" style={{ top: overlayTop }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="flex-row items-center gap-1.5">
+          {milestones.map((m) => (
+            <Pressable
+              key={m.id}
+              onPress={() => toggleMilestoneFocus(m.id)}
+              className="flex-row items-center gap-1 rounded-full px-2.5 py-1"
+              style={{
+                backgroundColor: m.color,
+                elevation: 3,
+                opacity: focusedMilestoneId && focusedMilestoneId !== m.id ? 0.45 : 1,
+                borderWidth: focusedMilestoneId === m.id ? 2 : 0,
+                borderColor: '#fff',
+              }}
+            >
+              <Text className="text-2xs font-bold text-white" numberOfLines={1} style={{ maxWidth: 220 }}>{m.name}</Text>
+              {editable && (
+                <Pressable onPress={() => confirmDeleteMilestone(m)} hitSlop={6}>
+                  <Ionicons name="close" size={12} color="#fff" />
+                </Pressable>
+              )}
+            </Pressable>
+          ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* "Showing Milestone N" — while a chip is focused, so it's obvious
+          the rest of the chart is hidden, not missing. */}
+      {focusedMilestone && (
+        <View
+          className="absolute left-3 right-3 flex-row items-center justify-between rounded-xl px-3.5 py-3"
+          style={{ bottom: zoomBottomOffset, elevation: 4, backgroundColor: focusedMilestone.color, marginRight: 56 }}
+        >
+          <Text className="text-xs font-bold text-white flex-1" numberOfLines={1}>
+            {focusedMilestone.name.toUpperCase()} · {focusedMilestoneTaskCount} task{focusedMilestoneTaskCount === 1 ? '' : 's'}
+          </Text>
+          <Pressable onPress={() => setFocusedMilestoneId(null)} className="px-3 py-1.5 rounded-lg bg-white">
+            <Text className="text-2xs font-bold" style={{ color: focusedMilestone.color }}>Show all</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {milestoneMode && milestonePickedIds.size > 0 && (
+        <View
+          className="absolute left-3 right-3 flex-row items-center justify-between bg-white rounded-xl border border-neutral-200 px-3.5 py-3"
+          style={{ bottom: zoomBottomOffset, elevation: 4, marginRight: 56 }}
+        >
+          <Text className="text-xs font-semibold text-neutral-700">{milestonePickedIds.size} task{milestonePickedIds.size === 1 ? '' : 's'} picked</Text>
+          <View className="flex-row gap-2">
+            <Pressable onPress={() => setMilestonePickedIds(new Set())} className="px-3 py-2 rounded-lg bg-neutral-100">
+              <Text className="text-2xs font-semibold text-neutral-600">Clear</Text>
+            </Pressable>
+            <Pressable onPress={openMilestoneNamePrompt} className="flex-row items-center gap-1.5 px-3 py-2 rounded-lg" style={{ backgroundColor: '#7C3AED' }}>
+              <Ionicons name="flag" size={14} color="#fff" />
+              <Text className="text-2xs font-bold text-white">Create Milestone</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
+      {/* Bottom action bar for the multi-select above — only while
+          selectMode is on and at least one task is picked, so it doesn't
+          sit empty/disabled the whole time select mode is active. */}
+      {selectMode && selectedTaskIds.size > 0 && (
+        <View
+          className="absolute left-3 right-3 flex-row items-center justify-between bg-white rounded-xl border border-neutral-200 px-3.5 py-3"
+          style={{ bottom: zoomBottomOffset, elevation: 4 }}
+        >
+          <Text className="text-xs font-semibold text-neutral-700">{selectedTaskIds.size} task{selectedTaskIds.size === 1 ? '' : 's'} selected</Text>
+          <View className="flex-row gap-2">
+            <Pressable onPress={toggleSelectMode} className="px-3 py-2 rounded-lg bg-neutral-100">
+              <Text className="text-2xs font-semibold text-neutral-600">Cancel</Text>
+            </Pressable>
+            <Pressable onPress={() => setPushModalOpen(true)} className="flex-row items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-navy">
+              <Ionicons name="send-outline" size={14} color="#fff" />
+              <Text className="text-2xs font-bold text-white">Push to Site Engineer</Text>
+            </Pressable>
+          </View>
         </View>
       )}
 
@@ -861,13 +1361,15 @@ export function FlowchartCanvas({
             confirm "yes, all ~311 real tasks are actually here" without
             manually counting boxes. */}
         <View className="bg-white rounded-full border border-neutral-200 px-2.5 py-1.5" style={{ elevation: 3 }}>
-          <Text className="text-2xs font-bold text-neutral-700">{tasks.length} task{tasks.length === 1 ? '' : 's'}</Text>
+          <Text className="text-2xs font-bold text-neutral-700">
+            {focusedMilestone ? `${focusedMilestoneTaskCount} of ${tasks.length}` : `${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
+          </Text>
         </View>
         <View className="flex-row gap-1.5 bg-white rounded-full border border-neutral-200 px-2 py-1.5" style={{ elevation: 3 }}>
           {(['light', 'black'] as CanvasTheme[]).map((t) => (
             <Pressable
               key={t}
-              onPress={() => setCanvasTheme(t)}
+              onPress={() => onCanvasThemeChange(t)}
               hitSlop={4}
               className="w-5 h-5 rounded-full"
               style={{
@@ -880,35 +1382,47 @@ export function FlowchartCanvas({
         </View>
       </View>
 
-      {editable && activeTool !== 'select' && (
-        <View className="absolute top-14 right-3 bg-white rounded-xl border border-neutral-200 px-3 py-2" style={{ elevation: 3 }}>
-          <Text className="text-2xs text-neutral-500">
-            {pendingSourceId ? 'Tap the task this one blocks/pairs with' : 'Tap the prerequisite task'}
-          </Text>
-        </View>
+      {editable && pendingSourceId && (
+        <Pressable
+          onPress={() => setPendingSourceId(null)}
+          className="absolute right-3 bg-white rounded-xl border border-neutral-200 px-3 py-2"
+          style={{ top: overlayTop, elevation: 3 }}
+        >
+          <Text className="text-2xs text-neutral-500">Tap another task to link with (tap here to cancel)</Text>
+        </Pressable>
       )}
 
       {linkError && (
         <Pressable
           onPress={() => setLinkError(null)}
-          className="absolute top-16 left-3 right-3 bg-red-50 border border-red-200 rounded-xl px-3 py-2"
-          style={{ elevation: 3 }}
+          className="absolute left-3 right-3 bg-red-50 border border-red-200 rounded-xl px-3 py-2"
+          style={{ top: overlayTop, elevation: 3 }}
         >
           <Text className="text-xs font-semibold text-red-600">{linkError} (tap to dismiss)</Text>
         </Pressable>
       )}
 
-      {editable && (
-        <RelationshipToolbar active={activeTool} onSelect={handleToolSelect} />
-      )}
-
-      {/* Explicit zoom controls, positioned to clear the bottom toolbar
-          when it's showing (editable) vs. sitting just above the safe area
-          when it's not (locked). */}
-      <View
-        className="absolute right-3 items-center gap-1.5"
-        style={{ bottom: editable ? 108 : Math.max(insets.bottom, 12) + 4 }}
-      >
+      {/* Explicit zoom controls — no more bottom RelationshipToolbar to
+          clear (retired: see pendingSourceId's own comment), so this
+          always just sits above the safe-area/gesture-bar offset.
+          Scroll-to-top/bottom join the same stack, above zoom — a 300+
+          task project has no quick way to reach either end of the graph
+          without a marathon manual pan, by explicit request. */}
+      <View className="absolute right-3 items-center gap-1.5" style={{ bottom: zoomBottomOffset }}>
+        <Pressable
+          onPress={() => scrollToEdge('top')}
+          className="w-10 h-10 rounded-full bg-white border border-neutral-200 items-center justify-center"
+          style={{ elevation: 3 }}
+        >
+          <Ionicons name="chevron-up-circle-outline" size={22} color="#0F1F33" />
+        </Pressable>
+        <Pressable
+          onPress={() => scrollToEdge('bottom')}
+          className="w-10 h-10 rounded-full bg-white border border-neutral-200 items-center justify-center"
+          style={{ elevation: 3, marginBottom: 4 }}
+        >
+          <Ionicons name="chevron-down-circle-outline" size={22} color="#0F1F33" />
+        </Pressable>
         <Pressable
           onPress={() => zoomBy(1.25)}
           className="w-10 h-10 rounded-full bg-white border border-neutral-200 items-center justify-center"
@@ -925,13 +1439,93 @@ export function FlowchartCanvas({
         </Pressable>
       </View>
 
+      {/* Jump-to-task search + "Task N of M" position indicator — the left-
+          side counterpart to the right-side zoom/scroll stack, by explicit
+          request. Left side was empty before this; nothing existing to
+          crowd. */}
+      <View className="absolute left-3 items-start gap-1.5" style={{ bottom: zoomBottomOffset }}>
+        <Pressable
+          onPress={() => setSearchOpen(true)}
+          className="w-10 h-10 rounded-full bg-white border border-neutral-200 items-center justify-center"
+          style={{ elevation: 3 }}
+        >
+          <Ionicons name="search-outline" size={18} color="#0F1F33" />
+        </Pressable>
+        <View className="bg-white rounded-full border border-neutral-200 px-2.5 py-1.5" style={{ elevation: 3 }}>
+          <Text className="text-2xs font-bold text-neutral-700">Task {currentRow} of {tasks.length}</Text>
+        </View>
+      </View>
+
+      {searchOpen && (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setSearchOpen(false)}>
+          <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={() => setSearchOpen(false)}>
+            <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 360 }}>
+              <View className="bg-white rounded-2xl p-4" style={{ maxHeight: '70%' }}>
+                <Text className="text-sm font-bold text-neutral-900 mb-3">Jump to task</Text>
+                <View className="flex-row items-center gap-2 bg-neutral-50 rounded-xl border border-neutral-200 px-3 py-2.5 mb-3">
+                  <Ionicons name="search-outline" size={16} color="#a3a3a3" />
+                  <TextInput
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    placeholder="Task ID or name (e.g. 1a)"
+                    placeholderTextColor="#a3a3a3"
+                    autoFocus
+                    className="flex-1 text-sm text-neutral-900"
+                  />
+                  {searchQuery.length > 0 && (
+                    <Pressable onPress={() => setSearchQuery('')}>
+                      <Ionicons name="close-circle" size={16} color="#a3a3a3" />
+                    </Pressable>
+                  )}
+                </View>
+                <ScrollView style={{ maxHeight: 320 }} keyboardShouldPersistTaps="handled">
+                  {searchResults.length === 0 ? (
+                    <Text className="text-xs text-neutral-400 text-center py-4">No matching tasks</Text>
+                  ) : (
+                    searchResults.map((t) => (
+                      <Pressable
+                        key={t.id}
+                        onPress={() => jumpToTask(t.id)}
+                        className="flex-row items-center gap-2.5 px-2.5 py-2.5 rounded-lg"
+                      >
+                        <Text className="text-xs font-mono font-bold text-neutral-500" style={{ width: 36 }}>{t.taskId}</Text>
+                        <Text className="text-xs text-neutral-800 flex-1" numberOfLines={1}>{t.taskName}</Text>
+                      </Pressable>
+                    ))
+                  )}
+                </ScrollView>
+                <Pressable onPress={() => setSearchOpen(false)} className="self-end mt-2 px-3 py-1.5 rounded-lg bg-neutral-100">
+                  <Text className="text-xs font-semibold text-neutral-600">Cancel</Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
+
       {actionMenuTask && (
         <TaskActionMenu
           taskCode={actionMenuTask.taskId}
           onOpen={() => handleOpenTask(actionMenuTask.id)}
           onEdit={() => handleEditTask(actionMenuTask.id)}
-          onDelete={() => handleDeleteTaskRequest(actionMenuTask.id)}
+          onLink={
+            editable
+              ? () => {
+                  setActionMenuTaskId(null);
+                  setPendingSourceId(actionMenuTask.id);
+                }
+              : undefined
+          }
+          onCopy={editable ? () => handleCopyTask(actionMenuTask.id) : undefined}
+          onDelete={editable ? () => handleDeleteTaskRequest(actionMenuTask.id) : undefined}
           onCancel={() => setActionMenuTaskId(null)}
+        />
+      )}
+
+      {linkPromptTargetId && (
+        <LinkTypeModal
+          onSelect={handleLinkTypeSelected}
+          onCancel={() => setLinkPromptTargetId(null)}
         />
       )}
 
@@ -961,20 +1555,24 @@ export function FlowchartCanvas({
       <TaskDetailSheet
         task={detailTask}
         taskTypes={taskTypes}
+        projectId={projectId}
         canEdit={detailEditable}
+        canEditChecklist={canEditChecklist}
+        userId={pushedByUserId}
+        initialTab={detailInitialTab}
         onClose={() => { setDetailTaskId(null); setDetailEditable(false); }}
         onTaskEdited={(taskId, before, after) => {
           setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, ...after } : t)));
           pushHistory({ type: 'editTask', taskId, before, after });
-          // workAccountabilityType (the RESOLVED value TaskNode's badge
-          // actually renders) isn't part of EditableTaskFields — it also
-          // depends on the Work's own default, which isn't available
-          // locally. A plain merge above leaves it stale when the override
-          // changes (including clearing it back to null), so re-fetch this
-          // one task fresh to pick up the correctly re-resolved badge,
-          // same fetchTaskById-after-a-DB-change pattern already used by
-          // the undo/redo delete-restore path just above.
-          if (before.accountabilityType !== after.accountabilityType) {
+          // workAccountabilityType/workName/workCode (the RESOLVED values
+          // TaskNode's badge and the Department filter actually read)
+          // aren't part of EditableTaskFields — they depend on the Work row
+          // itself, not available locally. A plain merge above leaves them
+          // stale when the override or the Department changes, so re-fetch
+          // this one task fresh to pick up the correctly re-resolved
+          // values, same fetchTaskById-after-a-DB-change pattern already
+          // used by the undo/redo delete-restore path just above.
+          if (before.accountabilityType !== after.accountabilityType || before.workId !== after.workId) {
             fetchTaskById(taskId).then((fresh) => {
               setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, ...fresh } : t)));
             }).catch(() => {});
@@ -991,6 +1589,25 @@ export function FlowchartCanvas({
           onCreated={handleTaskCreated}
         />
       )}
+
+      <PushToEngineerModal
+        visible={pushModalOpen}
+        projectId={projectId}
+        taskCount={selectedTaskIds.size}
+        pushing={pushing}
+        onPush={handlePushToEngineer}
+        onClose={() => setPushModalOpen(false)}
+      />
+
+      <MilestoneNameModal
+        visible={pendingChainTaskIds !== null}
+        suggestedName={`Milestone ${milestones.length + 1}`}
+        taskCount={pendingChainTaskIds?.length ?? 0}
+        saving={savingMilestone}
+        error={milestoneNameError}
+        onSave={handleSaveMilestone}
+        onCancel={() => setPendingChainTaskIds(null)}
+      />
     </View>
   );
 }

@@ -3,6 +3,8 @@ import Constants, { AppOwnership } from 'expo-constants';
 import { Platform } from 'react-native';
 import { supabase } from './supabase';
 import { devWarn } from './devLog';
+import { logAction, logError } from './sentryLog';
+import { ALARM_SOUNDS } from './alarmSounds';
 
 // expo-notifications' own module has a top-level side effect
 // (DevicePushTokenAutoRegistration.fx.js) that THROWS immediately on import
@@ -25,16 +27,29 @@ function isExpoGo(): boolean {
 // AuthContext.tsx) — always fire-and-forget from the caller's side. Every
 // failure mode here (permission denied, no physical device, no EAS project
 // configured yet, a transient network error) is handled by just returning
-// early with a warning: this feature is additive, so the rest of the app
-// must work identically whether or not it succeeds.
+// early: this feature is additive, so the rest of the app must work
+// identically whether or not it succeeds.
+//
+// Audit fix — every branch below used to report ONLY via devWarn (a local
+// console line, invisible in a production build and never reaching
+// Sentry). That made this a genuinely silent failure end-to-end: a live
+// query found ZERO of the app's real user_profiles had ever had
+// expo_push_token set, and there was no breadcrumb/issue anywhere to
+// explain why. Every branch now also calls logAction (expected, benign
+// outcomes — Expo Go, no physical device, permission denied) or logError
+// (a real failure worth investigating — DB write failure, an unexpected
+// thrown error, or the EAS-projectId branch, which is currently believed
+// fixed in app.json but would silently regress again without this).
 export async function registerForPushNotificationsAsync(email: string): Promise<void> {
   if (isExpoGo()) {
     devWarn('[push] Skipping — Expo Go does not support push notifications since SDK 53; use a development build.');
+    logAction('push', 'Registration skipped — running inside Expo Go', { email });
     return;
   }
 
   if (!Device.isDevice) {
     devWarn('[push] Skipping — push tokens require a physical device, not a simulator/emulator.');
+    logAction('push', 'Registration skipped — not a physical device', { email });
     return;
   }
 
@@ -52,6 +67,7 @@ export async function registerForPushNotificationsAsync(email: string): Promise<
     }
     if (finalStatus !== 'granted') {
       devWarn('[push] Permission not granted — continuing without push notifications.');
+      logAction('push', 'Registration skipped — permission not granted', { email, finalStatus });
       return;
     }
 
@@ -73,15 +89,66 @@ export async function registerForPushNotificationsAsync(email: string): Promise<
         name: 'default',
         importance: Notifications.AndroidImportance.MAX,
       });
+      // Android freezes a channel's sound the first time it's created, and
+      // app updates never change it — builds before that fix created
+      // 'default' with the broken 'default' sound string, so on those phones
+      // 'default' stays silent forever. Fresh channel ids are the only way
+      // to get sound back; every sender now targets one of these (see
+      // send-zone-alert / send-push-notification / send-broadcast-push).
+      await Notifications.setNotificationChannelAsync('alerts', {
+        name: 'Notifications',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+      });
+      await Notifications.setNotificationChannelAsync('critical-alerts', {
+        name: 'Critical alerts',
+        importance: Notifications.AndroidImportance.MAX,
+        sound: 'redzone_entry.wav',
+        vibrationPattern: [0, 500, 250, 500, 250, 500],
+        bypassDnd: true,
+      });
+      // Person-sent critical alerts (Settings → Send Critical Alert). A
+      // separate channel from 'critical-alerts' because a channel's sound
+      // can never change after creation, and redzone_entry.wav (0.6s) was
+      // too short to register as an alarm.
+      await Notifications.setNotificationChannelAsync('critical-alarm', {
+        name: 'Critical alarm',
+        importance: Notifications.AndroidImportance.MAX,
+        sound: 'critical_alarm.wav',
+        vibrationPattern: [0, 800, 300, 800, 300, 800, 300, 800],
+        bypassDnd: true,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      });
+      // One channel per selectable critical-alert tone (lib/alarmSounds.ts).
+      for (const alarm of ALARM_SOUNDS) {
+        await Notifications.setNotificationChannelAsync(alarm.channelId, {
+          name: `Critical alarm – ${alarm.label}`,
+          importance: Notifications.AndroidImportance.MAX,
+          sound: alarm.file,
+          vibrationPattern: [0, 800, 300, 800, 300, 800, 300, 800],
+          bypassDnd: true,
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        });
+      }
+      await Notifications.setNotificationChannelAsync('boundary-alerts', {
+        name: 'Site boundary alerts',
+        importance: Notifications.AndroidImportance.MAX,
+        sound: 'boundary_exit.wav',
+        vibrationPattern: [0, 400, 200, 400],
+      });
     }
 
     // getExpoPushTokenAsync requires this app to be linked to an EAS
-    // project (`eas init`) — app.json has no extra.eas.projectId configured
-    // yet, so this currently no-ops with a clear warning rather than
-    // throwing until that one-time setup happens.
+    // project (`eas init`). Audit fix — app.json's extra.eas.projectId IS
+    // now configured (f2027d89-90fa-40e0-8c6d-2acb138861b6, confirmed live
+    // via `eas project:info`); the comment here previously said otherwise
+    // and was stale. This branch is believed unreachable today, but stays
+    // as a real, loud guard (not silently trusting the config) in case that
+    // ever regresses — hence logError, not logAction, if it does fire.
     const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
     if (!projectId) {
       devWarn('[push] No EAS projectId configured (app.json extra.eas.projectId) — run `eas init` first.');
+      logError(new Error('Missing EAS projectId'), 'push_token_register_no_project_id', { email });
       return;
     }
 
@@ -97,8 +164,12 @@ export async function registerForPushNotificationsAsync(email: string): Promise<
 
     if (error) {
       devWarn('[push] Failed to store push token:', error.message);
+      logError(new Error(error.message), 'push_token_store_failed', { email });
+    } else {
+      logAction('push', 'Push token registered and stored', { email });
     }
   } catch (err) {
     devWarn('[push] Registration failed, continuing without push notifications:', err instanceof Error ? err.message : String(err));
+    logError(err, 'push_token_register_failed', { email });
   }
 }

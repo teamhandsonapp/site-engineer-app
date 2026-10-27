@@ -6,6 +6,7 @@ import { isFieldRole, useAuth } from '../lib/AuthContext';
 import { useProject } from '../lib/ProjectContext';
 import { fetchAllProjectStats, findProjectStat, type ProjectStat } from '../lib/projectStats';
 import { Card } from '../components/ui/Card';
+import { QuickLink } from '../components/ui/QuickLink';
 import { EmptyState } from '../components/ui/EmptyState';
 
 // Same tinted-icon-chip treatment as App Home's own stat cards (Part 5) —
@@ -20,22 +21,6 @@ function StatTile({ icon, label, value, color }: { icon: keyof typeof Ionicons.g
       <Text className="text-2xl font-extrabold text-neutral-900">{value}</Text>
       <Text className="text-xs font-semibold uppercase tracking-wide text-neutral-400 mt-1">{label}</Text>
     </Card>
-  );
-}
-
-function QuickLink({ icon, label, color, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; color: string; onPress: () => void }) {
-  return (
-    <Pressable onPress={onPress}>
-      <Card className="flex-row items-center justify-between mb-2.5">
-        <View className="flex-row items-center gap-3">
-          <View className="w-9 h-9 rounded-xl items-center justify-center" style={{ backgroundColor: `${color}1A` }}>
-            <Ionicons name={icon} size={16} color={color} />
-          </View>
-          <Text className="text-sm font-semibold text-neutral-800">{label}</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={16} color="#D4D4D4" />
-      </Card>
-    </Pressable>
   );
 }
 
@@ -160,11 +145,43 @@ export default function ProjectDashboardScreen() {
               the normal menu button), now correctly scoped to this project
               via the shared ProjectContext regardless of how it was reached. */}
           <Text className="text-xs font-bold uppercase tracking-wide text-neutral-400 mt-4 mb-2.5">Quick Links</Text>
+          {/* Critical Alerts, Files and DPR pinned to the top, by explicit
+              request. Flowchart Template Kit was removed from this screen
+              (still in the side menu). */}
+          {/* Workforce + Site Engineer Attendance pinned at the very top for
+              admin/manager, by explicit request. */}
+          {isAdminOrManager && (
+            <>
+              <QuickLink icon="people-outline" label="Workforce Attendance" color="#16A34A" onPress={() => router.push('/team-attendance')} />
+              <QuickLink icon="finger-print-outline" label="Site Engineer Attendance" color="#0891B2" onPress={() => router.push('/engineer-attendance')} />
+            </>
+          )}
+          <QuickLink icon="warning-outline" label="Critical Alerts" color="#DC2626" onPress={() => router.push('/critical-alerts')} />
+          <QuickLink
+            icon="folder-open-outline"
+            label="Files"
+            color="#2563EB"
+            onPress={() => selectedProjectId && router.push({ pathname: '/files', params: { projectId: selectedProjectId } })}
+          />
+          {/* Same access rule as daily-updates.tsx's own gate (field role
+              or admin specifically, not manager) — no point linking
+              someone straight to its "Not available for this account". */}
+          {(isField || profile?.role === 'admin') && (
+            <QuickLink icon="document-text-outline" label="DPR" color="#0F1F33" onPress={() => router.push('/daily-updates')} />
+          )}
+          <QuickLink icon="people-circle-outline" label="Meeting" color="#2563EB" onPress={() => router.push('/meetings')} />
+          <QuickLink icon="clipboard-outline" label="MoM" color="#0D9488" onPress={() => router.push('/mom')} />
+          {/* This project's own contact book (project-contacts, scoped to
+              selectedProjectId — already set to this project). Staff-only,
+              same as that screen's drawer gate. */}
+          {(isAdminOrManager || isField) && (
+            <QuickLink icon="call-outline" label="Contact Book" color="#0D9488" onPress={() => router.push('/project-contacts')} />
+          )}
           <QuickLink icon="bar-chart-outline" label="Gantt Chart" color="#1C3358" onPress={() => router.push('/gantt')} />
           <QuickLink icon="git-network-outline" label="Flowchart" color="#F0A227" onPress={() => router.push('/flowchart')} />
-          <QuickLink icon="warning-outline" label="Critical Alerts" color="#DC2626" onPress={() => router.push('/critical-alerts')} />
-          <QuickLink icon="albums-outline" label="Flowchart Template Kit" color="#7C3AED" onPress={() => router.push('/flowchart-templates')} />
-          {attendanceHref && (
+          {/* Field roles' own check-in screen (admin/manager get the two
+              attendance links at the top instead). */}
+          {isField && !isAdminOrManager && attendanceHref && (
             <QuickLink icon="finger-print-outline" label="Attendance" color="#16A34A" onPress={() => router.push(attendanceHref)} />
           )}
           {isAdminOrManager && (

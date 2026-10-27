@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Card } from '../ui/Card';
+import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
 import type { ProjectTaskOption } from '../../lib/reports/taskList';
 
 // Trigger card + bottom-sheet modal, matching CalendarPicker.tsx's own
@@ -19,6 +20,12 @@ const MAX_RESULTS = 50;
 export function TaskPicker({ options, selectedTaskId, onSelect }: TaskPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  // This sheet's bottom edge is flush with the physical screen edge
+  // (rounded-t-2xl — only the TOP corners round off), unlike every other
+  // dialog in this app (which are centered, floating cards that never
+  // touch the edge) — so it's the one place here that actually needs
+  // insets.bottom, same as any other bottom-sheet/footer in the app.
+  const bottomPadding = useSafeBottomOffset(8);
 
   const selected = options.find((o) => o.id === selectedTaskId) ?? null;
 
@@ -27,7 +34,11 @@ export function TaskPicker({ options, selectedTaskId, onSelect }: TaskPickerProp
     const base = !q
       ? options
       : options.filter(
-          (o) => o.taskCode.toLowerCase().includes(q) || o.taskName.toLowerCase().includes(q) || o.workName.toLowerCase().includes(q)
+          (o) =>
+            o.taskCode.toLowerCase().includes(q) ||
+            (o.milestoneLabel?.toLowerCase().includes(q) ?? false) ||
+            o.taskName.toLowerCase().includes(q) ||
+            o.workName.toLowerCase().includes(q)
         );
     return base.slice(0, MAX_RESULTS);
   }, [options, query]);
@@ -40,7 +51,7 @@ export function TaskPicker({ options, selectedTaskId, onSelect }: TaskPickerProp
             <Text className="text-2xs font-semibold uppercase tracking-wide text-neutral-400 mb-0.5">Task</Text>
             {selected ? (
               <Text className="text-sm font-bold text-neutral-900" numberOfLines={1}>
-                {selected.taskCode} — {selected.taskName}
+                {selected.milestoneLabel ?? selected.taskCode} — {selected.taskName}
               </Text>
             ) : (
               <Text className="text-sm text-neutral-400">Select a task to generate its report</Text>
@@ -66,7 +77,7 @@ export function TaskPicker({ options, selectedTaskId, onSelect }: TaskPickerProp
                 />
               </View>
             </View>
-            <ScrollView contentContainerClassName="p-2 pb-6">
+            <ScrollView contentContainerClassName="p-2" contentContainerStyle={{ paddingBottom: bottomPadding }}>
               {filtered.length === 0 ? (
                 <Text className="text-center text-sm text-neutral-400 py-8">No matching tasks</Text>
               ) : (
@@ -82,7 +93,7 @@ export function TaskPicker({ options, selectedTaskId, onSelect }: TaskPickerProp
                     style={{ backgroundColor: o.id === selectedTaskId ? 'rgba(240,162,39,0.14)' : 'transparent' }}
                   >
                     <Text className="text-sm font-semibold text-neutral-800">
-                      {o.taskCode} — {o.taskName}
+                      {o.milestoneLabel ?? o.taskCode} — {o.taskName}
                     </Text>
                     <Text className="text-xs text-neutral-400 mt-0.5">{o.workName}</Text>
                   </Pressable>

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "32631169384",
+    "project_id": "pmc-portal-57aec",
+    "storage_bucket": "pmc-portal-57aec.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:32631169384:android:2adf15152c6f0bc979b6dd",
+        "android_client_info": {
+          "package_name": "com.pmcportal.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAy25LnWd8vzF33XsmjSlmHQvyIW1u6NEo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

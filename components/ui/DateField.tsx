@@ -24,12 +24,14 @@ export function DateField({
   label,
   value,
   minDate,
+  maxDate,
   editable = true,
   onChange,
 }: {
   label?: string;
   value: string | null; // 'YYYY-MM-DD'
   minDate?: string | null;
+  maxDate?: string | null;
   editable?: boolean;
   onChange: (isoDate: string) => void;
 }) {
@@ -47,7 +49,7 @@ export function DateField({
       </Pressable>
 
       {open && Platform.OS === 'web' && (
-        <CalendarPicker value={value} minDate={minDate} onChange={onChange} onClose={() => setOpen(false)} />
+        <CalendarPicker value={value} minDate={minDate} maxDate={maxDate} onChange={onChange} onClose={() => setOpen(false)} />
       )}
 
       {open && Platform.OS === 'android' && (
@@ -56,6 +58,7 @@ export function DateField({
           mode="date"
           display="default"
           minimumDate={minDate ? new Date(minDate) : undefined}
+          maximumDate={maxDate ? new Date(maxDate) : undefined}
           onChange={(event: { type: string }, selected?: Date) => {
             setOpen(false);
             if (event.type === 'set' && selected) onChange(toISODate(selected));
@@ -72,6 +75,7 @@ export function DateField({
                 mode="date"
                 display="inline"
                 minimumDate={minDate ? new Date(minDate) : undefined}
+                maximumDate={maxDate ? new Date(maxDate) : undefined}
                 onChange={(_event: { type: string }, selected?: Date) => {
                   if (selected) onChange(toISODate(selected));
                 }}

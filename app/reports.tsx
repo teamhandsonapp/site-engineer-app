@@ -4,6 +4,7 @@ import { Redirect, Stack, router } from 'expo-router';
 import { useAuth } from '../lib/AuthContext';
 import { useProject } from '../lib/ProjectContext';
 import { Card } from '../components/ui/Card';
+import { EmptyState } from '../components/ui/EmptyState';
 
 // Reports hub — unlike Checklist Templates/Template Kit, this is visible to
 // BOTH staff and client roles (no isStaff gate): a client can view their own
@@ -43,13 +44,40 @@ function ReportLink({
 
 export default function ReportsHubScreen() {
   const { state } = useAuth();
-  const { selectedProjectId } = useProject();
+  const { selectedProjectId, isClient } = useProject();
 
   if (state.status !== 'signed-in') {
     return <Redirect href="/login" />;
   }
+
+  // Was a silent <Redirect href="/home" /> — bounced straight back to Home
+  // with zero explanation, which from the drawer just looked like the
+  // Reports link did nothing. Same "no project selected" EmptyState
+  // task-list.tsx already uses, not a new pattern.
   if (!selectedProjectId) {
-    return <Redirect href="/home" />;
+    return (
+      <View className="flex-1 items-center justify-center bg-white px-8">
+        <Stack.Screen
+          options={{
+            headerShown: true,
+            title: 'Status',
+            headerStyle: { backgroundColor: '#0F1F33' },
+            headerTintColor: '#fff',
+            headerTitleStyle: { fontWeight: '600' },
+          }}
+        />
+        <EmptyState
+          icon="bar-chart-outline"
+          iconColor="#9CA3AF"
+          title={isClient ? 'No project assigned' : 'No project selected'}
+          subtitle={
+            isClient
+              ? "Your account isn't linked to a project yet. Contact your PMC office to get this set up."
+              : 'Pick a project from Home to see its reports.'
+          }
+        />
+      </View>
+    );
   }
 
   return (
@@ -57,7 +85,7 @@ export default function ReportsHubScreen() {
       <Stack.Screen
         options={{
           headerShown: true,
-          title: 'Reports',
+          title: 'Status',
           headerStyle: { backgroundColor: '#0F1F33' },
           headerTintColor: '#fff',
           headerTitleStyle: { fontWeight: '600' },
@@ -67,25 +95,37 @@ export default function ReportsHubScreen() {
         <Text className="text-xs text-neutral-500 mb-4">Choose a report to view live progress for your project.</Text>
         <ReportLink
           icon="clipboard-outline"
-          label="Task Report"
+          label="Task Based Status"
           subtitle="Checklist completion, delay, and quantity for one task"
           color="#1C3358"
-          onPress={() => router.push('/reports/task-report')}
+          onPress={() => router.push('/reports/general-parameter-report')}
         />
         <ReportLink
           icon="calendar-outline"
-          label="Weekly Report"
-          subtitle="Project-wide progress over a date range"
+          label="Weekly Status"
+          subtitle="Tasks reported this week, with a cumulative % rollup"
           color="#F0A227"
-          onPress={() => router.push('/reports/weekly-report')}
+          onPress={() => router.push({ pathname: '/reports/activity-report', params: { preset: 'week', title: 'Weekly Status' } } as never)}
         />
         <ReportLink
           icon="stats-chart-outline"
-          label="Monthly Report"
-          subtitle="Delay by department, delay by person, and targeted quantity"
+          label="Monthly Status"
+          subtitle="Tasks reported this month, with a cumulative % rollup"
           color="#2E7D32"
-          onPress={() => router.push('/reports/monthly-report')}
+          onPress={() => router.push({ pathname: '/reports/activity-report', params: { preset: 'month', title: 'Monthly Status' } } as never)}
         />
+        {/* Staff-only — internal engineer attendance/performance data, not a
+            client-facing progress view, same gate as the drawer's own
+            REPORT_SUBMENU entry (components/DrawerContent.tsx). */}
+        {!isClient && (
+          <ReportLink
+            icon="person-outline"
+            label="Site Engineer Status"
+            subtitle="One engineer's attendance and DPR submission history"
+            color="#7C3AED"
+            onPress={() => router.push('/reports/site-engineer-report')}
+          />
+        )}
       </View>
     </View>
   );

@@ -1,11 +1,13 @@
 import { supabase } from '../supabase';
 import {
   updateTaskName,
-  updateTaskDescription,
+  updateTaskWork,
   updateTaskPlannedDates,
   updateTaskActualDate,
   updateTaskType,
   updateTaskAccountabilityType,
+  updateTaskRoomType,
+  updateTaskFloorLevel,
 } from './data';
 import type { AccountabilityType, DependencyType, FlowchartParallelEdge, FlowchartSeriesEdge } from './types';
 
@@ -13,13 +15,15 @@ import type { AccountabilityType, DependencyType, FlowchartParallelEdge, Flowcha
 
 export interface EditableTaskFields {
   taskName: string;
-  description: string | null;
+  workId: string;
   plannedStartDate: string | null;
   dueDate: string | null;
   actualStartDate: string | null;
   actualEndDate: string | null;
   taskTypeId: string | null;
   accountabilityType: AccountabilityType | null;
+  roomType: string | null;
+  floorLevel: string | null;
 }
 
 // Diffs two full field snapshots and calls only the update...() functions
@@ -33,7 +37,7 @@ export async function applyTaskFieldChanges(
   to: EditableTaskFields
 ): Promise<void> {
   if (to.taskName !== from.taskName) await updateTaskName(taskId, to.taskName);
-  if (to.description !== from.description) await updateTaskDescription(taskId, to.description);
+  if (to.workId !== from.workId) await updateTaskWork(taskId, to.workId);
   if (to.plannedStartDate !== from.plannedStartDate || to.dueDate !== from.dueDate) {
     await updateTaskPlannedDates(taskId, to.plannedStartDate, to.dueDate);
   }
@@ -45,18 +49,22 @@ export async function applyTaskFieldChanges(
   }
   if (to.taskTypeId !== from.taskTypeId) await updateTaskType(taskId, to.taskTypeId);
   if (to.accountabilityType !== from.accountabilityType) await updateTaskAccountabilityType(taskId, to.accountabilityType);
+  if (to.roomType !== from.roomType) await updateTaskRoomType(taskId, to.roomType);
+  if (to.floorLevel !== from.floorLevel) await updateTaskFloorLevel(taskId, to.floorLevel);
 }
 
 export function editableFieldsEqual(a: EditableTaskFields, b: EditableTaskFields): boolean {
   return (
     a.taskName === b.taskName &&
-    a.description === b.description &&
+    a.workId === b.workId &&
     a.plannedStartDate === b.plannedStartDate &&
     a.dueDate === b.dueDate &&
     a.actualStartDate === b.actualStartDate &&
     a.actualEndDate === b.actualEndDate &&
     a.taskTypeId === b.taskTypeId &&
-    a.accountabilityType === b.accountabilityType
+    a.accountabilityType === b.accountabilityType &&
+    a.roomType === b.roomType &&
+    a.floorLevel === b.floorLevel
   );
 }
 

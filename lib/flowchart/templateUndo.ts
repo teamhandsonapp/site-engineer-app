@@ -20,13 +20,7 @@ export async function applyTemplateTaskFieldChanges(
   from: TemplateTaskFields,
   to: TemplateTaskFields
 ): Promise<void> {
-  if (
-    to.taskName !== from.taskName ||
-    to.workName !== from.workName ||
-    to.trackLabel !== from.trackLabel ||
-    to.dayOffsetStart !== from.dayOffsetStart ||
-    to.dayOffsetEnd !== from.dayOffsetEnd
-  ) {
+  if (!templateFieldsEqual(from, to)) {
     await updateTemplateTaskFields(templateTaskId, to);
   }
 }
@@ -37,7 +31,8 @@ export function templateFieldsEqual(a: TemplateTaskFields, b: TemplateTaskFields
     a.workName === b.workName &&
     a.trackLabel === b.trackLabel &&
     a.dayOffsetStart === b.dayOffsetStart &&
-    a.dayOffsetEnd === b.dayOffsetEnd
+    a.dayOffsetEnd === b.dayOffsetEnd &&
+    a.accountabilityType === b.accountabilityType
   );
 }
 

@@ -4,6 +4,8 @@ export interface ProjectSettings {
   id: string;
   name: string;
   address: string | null;
+  floorCount: number | null;
+  roomCount: number | null;
   siteLatitude: number | null;
   siteLongitude: number | null;
   siteRadiusMeters: number | null;
@@ -18,6 +20,8 @@ interface RawProjectSettingsRow {
   id: string;
   name: string;
   address: string | null;
+  floor_count: number | null;
+  room_count: number | null;
   site_latitude: number | string | null;
   site_longitude: number | string | null;
   site_radius_meters: number | null;
@@ -30,6 +34,8 @@ function toProjectSettings(row: RawProjectSettingsRow): ProjectSettings {
     id: row.id,
     name: row.name,
     address: row.address,
+    floorCount: row.floor_count,
+    roomCount: row.room_count,
     siteLatitude: row.site_latitude != null ? Number(row.site_latitude) : null,
     siteLongitude: row.site_longitude != null ? Number(row.site_longitude) : null,
     siteRadiusMeters: row.site_radius_meters,
@@ -46,7 +52,7 @@ function toProjectSettings(row: RawProjectSettingsRow): ProjectSettings {
 export async function fetchProjectSettings(projectId: string): Promise<ProjectSettings> {
   const { data, error } = await supabase
     .from('projects')
-    .select('id, name, address, site_latitude, site_longitude, site_radius_meters, shift_start_minutes, shift_end_minutes')
+    .select('id, name, address, floor_count, room_count, site_latitude, site_longitude, site_radius_meters, shift_start_minutes, shift_end_minutes')
     .eq('id', projectId)
     .single();
 
@@ -65,6 +71,8 @@ export async function updateProjectSettings(
   updates: {
     name: string;
     address: string | null;
+    floorCount: number | null;
+    roomCount: number | null;
     siteLatitude: number | null;
     siteLongitude: number | null;
     siteRadiusMeters: number | null;
@@ -75,6 +83,8 @@ export async function updateProjectSettings(
     .update({
       name: updates.name,
       address: updates.address,
+      floor_count: updates.floorCount,
+      room_count: updates.roomCount,
       site_latitude: updates.siteLatitude,
       site_longitude: updates.siteLongitude,
       site_radius_meters: updates.siteRadiusMeters,

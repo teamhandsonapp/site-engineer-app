@@ -106,6 +106,7 @@ export default function TemplateCanvasScreen() {
       ) : (
         <TemplateCanvas
           templateId={data.meta.id}
+          templateCreatedAt={data.meta.createdAt}
           initialTasks={data.tasks}
           seriesEdges={data.seriesEdges}
           parallelEdges={data.parallelEdges}

@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Platform, View } from 'react-native';
 import MapView, { Circle, Marker, PROVIDER_GOOGLE, type MapPressEvent, type MarkerDragStartEndEvent } from 'react-native-maps';
+import { MapTypeToggle } from './ui/MapTypeToggle';
 
 // Mirrors admin-web's SiteLocationMap.tsx (admin-web/components/projects/
 // SiteLocationMap.tsx) — same draggable-marker + click-to-place +
@@ -31,6 +32,7 @@ const REGION_DELTA = 0.01;
 
 export function SiteLocationMapPicker({ latitude, longitude, radiusMeters, onChange, height = 260 }: Props) {
   const mapRef = useRef<MapView>(null);
+  const [satellite, setSatellite] = useState(false);
 
   // The Marker's own `coordinate` prop already re-renders it reactively on
   // every latitude/longitude change — this effect only needs to move the
@@ -48,10 +50,12 @@ export function SiteLocationMapPicker({ latitude, longitude, radiusMeters, onCha
 
   return (
     <View style={{ height, borderRadius: 12, overflow: 'hidden' }}>
+      <MapTypeToggle active={satellite} onToggle={() => setSatellite((s) => !s)} />
       <MapView
         ref={mapRef}
         style={{ flex: 1 }}
         provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+        mapType={satellite ? 'hybrid' : 'standard'}
         initialRegion={{ latitude, longitude, latitudeDelta: REGION_DELTA, longitudeDelta: REGION_DELTA }}
         onPress={(e: MapPressEvent) => {
           const { latitude: lat, longitude: lng } = e.nativeEvent.coordinate;

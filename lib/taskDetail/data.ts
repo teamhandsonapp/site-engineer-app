@@ -1,7 +1,9 @@
 import { supabase } from '../supabase';
 import {
   isComputedQuantityItem,
+  MAX_DRAWING_REVISIONS,
   type AccountabilityType,
+  type ApprovalOutcome,
   type CompletionStatus,
   type DependencyCategory,
   type QuantityUnit,
@@ -25,6 +27,11 @@ export interface ChecklistItem {
   // updateItemStatus), no separate history read needed just to show it
   // inline. Null when no completion row exists yet (never changed).
   statusChangedAtISO: string | null;
+  // When the CURRENT status actually happened, as opposed to
+  // statusChangedAtISO (when someone logged it) — backdatable via the
+  // status-change date picker, only ever set for a non-"done" status (see
+  // isItemDone). 'YYYY-MM-DD', null when never backdated.
+  issueDate: string | null;
   isComputedQuantity: boolean;
   // Drives whether the inline quick-add comment box shows (only when 0
   // comments exist yet) vs. the icon-opens-full-thread path — matches
@@ -47,6 +54,12 @@ export interface TaskDetailInfo {
   description: string | null;
   workName: string;
   workCode: string;
+  // Threaded through so the checklist screen's own Critical Alert button
+  // (see app/task/[taskId].tsx) can send straight to the RIGHT project's
+  // admins regardless of whatever project happens to be globally selected
+  // elsewhere in the app — this is the task's actual project, via its Work.
+  projectId: string | null;
+  projectName: string | null;
   // Task's own AC/AV override — resolved the same way the flowchart's
   // badge already resolves it (task override ?? work default), NOT
   // task-only, so the category-hiding rule agrees with whatever badge is
@@ -58,6 +71,15 @@ export interface TaskDetailInfo {
   verifiedByName: string | null;
   verifiedAtISO: string | null;
   verificationNote: string | null;
+  // Procurement lead time — see PROCUREMENT_INPUT_PRESET_DAYS's own
+  // comment. Null when the task has no Procurement Duration Type set, or
+  // no planned start date to count back from (nothing to compute against).
+  procurementTypeDurationDays: number | null;
+  referenceStartDateISO: string | null;
+  // The task's own real planned dates — by explicit request, shown on the
+  // checklist screen itself, which previously had no date display at all.
+  plannedStartDate: string | null;
+  dueDate: string | null;
 }
 
 export interface TaskDetail {
@@ -72,7 +94,10 @@ interface RawItemRow {
   sort_order: number;
   quantity_unit: QuantityUnit | null;
   quantity_value: string | number | null;
-  completion: { status: CompletionStatus; updated_at: string } | { status: CompletionStatus; updated_at: string }[] | null;
+  completion:
+    | { status: CompletionStatus; updated_at: string; issue_date: string | null }
+    | { status: CompletionStatus; updated_at: string; issue_date: string | null }[]
+    | null;
   comments: { count: number }[] | { count: number } | null;
 }
 
@@ -90,13 +115,15 @@ export async function fetchTaskDetail(taskId: string): Promise<TaskDetail> {
     .from('tasks')
     .select(`
       id, task_id, task_name, description, accountability_type,
+      planned_start_date, due_date, current_planned_start_date,
       checklist_completed_at, checklist_verification_status, checklist_verified_at, checklist_verification_note,
-      work:works(name, code, accountability_type),
+      work:works(name, code, accountability_type, project_id, project:projects(name)),
+      task_type:task_types(default_duration_days),
       completed_by:user_profiles!tasks_checklist_completed_by_fkey(full_name),
       verified_by:user_profiles!tasks_checklist_verified_by_fkey(full_name),
       dependency_items(
         id, category, item_label, sort_order, quantity_unit, quantity_value,
-        completion:dependency_completions(status, updated_at),
+        completion:dependency_completions(status, updated_at, issue_date),
         comments(count)
       )
     `)
@@ -111,11 +138,18 @@ export async function fetchTaskDetail(taskId: string): Promise<TaskDetail> {
     task_name: string;
     description: string | null;
     accountability_type: AccountabilityType | null;
+    planned_start_date: string | null;
+    due_date: string | null;
+    current_planned_start_date: string | null;
     checklist_completed_at: string | null;
     checklist_verification_status: ChecklistVerificationStatus | null;
     checklist_verified_at: string | null;
     checklist_verification_note: string | null;
-    work: { name: string; code: string; accountability_type: AccountabilityType | null } | { name: string; code: string; accountability_type: AccountabilityType | null }[] | null;
+    work:
+      | { name: string; code: string; accountability_type: AccountabilityType | null; project_id: string | null; project: { name: string } | { name: string }[] | null }
+      | { name: string; code: string; accountability_type: AccountabilityType | null; project_id: string | null; project: { name: string } | { name: string }[] | null }[]
+      | null;
+    task_type: { default_duration_days: number } | { default_duration_days: number }[] | null;
     completed_by: { full_name: string } | { full_name: string }[] | null;
     verified_by: { full_name: string } | { full_name: string }[] | null;
     dependency_items: RawItemRow[] | null;
@@ -136,6 +170,7 @@ export async function fetchTaskDetail(taskId: string): Promise<TaskDetail> {
         status: completion?.status ?? 'PENDING',
         hadCompletionRow: completion != null,
         statusChangedAtISO: completion?.updated_at ?? null,
+        issueDate: completion?.issue_date ?? null,
         isComputedQuantity: isComputedQuantityItem(i.category, i.item_label),
         commentCount: normalizeToOne(i.comments)?.count ?? 0,
       };
@@ -150,6 +185,8 @@ export async function fetchTaskDetail(taskId: string): Promise<TaskDetail> {
       description: raw.description,
       workName: work?.name ?? 'Unassigned',
       workCode: work?.code ?? '—',
+      projectId: work?.project_id ?? null,
+      projectName: normalizeToOne(work?.project ?? null)?.name ?? null,
       accountabilityType: raw.accountability_type ?? work?.accountability_type ?? null,
       checklistCompletedAtISO: raw.checklist_completed_at,
       checklistCompletedByName: normalizeToOne(raw.completed_by)?.full_name ?? null,
@@ -157,6 +194,10 @@ export async function fetchTaskDetail(taskId: string): Promise<TaskDetail> {
       verifiedByName: normalizeToOne(raw.verified_by)?.full_name ?? null,
       verifiedAtISO: raw.checklist_verified_at,
       verificationNote: raw.checklist_verification_note,
+      procurementTypeDurationDays: normalizeToOne(raw.task_type)?.default_duration_days ?? null,
+      referenceStartDateISO: raw.current_planned_start_date ?? raw.planned_start_date,
+      plannedStartDate: raw.planned_start_date,
+      dueDate: raw.due_date,
     },
     items,
   };
@@ -299,12 +340,21 @@ export async function fetchTaskDependencies(taskId: string): Promise<TaskDepende
 // completion updated but no history row for that specific change — a small,
 // accepted non-atomicity gap here, same pragmatic tradeoff already made by
 // e.g. updateTaskActualDate not replicating the planned-date cascade.
+// issueDate ('YYYY-MM-DD') is when the status actually happened — backdatable,
+// distinct from `now`/completed_at/changed_at below which record when this
+// was entered into the system — only meaningful for a non-"done" status
+// (see StatusPicker's own isItemDone gate for when it's even asked for), so
+// callers pass null for a plain "simply checking it off." Mirrors
+// admin-web's updateDependencyCompletion validation exactly.
 export async function updateItemStatus(
   itemId: string,
   newStatus: CompletionStatus,
   previousStatus: CompletionStatus | null,
-  userId: string
+  userId: string,
+  issueDate?: string | null
 ): Promise<string> {
+  if (issueDate && new Date(issueDate) > new Date()) throw new Error('Issue date cannot be in the future');
+
   const now = new Date().toISOString();
   const { error: upsertErr } = await supabase.from('dependency_completions').upsert(
     {
@@ -313,6 +363,7 @@ export async function updateItemStatus(
       completed_by: userId,
       completed_at: now,
       updated_at: now,
+      issue_date: issueDate ?? null,
     },
     { onConflict: 'item_id' }
   );
@@ -325,14 +376,63 @@ export async function updateItemStatus(
     old_status: previousStatus,
     new_status: newStatus,
     changed_by: userId,
+    issue_date: issueDate ?? null,
   });
   if (histErr) throw new Error(histErr.message);
   return now;
 }
 
+// Mirrors admin-web's updateDependencyItemLabel exactly, including the
+// activity_log write — same shared activity feed either app's edit shows up
+// in, same audit-trail principle already applied elsewhere (account
+// reactivation, Leave approval) — a silent, untracked rename left no record
+// if one turned out to be wrong or disputed later.
+export async function updateItemLabel(itemId: string, taskId: string, newLabel: string, userId: string | null): Promise<void> {
+  const trimmed = newLabel.trim();
+  if (trimmed.length < 3) throw new Error('Label must be at least 3 characters');
+
+  const { data: existing, error: fetchErr } = await supabase
+    .from('dependency_items')
+    .select('item_label')
+    .eq('id', itemId)
+    .single();
+  if (fetchErr) throw new Error(fetchErr.message);
+  if (existing.item_label === trimmed) return; // no-op edit, nothing to log
+
+  const { error } = await supabase.from('dependency_items').update({ item_label: trimmed }).eq('id', itemId);
+  if (error) throw new Error(error.message);
+
+  try {
+    // Best-effort, matching admin-web's own .catch(() => {}) on this same
+    // write — a failed audit-log insert shouldn't undo or block the rename
+    // that already succeeded above.
+    await supabase.from('activity_log').insert({
+      task_id: taskId,
+      user_id: userId,
+      action_type: 'checklist_item_label_update',
+      payload: { itemId, oldLabel: existing.item_label, newLabel: trimmed },
+    });
+  } catch {
+    // Ignored — see comment above.
+  }
+}
+
 export async function updateItemQuantity(itemId: string, unit: QuantityUnit, value: number): Promise<void> {
   const { error } = await supabase.from('dependency_items').update({ quantity_unit: unit, quantity_value: value }).eq('id', itemId);
   if (error) throw new Error(error.message);
+}
+
+// Creates the task's 'Quantity Of Work Done' item (category='quantity') when
+// it doesn't exist yet, so the DPR form's Quantity of Work box can always
+// save instead of silently no-oping on a task that was never seeded with one.
+export async function createQuantityDoneItem(taskId: string, unit: QuantityUnit, value: number): Promise<string> {
+  const { data, error } = await supabase
+    .from('dependency_items')
+    .insert({ task_id: taskId, category: 'quantity', item_label: 'Quantity Of Work Done', quantity_unit: unit, quantity_value: value })
+    .select('id')
+    .single();
+  if (error) throw new Error(error.message);
+  return (data as { id: string }).id;
 }
 
 // Hard delete, matching admin-web's own deleteDependencyItem exactly (a
@@ -432,7 +532,9 @@ export async function uploadDrawingRevision(
   uploadedBy: string,
   currentMaxRevision: number
 ): Promise<DrawingRevisionRow> {
-  if (currentMaxRevision >= 5) throw new Error('Maximum 5 revisions reached for this item.');
+  // 0-indexed (2026-08-17) — first revision is R0, total count stays 5
+  // (R0-R4), matching admin-web's mirrored cap on the same shared table.
+  if (currentMaxRevision >= MAX_DRAWING_REVISIONS - 1) throw new Error(`Maximum ${MAX_DRAWING_REVISIONS} revisions reached for this item.`);
   const nextRevision = currentMaxRevision + 1;
   const fileUrl = `placeholder://drawing-revisions/${itemId}/r${nextRevision}/${encodeURIComponent(fileName)}`;
   const { data, error } = await supabase
@@ -444,6 +546,67 @@ export async function uploadDrawingRevision(
   return { id: data.id, revisionNumber: data.revision_number, fileName: data.file_name, uploadedAtISO: data.uploaded_at, uploaderName: null };
 }
 
+// ── Approval rounds — the A0/A1/A2/... counterpart to drawing revisions ───
+
+export interface ApprovalRoundRow {
+  id: string;
+  approvalNumber: number;
+  outcome: ApprovalOutcome;
+  note: string | null;
+  recordedAtISO: string;
+  recorderName: string | null;
+}
+
+interface RawApprovalRoundRow {
+  id: string;
+  approval_number: number;
+  outcome: ApprovalOutcome;
+  note: string | null;
+  recorded_at: string;
+  recorder: { full_name: string } | { full_name: string }[] | null;
+}
+
+export async function fetchApprovalRounds(itemId: string): Promise<ApprovalRoundRow[]> {
+  const { data, error } = await supabase
+    .from('dependency_approvals')
+    .select('id, approval_number, outcome, note, recorded_at, recorder:user_profiles(full_name)')
+    .eq('dependency_item_id', itemId)
+    .order('approval_number', { ascending: false });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as RawApprovalRoundRow[]).map((r) => ({
+    id: r.id,
+    approvalNumber: r.approval_number,
+    outcome: r.outcome,
+    note: r.note,
+    recordedAtISO: r.recorded_at,
+    recorderName: normalizeToOne(r.recorder)?.full_name ?? null,
+  }));
+}
+
+export async function recordApprovalRound(
+  itemId: string,
+  outcome: ApprovalOutcome,
+  note: string | null,
+  recordedBy: string,
+  currentMaxNumber: number
+): Promise<ApprovalRoundRow> {
+  const nextNumber = currentMaxNumber + 1;
+  const { data, error } = await supabase
+    .from('dependency_approvals')
+    .insert({ dependency_item_id: itemId, approval_number: nextNumber, outcome, note: note || null, recorded_by: recordedBy })
+    .select('id, approval_number, outcome, note, recorded_at')
+    .single();
+  if (error) throw new Error(error.message);
+  return {
+    id: data.id,
+    approvalNumber: data.approval_number,
+    outcome: data.outcome,
+    note: data.note,
+    recordedAtISO: data.recorded_at,
+    recorderName: null,
+  };
+}
+
 // ── Status history ──────────────────────────────────────────────────────
 
 export interface StatusHistoryEntry {
@@ -452,6 +615,10 @@ export interface StatusHistoryEntry {
   newStatus: CompletionStatus;
   changedAtISO: string;
   changedByName: string | null;
+  // When this specific transition actually happened (backdatable) — see
+  // ChecklistItem.issueDate's own comment. 'YYYY-MM-DD', null when this
+  // change wasn't backdated (or predates the feature).
+  issueDate: string | null;
 }
 
 interface RawHistoryRow {
@@ -459,13 +626,14 @@ interface RawHistoryRow {
   old_status: CompletionStatus | null;
   new_status: CompletionStatus;
   changed_at: string;
+  issue_date: string | null;
   changer: { full_name: string } | { full_name: string }[] | null;
 }
 
 export async function fetchStatusHistory(itemId: string): Promise<StatusHistoryEntry[]> {
   const { data, error } = await supabase
     .from('dependency_status_history')
-    .select('id, old_status, new_status, changed_at, changer:user_profiles(full_name)')
+    .select('id, old_status, new_status, changed_at, issue_date, changer:user_profiles(full_name)')
     .eq('dependency_item_id', itemId)
     .order('changed_at', { ascending: false });
   if (error) throw new Error(error.message);
@@ -475,5 +643,6 @@ export async function fetchStatusHistory(itemId: string): Promise<StatusHistoryE
     newStatus: r.new_status,
     changedAtISO: r.changed_at,
     changedByName: normalizeToOne(r.changer)?.full_name ?? null,
+    issueDate: r.issue_date,
   }));
 }

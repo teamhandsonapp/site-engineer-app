@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
+import { computeTrackingGaps, type SilenceEpisode, type TrackingGap } from './trackingGaps';
 import { fetchTodaysAttendance, istStartOfToday } from './attendance';
-import { fetchLeaveEventsForDay, leaveReasonLabelFor } from './leaveEvents';
+import { fetchLeaveEventsForDay, LEAVE_EXIT_CORRELATION_WINDOW_MS, leaveReasonLabelFor } from './leaveEvents';
 import { fetchProjectSettings } from './projectSettings';
 import { fetchRestrictedZones, type RestrictedZone } from './locationTracking/restrictedZones';
 
@@ -67,6 +68,9 @@ export interface DaySiteLocation {
 
 export interface DayTimeline {
   trail: TrailPoint[];
+  // Holes in the trail (lib/trackingGaps.ts) — drawn as dashed red
+  // segments on the map and listed under it.
+  gaps: TrackingGap[];
   events: TimelineEvent[];
   leavePeriods: LeavePeriod[];
   siteLocation: DaySiteLocation | null;
@@ -92,19 +96,19 @@ export const TIMELINE_EVENT_ICONS: Record<TimelineEventKind, string> = {
   red_zone_entry: 'skull-outline',
 };
 
-// An OS-detected boundary exit within this many minutes of a logged Leave's
-// left_at counts as "explained" (spec: amber is only for an exit with NO
-// Leave reason logged) — 15 minutes covers the geofence debounce (3 min)
-// plus background ping/exit-detection latency, without being so wide it'd
-// falsely match an unrelated later exit.
-const LEAVE_EXIT_CORRELATION_WINDOW_MS = 15 * 60 * 1000;
+// LEAVE_EXIT_CORRELATION_WINDOW_MS now lives in leaveEvents.ts (imported
+// above) — shared with that file's own markCorrelatedLeaveReturned, one
+// constant instead of two copies that could drift.
 
-// leave_events has no "returned" column of its own (see add-leave-events.sql's
-// own comment — a Leave is a one-way announcement, not a session). When no
-// correlated geofence_alerts.returned_at exists, this caps how long a Leave
-// is treated as "active" for the dashed-segment/reason-attribution logic
-// below, so a forgotten or never-resolved Leave doesn't stay "active" for
-// the rest of the day.
+// Audit fix — leave_events.returnedAt is now a real column, written
+// directly the moment a boundary re-entry is confirmed (see
+// leaveEvents.ts's own comment); this constant only still matters as the
+// FALLBACK correlation below, for historical Leave rows created before
+// that column existed (returnedAtISO permanently null on those). When
+// neither the direct field nor the fallback correlation resolves a Leave,
+// this caps how long it's treated as "active" for the dashed-segment/
+// reason-attribution logic below, so a forgotten or never-resolved Leave
+// doesn't stay "active" for the rest of the day.
 const LEAVE_ASSUMED_MAX_DURATION_MS = 3 * 60 * 60 * 1000;
 
 interface RawGeofenceExit {
@@ -190,6 +194,22 @@ async function fetchTrailForDay(userId: string, dayStartISO: string, dayEndISO: 
   }));
 }
 
+// Server-side silence episodes (admin-web's tracking-silence-watcher job,
+// every 5 min) overlapping this day — the authoritative gap start/end
+// times. Readable by any staff role (location_disabled_alerts RLS).
+async function fetchSilenceEpisodesForDay(userId: string, dayStartISO: string, dayEndISO: string): Promise<SilenceEpisode[]> {
+  const { data, error } = await supabase
+    .from('location_disabled_alerts')
+    .select('id, disabled_at, enabled_at')
+    .eq('user_id', userId)
+    .eq('reason', 'no_heartbeat')
+    .lt('disabled_at', dayEndISO)
+    .or(`enabled_at.is.null,enabled_at.gt.${dayStartISO}`)
+    .order('disabled_at', { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((r) => ({ id: r.id as string, startISO: r.disabled_at as string, endISO: (r.enabled_at as string | null) ?? null }));
+}
+
 async function fetchSiteLocation(projectId: string): Promise<DaySiteLocation | null> {
   try {
     const settings = await fetchProjectSettings(projectId);
@@ -211,7 +231,7 @@ export async function fetchDayTimeline(userId: string, projectId?: string | null
   const dayStartISO = dayStart.toISOString();
   const dayEndISO = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000).toISOString();
 
-  const [attendance, leaves, exits, redZoneEntries, trail, siteLocation, restrictedZones] = await Promise.all([
+  const [attendance, leaves, exits, redZoneEntries, trail, siteLocation, restrictedZones, silenceEpisodes] = await Promise.all([
     fetchTodaysAttendance(userId),
     fetchLeaveEventsForDay(userId, dayStartISO, dayEndISO),
     fetchGeofenceExitsForDay(userId, dayStartISO, dayEndISO),
@@ -219,18 +239,31 @@ export async function fetchDayTimeline(userId: string, projectId?: string | null
     fetchTrailForDay(userId, dayStartISO, dayEndISO),
     projectId ? fetchSiteLocation(projectId) : Promise.resolve(null),
     projectId ? fetchRestrictedZones(projectId).catch(() => []) : Promise.resolve([]),
+    // Gaps are additive — a failed read just means no gap overlay, never a broken timeline.
+    fetchSilenceEpisodesForDay(userId, dayStartISO, dayEndISO).catch(() => [] as SilenceEpisode[]),
   ]);
+  const gaps = computeTrackingGaps(trail, silenceEpisodes, Date.now(), { startMs: dayStart.getTime(), endMs: new Date(dayEndISO).getTime() });
 
-  // Each Leave's "active" window: end = the returned_at of whichever
-  // geofence exit correlates with it, or the assumed-max-duration fallback
-  // if none does (still out, or the OS never independently detected it).
+  // Each Leave's "active" window: end = the Leave's OWN returnedAt (audit
+  // fix — written directly the moment a boundary re-entry is confirmed,
+  // see leaveEvents.ts's own comment) when present; otherwise the FALLBACK
+  // read-time correlation against whichever geofence exit lines up with
+  // it, for historical Leave rows created before that direct write
+  // existed; otherwise the assumed-max-duration fallback (still out, or
+  // the OS never independently detected it either).
   const leavePeriods: LeavePeriod[] = leaves.map((leave) => {
     const startMs = new Date(leave.leftAtISO).getTime();
-    const correlated = exits.find(
-      (exit) => Math.abs(new Date(exit.exitAtISO).getTime() - startMs) <= LEAVE_EXIT_CORRELATION_WINDOW_MS
-    );
-    const resolved = correlated?.returnedAtISO != null;
-    const endMs = resolved ? new Date(correlated!.returnedAtISO!).getTime() : startMs + LEAVE_ASSUMED_MAX_DURATION_MS;
+    let resolved = leave.returnedAtISO != null;
+    let endMs = resolved ? new Date(leave.returnedAtISO!).getTime() : startMs + LEAVE_ASSUMED_MAX_DURATION_MS;
+    if (!resolved) {
+      const correlated = exits.find(
+        (exit) => Math.abs(new Date(exit.exitAtISO).getTime() - startMs) <= LEAVE_EXIT_CORRELATION_WINDOW_MS
+      );
+      if (correlated?.returnedAtISO != null) {
+        resolved = true;
+        endMs = new Date(correlated.returnedAtISO).getTime();
+      }
+    }
     return {
       leaveId: leave.id,
       startMs,
@@ -354,5 +387,5 @@ export async function fetchDayTimeline(userId: string, projectId?: string | null
   events.sort((a, b) => new Date(a.atISO).getTime() - new Date(b.atISO).getTime());
   const numberedEvents: TimelineEvent[] = events.map((e, i) => ({ ...e, sequence: i + 1 }));
 
-  return { trail, events: numberedEvents, leavePeriods, siteLocation, restrictedZones };
+  return { trail, gaps, events: numberedEvents, leavePeriods, siteLocation, restrictedZones };
 }

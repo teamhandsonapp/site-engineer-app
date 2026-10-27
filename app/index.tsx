@@ -5,7 +5,8 @@ import { Redirect, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Logo } from '../components/Logo';
-import { appRoleFor, useAuth } from '../lib/AuthContext';
+import { BrandSplash } from '../components/BrandSplash';
+import { useAuth } from '../lib/AuthContext';
 import { hasSeenOpeningScreen, markOpeningScreenSeen } from '../lib/onboarding';
 import { TEAM_ILLUSTRATION_SVG } from '../assets/illustrations/teamIllustration';
 
@@ -28,16 +29,14 @@ export default function OpeningScreen() {
   }, [state.status]);
 
   if (state.status === 'signed-in') {
-    return <Redirect href={appRoleFor(state.profile.role) === 'client' ? '/(authenticated)/home' : '/app-home'} />;
+    return <Redirect href="/(authenticated)/home" />;
   }
 
   if (state.status !== 'signed-out' || !checkedFlag) {
-    // AuthGate already covers the real 'loading' restore state with its
-    // own navy spinner before this ever mounts — this is just the brief
-    // moment between that resolving and the AsyncStorage flag read
-    // finishing, kept black (not navy) so it doesn't visibly flash a
-    // different background right before this same screen or a redirect.
-    return <View className="flex-1 bg-black" />;
+    // Brief gap between session restore resolving and the AsyncStorage
+    // flag read finishing — same brand splash as AuthGate/the native splash,
+    // so nothing visibly changes until the real next screen is ready.
+    return <BrandSplash />;
   }
 
   if (!showOpening) {

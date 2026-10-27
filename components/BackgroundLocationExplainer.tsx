@@ -29,11 +29,19 @@ export function BackgroundLocationExplainer({ onDone }: { onDone: () => void }) 
       <View className="w-16 h-16 rounded-full bg-brand-amber/15 items-center justify-center mb-5">
         <Ionicons name="shield-checkmark-outline" size={32} color="#F0A227" />
       </View>
-      <Text className="text-lg font-bold text-white text-center">Background Location Needed</Text>
-      <Text className="text-sm text-white/65 text-center mt-2.5 leading-5">
-        PMC Portal checks your location a few times a day and watches for restricted zones on
-        site, even when the app isn&apos;t open. On the next screen, choose &quot;Allow all the
-        time&quot; so this keeps working while you&apos;re out at work.
+      <Text className="text-lg font-bold text-white text-center">Location During Your Shift</Text>
+      {/* Google Play's prominent-disclosure requirement for background
+          location: must say what is collected, that it happens while the
+          app is closed / not in use, why, and who sees it — and must match
+          the Play Console location declaration word for word in substance. */}
+      <Text className="text-sm text-white/75 text-center mt-2.5 leading-5">
+        PMC Portal collects your location data every few minutes while you are checked in for your
+        work shift, even when the app is closed or not in use. It is used to verify your site
+        attendance and to alert you if you enter a restricted safety zone, and is shared only with
+        your project admin and manager. Tracking stops when you check out or your shift ends.
+      </Text>
+      <Text className="text-sm text-white/75 text-center mt-3 leading-5">
+        On the next screen, choose &quot;Allow all the time&quot;.
       </Text>
       <Pressable
         onPress={handleContinue}

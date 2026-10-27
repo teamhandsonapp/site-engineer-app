@@ -5,19 +5,22 @@ import { StatusPicker } from './StatusPicker';
 import { QuantityControl } from './QuantityControl';
 import { CommentThreadModal } from './CommentThreadModal';
 import { DrawingRevisionDrawer } from './DrawingRevisionDrawer';
+import { ApprovalHistoryDrawer } from './ApprovalHistoryDrawer';
 import { StatusHistoryDrawer } from './StatusHistoryDrawer';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import {
   createItemComment,
   deleteChecklistItem,
+  updateItemLabel,
   updateItemQuantity,
   updateItemStatus,
   type ChecklistItem,
 } from '../../lib/taskDetail/data';
-import { STATUS_CHIP, hasDrawingRevisions, type CompletionStatus, type QuantityUnit } from '../../lib/taskDetail/constants';
+import { STATUS_CHIP, hasApprovalTracking, hasDrawingRevisions, type CompletionStatus, type QuantityUnit } from '../../lib/taskDetail/constants';
 
 export function ChecklistItemRow({
   item,
+  taskId,
   editable,
   userId,
   onChanged,
@@ -25,6 +28,7 @@ export function ChecklistItemRow({
   isLast,
 }: {
   item: ChecklistItem;
+  taskId: string;
   editable: boolean;
   userId: string | null;
   onChanged: (itemId: string, patch: Partial<ChecklistItem>) => void;
@@ -34,7 +38,7 @@ export function ChecklistItemRow({
   // a redundant line sitting right above the card's own bottom edge.
   isLast?: boolean;
 }) {
-  const [openThread, setOpenThread] = useState<'comments' | 'drawings' | 'history' | null>(null);
+  const [openThread, setOpenThread] = useState<'comments' | 'drawings' | 'approvals' | 'history' | null>(null);
   const [quickComment, setQuickComment] = useState('');
   const [postingQuick, setPostingQuick] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
@@ -44,16 +48,41 @@ export function ChecklistItemRow({
   // repeated input+Send pairs stacked end to end, most never used. Collapsed
   // behind a small link instead; tapping it reveals the exact same input.
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  // Same tap-to-edit pattern as admin-web's TrelloCheckItem/ChecklistItem —
+  // this row previously showed the label as plain, uneditable text.
+  const [isEditingLabel, setIsEditingLabel] = useState(false);
+  const [labelText, setLabelText] = useState(item.itemLabel);
+  const [savingLabel, setSavingLabel] = useState(false);
 
-  async function handleStatusChange(next: CompletionStatus) {
+  async function saveLabel() {
+    const trimmed = labelText.trim();
+    if (!trimmed || trimmed === item.itemLabel) {
+      setLabelText(item.itemLabel);
+      setIsEditingLabel(false);
+      return;
+    }
+    setSavingLabel(true);
+    try {
+      await updateItemLabel(item.id, taskId, trimmed, userId);
+      onChanged(item.id, { itemLabel: trimmed });
+    } catch {
+      setLabelText(item.itemLabel);
+    } finally {
+      setSavingLabel(false);
+      setIsEditingLabel(false);
+    }
+  }
+
+  async function handleStatusChange(next: CompletionStatus, issueDate: string | null) {
     const previous = item.hadCompletionRow ? item.status : null;
     const previousChangedAt = item.statusChangedAtISO;
-    onChanged(item.id, { status: next, hadCompletionRow: true, statusChangedAtISO: new Date().toISOString() }); // optimistic
+    const previousIssueDate = item.issueDate;
+    onChanged(item.id, { status: next, hadCompletionRow: true, statusChangedAtISO: new Date().toISOString(), issueDate }); // optimistic
     try {
-      const changedAtISO = await updateItemStatus(item.id, next, previous, userId ?? '');
+      const changedAtISO = await updateItemStatus(item.id, next, previous, userId ?? '', issueDate);
       onChanged(item.id, { statusChangedAtISO: changedAtISO }); // reconcile with the real server timestamp
     } catch {
-      onChanged(item.id, { status: item.status, hadCompletionRow: item.hadCompletionRow, statusChangedAtISO: previousChangedAt }); // revert
+      onChanged(item.id, { status: item.status, hadCompletionRow: item.hadCompletionRow, statusChangedAtISO: previousChangedAt, issueDate: previousIssueDate }); // revert
     }
   }
 
@@ -96,6 +125,7 @@ export function ChecklistItemRow({
   }
 
   const showDrawingIcon = hasDrawingRevisions(item.category, item.itemLabel);
+  const showApprovalIcon = hasApprovalTracking(item.category, item.itemLabel);
   const showQuickAdd = item.commentCount === 0 && openThread !== 'comments' && quickAddOpen;
   const statusColor = STATUS_CHIP[item.status].dot;
 
@@ -108,9 +138,29 @@ export function ChecklistItemRow({
       <View className="flex-1">
         <View className="flex-row items-center gap-2">
           <View className="flex-1">
-            <Text className="text-xs font-semibold text-neutral-800 mb-1.5">{item.itemLabel}</Text>
+            {isEditingLabel ? (
+              <TextInput
+                value={labelText}
+                onChangeText={setLabelText}
+                onBlur={saveLabel}
+                onSubmitEditing={saveLabel}
+                autoFocus
+                editable={!savingLabel}
+                className="text-xs font-semibold text-neutral-800 mb-1.5 border border-neutral-200 rounded-md px-1.5 py-1"
+              />
+            ) : (
+              <Pressable onPress={() => editable && setIsEditingLabel(true)} disabled={!editable}>
+                <Text className="text-xs font-semibold text-neutral-800 mb-1.5">{item.itemLabel}</Text>
+              </Pressable>
+            )}
             <View className="flex-row items-center gap-3">
-              <StatusPicker status={item.status} changedAtISO={item.statusChangedAtISO} editable={editable} onChange={handleStatusChange} />
+              <StatusPicker
+                status={item.status}
+                changedAtISO={item.statusChangedAtISO}
+                issueDate={item.issueDate}
+                editable={editable}
+                onChange={handleStatusChange}
+              />
               <QuantityControl
                 unit={item.quantityUnit}
                 value={item.quantityValue}
@@ -129,6 +179,11 @@ export function ChecklistItemRow({
             {showDrawingIcon && (
               <Pressable onPress={() => setOpenThread('drawings')} hitSlop={6} className="w-7 h-7 rounded-full items-center justify-center bg-neutral-50">
                 <Ionicons name="attach-outline" size={15} color="#78716C" />
+              </Pressable>
+            )}
+            {showApprovalIcon && (
+              <Pressable onPress={() => setOpenThread('approvals')} hitSlop={6} className="w-7 h-7 rounded-full items-center justify-center bg-neutral-50">
+                <Ionicons name="ribbon-outline" size={15} color="#78716C" />
               </Pressable>
             )}
             <Pressable onPress={() => setOpenThread('history')} hitSlop={6} className="w-7 h-7 rounded-full items-center justify-center bg-neutral-50">
@@ -179,6 +234,9 @@ export function ChecklistItemRow({
       )}
       {openThread === 'drawings' && (
         <DrawingRevisionDrawer itemId={item.id} itemLabel={item.itemLabel} uploadedBy={userId ?? ''} onClose={() => setOpenThread(null)} />
+      )}
+      {openThread === 'approvals' && (
+        <ApprovalHistoryDrawer itemId={item.id} itemLabel={item.itemLabel} recordedBy={userId ?? ''} onClose={() => setOpenThread(null)} />
       )}
       {openThread === 'history' && (
         <StatusHistoryDrawer itemId={item.id} itemLabel={item.itemLabel} currentStatus={item.status} onClose={() => setOpenThread(null)} />

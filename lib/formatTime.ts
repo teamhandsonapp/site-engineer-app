@@ -33,6 +33,15 @@ function toIST(d: Date): Date {
   return new Date(d.getTime() + IST_OFFSET_MS);
 }
 
+// Same IST-safe arithmetic as formatTime12h below, exposed standalone for
+// callers that need to compare against a minutes-since-midnight window
+// (e.g. trackingHealth.ts's "are we even inside a possible tracking window
+// right now" check) rather than display a formatted clock string.
+export function istMinutesSinceMidnight(d: Date = new Date()): number {
+  const ist = toIST(d);
+  return ist.getUTCHours() * 60 + ist.getUTCMinutes();
+}
+
 export function formatTime12h(d: Date | null): string {
   if (!d) return '—';
   const ist = toIST(d);
@@ -61,4 +70,13 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 export function formatDateLabel(d: Date): string {
   const ist = toIST(d);
   return `${WEEKDAY_NAMES[ist.getUTCDay()]} ${ist.getUTCDate()} ${MONTH_NAMES[ist.getUTCMonth()]}`;
+}
+
+// "Aug 13, 2026, 11:05 PM" — a saved-record timestamp (Flowchart Templates
+// list, etc.), same IST-safe arithmetic as everything else here rather than
+// toLocaleDateString/Intl.
+export function formatDateTimeLabel(d: Date): string {
+  const ist = toIST(d);
+  const date = `${MONTH_NAMES[ist.getUTCMonth()]} ${ist.getUTCDate()}, ${ist.getUTCFullYear()}`;
+  return `${date}, ${formatTime12h(d)}`;
 }

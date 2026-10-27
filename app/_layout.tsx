@@ -1,7 +1,6 @@
 import '../global.css';
 
 import { useEffect, type ReactNode } from 'react';
-import { ActivityIndicator, View } from 'react-native';
 import { enableFreeze } from 'react-native-screens';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -24,6 +23,7 @@ import { useNotificationTapRouting } from '../lib/notificationRouting';
 import { initSentry } from '../lib/sentryInit';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { RestoreErrorScreen } from '../components/RestoreErrorScreen';
+import { BrandSplash } from '../components/BrandSplash';
 import { FieldLocationGuard } from '../components/FieldLocationGuard';
 
 // Runs once at module load — this file is the app's true entry point, so
@@ -97,13 +97,31 @@ function RootLayout() {
 
   return (
     <ErrorBoundary>
-      <GestureHandlerRootView style={{ flex: 1 }}>
+      {/* overflow: 'hidden' alongside flex: 1 — web-only fix. A flex item's
+          automatic minimum size defaults to its CONTENT size, not its
+          flex-computed size, so on a tall screen (e.g. the drawer menu after
+          Projects/Reports were added) this root container was growing past
+          the 100vh the html/body/#root chain actually has instead of
+          clipping to it — which is what let DrawerContent's "Log Out"
+          footer, pinned to the bottom of ITS OWN flex-1 box, end up pinned
+          to the bottom of an oversized box far below the visible viewport.
+          overflow: hidden resets the automatic minimum to 0 (CSS Flexbox/
+          Sizing spec), so this finally clips to 100vh like every screen
+          below it assumes. No effect on native — RN's own layout engine
+          doesn't have this content-based min-size quirk. */}
+      <GestureHandlerRootView style={{ flex: 1, overflow: 'hidden' }}>
         <SafeAreaProvider>
           <AuthProvider>
             <StatusBar style="light" />
             <NavigationLogger />
             <AuthGate>
               <ProjectProvider>
+                {/* Location permission gate + tracking for field roles
+                    (site_engineer / senior_site_engineer) — re-enabled
+                    2026-09-27 after being deliberately removed. Must sit
+                    inside ProjectProvider (it reads the selected project)
+                    and AuthGate (it reads the signed-in profile); for any
+                    other role it just renders children. */}
                 <FieldLocationGuard>
                   <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0F1F33' } }}>
                     {/* Pure black, not the shared navy default above — both
@@ -111,7 +129,7 @@ function RootLayout() {
                         strict black/white/grey design, so a transition
                         should never show a navy frame behind them. */}
                     <Stack.Screen name="index" options={{ contentStyle: { backgroundColor: '#000000' } }} />
-                    <Stack.Screen name="login" options={{ contentStyle: { backgroundColor: '#000000' } }} />
+                    <Stack.Screen name="login" options={{ contentStyle: { backgroundColor: '#0F1F33' } }} />
                   </Stack>
                 </FieldLocationGuard>
               </ProjectProvider>
@@ -132,11 +150,7 @@ function AuthGate({ children }: { children: ReactNode }) {
   const { state, retryRestore } = useAuth();
 
   if (state.status === 'loading') {
-    return (
-      <View className="flex-1 items-center justify-center bg-brand-navy">
-        <ActivityIndicator color="#F0A227" />
-      </View>
-    );
+    return <BrandSplash />;
   }
 
   if (state.status === 'error') {

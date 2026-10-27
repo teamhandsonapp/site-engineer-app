@@ -3,6 +3,7 @@ import { supabase } from './supabase';
 export interface LocationDisabledAlert {
   id: string;
   projectId: string | null;
+  userId: string;
   userName: string | null;
   reason: string;
   disabledAtISO: string;
@@ -15,6 +16,7 @@ export interface LocationDisabledAlert {
 interface RawLocationDisabledAlertRow {
   id: string;
   project_id: string | null;
+  user_id: string;
   reason: string;
   disabled_at: string;
   enabled_at: string | null;
@@ -33,6 +35,7 @@ function toLocationDisabledAlert(row: RawLocationDisabledAlertRow): LocationDisa
   return {
     id: row.id,
     projectId: row.project_id,
+    userId: row.user_id,
     userName: oneOrNull(row.user)?.full_name ?? null,
     reason: row.reason,
     disabledAtISO: row.disabled_at,
@@ -44,7 +47,7 @@ function toLocationDisabledAlert(row: RawLocationDisabledAlertRow): LocationDisa
 }
 
 const SELECT = `
-  id, project_id, reason, disabled_at, enabled_at, resolved, resolved_at,
+  id, project_id, user_id, reason, disabled_at, enabled_at, resolved, resolved_at,
   user:user_profiles!location_disabled_alerts_user_id_fkey(full_name),
   resolved_by:user_profiles!location_disabled_alerts_resolved_by_id_fkey(full_name)
 `;

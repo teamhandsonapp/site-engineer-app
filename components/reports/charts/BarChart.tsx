@@ -26,6 +26,10 @@ interface BarChartProps {
   chartHeight?: number;
   rowHeight?: number;
   emptyLabel?: string;
+  // Horizontal mode's fixed side-column widths — defaults match every
+  // existing call site; only a cramped dashboard card needs to shrink them.
+  labelColumnWidth?: number;
+  valueColumnWidth?: number;
 }
 
 const TRACK_COLOR = '#E5E7EB';
@@ -138,6 +142,8 @@ function HorizontalRows({
   rowHeight,
   categoryValueLabel,
   valueFormatter,
+  labelColumnWidth,
+  valueColumnWidth,
 }: {
   mode: 'grouped' | 'stacked';
   series: BarChartSeries[];
@@ -145,6 +151,8 @@ function HorizontalRows({
   rowHeight: number;
   categoryValueLabel?: (cat: BarChartCategory) => string;
   valueFormatter: (v: number) => string;
+  labelColumnWidth: number;
+  valueColumnWidth: number;
 }) {
   const [trackWidth, setTrackWidth] = useState(0);
   const onLayout = (e: LayoutChangeEvent) => setTrackWidth(e.nativeEvent.layout.width);
@@ -155,9 +163,6 @@ function HorizontalRows({
   const rowMax = (cat: BarChartCategory) => (mode === 'stacked' ? seriesTotal(cat, series) : Math.max(...series.map((s) => cat.values[s.key] ?? 0)));
   const maxValue = Math.max(1, ...categories.map(rowMax));
   const effectiveMax = maxValue * 1.15;
-
-  const labelColumnWidth = 96;
-  const valueColumnWidth = 56;
 
   return (
     <View>
@@ -232,6 +237,8 @@ export function BarChart({
   chartHeight = 140,
   rowHeight = 22,
   emptyLabel = 'No data available',
+  labelColumnWidth = 96,
+  valueColumnWidth = 56,
 }: BarChartProps) {
   const hasData = categories.length > 0 && categories.some((c) => seriesTotal(c, series) > 0);
   const legend = showLegend ?? series.length > 1;
@@ -256,6 +263,8 @@ export function BarChart({
           rowHeight={rowHeight}
           categoryValueLabel={categoryValueLabel}
           valueFormatter={valueFormatter}
+          labelColumnWidth={labelColumnWidth}
+          valueColumnWidth={valueColumnWidth}
         />
       )}
       {legend && hasData && <Legend series={series} />}

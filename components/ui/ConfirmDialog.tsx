@@ -2,9 +2,10 @@ import type { ReactNode } from 'react';
 import { ActivityIndicator, Modal, Pressable, Text, View } from 'react-native';
 import { Card } from './Card';
 
-// One shared confirm dialog — used by both link-deletion (series links only,
-// per RelationshipToolbar) and task-deletion, matching admin-web's own
-// ConfirmDialog pattern (title/description/confirmLabel/danger-vs-warning
+// One shared confirm dialog — used by both link-deletion (series links only;
+// parallel links delete immediately with no confirmation, matching
+// admin-web's own requestEdgeDelete) and task-deletion, matching admin-web's
+// own ConfirmDialog pattern (title/description/confirmLabel/danger-vs-warning
 // styling) rather than each caller building its own modal shell.
 export function ConfirmDialog({
   title,

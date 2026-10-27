@@ -4,13 +4,14 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
 import { TemplateEdgeLayer } from './TemplateEdgeLayer';
 import { TemplateTaskNode } from './TemplateTaskNode';
 import { TemplateTaskSheet } from './TemplateTaskSheet';
 import { TemplateSheetPreviewModal } from './TemplateSheetPreviewModal';
 import { TaskActionMenu } from './TaskActionMenu';
-import { RelationshipToolbar, type ToolMode } from './RelationshipToolbar';
+import { LinkTypeModal } from './LinkTypeModal';
+import { CanvasLeftRail } from './CanvasLeftRail';
 import { CANVAS_THEMES, GridBackground, type CanvasTheme } from './GridBackground';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { buildAxisMapsGeneric, clampToSafeBitmapBudget, computeBounds, computeGridArea, fitInitialViewTransform, inverseAxisMap, layoutGeneric, NODE_HEIGHT, NODE_WIDTH, type GridArea } from '../../lib/flowchart/layout';
@@ -35,6 +36,7 @@ import {
   type TemplateUndoableAction,
 } from '../../lib/flowchart/templateUndo';
 import type { PositionedTemplateTask, TemplateParallelEdge, TemplateSeriesEdge, TemplateTask } from '../../lib/flowchart/templateTypes';
+import type { RelationshipType } from '../../lib/flowchart/types';
 
 // A direct sibling of FlowchartCanvas.tsx — same canvas mechanics (pan/zoom,
 // drag-to-reposition, tap-to-link, undo/redo, light/black theme, lock
@@ -45,11 +47,15 @@ import type { PositionedTemplateTask, TemplateParallelEdge, TemplateSeriesEdge, 
 // while just browsing, not a role check).
 export function TemplateCanvas({
   templateId,
+  templateCreatedAt,
   initialTasks,
   seriesEdges: initialSeriesEdges,
   parallelEdges: initialParallelEdges,
 }: {
   templateId: string;
+  // The date/offset conversion anchor for the task-creation popup's
+  // calendar pickers — see lib/flowchart/templateDates.ts.
+  templateCreatedAt: string;
   initialTasks: TemplateTask[];
   seriesEdges: TemplateSeriesEdge[];
   parallelEdges: TemplateParallelEdge[];
@@ -83,8 +89,16 @@ export function TemplateCanvas({
 
   const [canvasTheme, setCanvasTheme] = useState<CanvasTheme>('light');
 
-  const [activeTool, setActiveTool] = useState<ToolMode>('select');
+  // The old model required picking FS/SS/SF/FF/Parallel from a persistent
+  // bottom toolbar BEFORE tapping the two tasks — that toolbar (a) was
+  // itself one of the recurring off-screen-clipping offenders (it's what
+  // rendered the "LINK TYPE" section), and (b) silently locked in a type
+  // before either task was even chosen. Replaced with: tap a task's own
+  // "Link to Task" action-menu entry (source), tap a second task (target),
+  // THEN choose the type from a prompt — never a silent default, and one
+  // less permanent bottom bar competing for screen space.
   const [pendingSourceId, setPendingSourceId] = useState<string | null>(null);
+  const [linkPromptTargetId, setLinkPromptTargetId] = useState<string | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
 
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
@@ -147,6 +161,7 @@ export function TemplateCanvas({
               sortOrder: action.snapshot.task.sort_order as number,
               manualPositionX: action.snapshot.task.position_x as number | null,
               manualPositionY: action.snapshot.task.position_y as number | null,
+              accountabilityType: action.snapshot.task.accountability_type as 'ACC' | 'ACV' | null,
             }]);
             setNodeScale(result.nodeScale);
             return result.tasks;
@@ -334,23 +349,26 @@ export function TemplateCanvas({
     // Unlike the real canvas, locked taps go nowhere — a template task has
     // no separate checklist/detail screen worth a read-only peek at.
     if (!editable) return;
-    if (activeTool === 'select') {
-      setActionMenuTaskId(taskId);
+    if (pendingSourceId) {
+      if (pendingSourceId === taskId) {
+        setPendingSourceId(null); // tapping the source again cancels
+        return;
+      }
+      setLinkPromptTargetId(taskId);
       return;
     }
-    if (!pendingSourceId) {
-      setPendingSourceId(taskId);
-      return;
-    }
-    if (pendingSourceId === taskId) {
-      setPendingSourceId(null);
-      return;
-    }
-    createLink(activeTool, pendingSourceId, taskId);
+    setActionMenuTaskId(taskId);
   }
 
-  async function createLink(type: ToolMode, source: string, target: string) {
-    if (type === 'select') return;
+  function handleLinkTypeSelected(type: RelationshipType) {
+    if (!pendingSourceId || !linkPromptTargetId) return;
+    const source = pendingSourceId;
+    const target = linkPromptTargetId;
+    setLinkPromptTargetId(null);
+    createLink(type, source, target);
+  }
+
+  async function createLink(type: RelationshipType, source: string, target: string) {
     setPendingSourceId(null);
     setLinkError(null);
 
@@ -381,12 +399,6 @@ export function TemplateCanvas({
     } catch (err) {
       setLinkError(err instanceof Error ? err.message : 'Could not create the link — try again.');
     }
-  }
-
-  function handleToolSelect(tool: ToolMode) {
-    setPendingSourceId(null);
-    setLinkError(null);
-    setActiveTool((prev) => (prev === tool ? 'select' : tool));
   }
 
   function handleEdgePress(edgeId: string, kind: 'series' | 'parallel') {
@@ -528,7 +540,10 @@ export function TemplateCanvas({
     });
 
   const composedGesture = Gesture.Simultaneous(pinch, pan);
-  const insets = useSafeAreaInsets();
+  // No more RelationshipToolbar eating bottom space to reserve room above —
+  // the zoom controls always just clear the safe-area/gesture-bar offset
+  // now, editable or not.
+  const zoomBottomOffset = useSafeBottomOffset(4);
 
   function zoomBy(factor: number) {
     if (!containerSize) return;
@@ -589,6 +604,7 @@ export function TemplateCanvas({
               <TemplateTaskNode
                 key={task.id}
                 task={task}
+                templateCreatedAt={templateCreatedAt}
                 nodeScale={nodeScale}
                 draggingNodeId={draggingNodeId}
                 dragDeltaX={dragDeltaX}
@@ -606,8 +622,8 @@ export function TemplateCanvas({
         <Pressable
           onPress={() => {
             setIsUnlocked((v) => !v);
-            setActiveTool('select');
             setPendingSourceId(null);
+            setLinkPromptTargetId(null);
           }}
           className="flex-row items-center gap-1.5 bg-white rounded-xl border border-neutral-200 px-3 py-2.5"
           style={{ elevation: 3 }}
@@ -637,14 +653,6 @@ export function TemplateCanvas({
               <Ionicons name="arrow-redo-outline" size={18} color="#0F1F33" />
             </Pressable>
             <Pressable
-              onPress={() => setCreateTaskOpen(true)}
-              className="flex-row items-center gap-1.5 bg-brand-navy rounded-xl px-3 py-2.5"
-              style={{ elevation: 3 }}
-            >
-              <Ionicons name="add" size={16} color="#ffffff" />
-              <Text className="text-2xs font-bold text-white">New Task</Text>
-            </Pressable>
-            <Pressable
               onPress={handlePickSheet}
               disabled={sheetPicking}
               className="flex-row items-center gap-1.5 bg-white rounded-xl border border-neutral-200 px-3 py-2.5"
@@ -656,6 +664,16 @@ export function TemplateCanvas({
           </>
         )}
       </View>
+
+      {/* New Task moved here from the top-left cluster above — a
+          left-side vertical rail (by explicit request), not a
+          corner-positioned button, specifically so it has room to grow
+          into a column of icons later without a redesign. Empty (renders
+          nothing) when locked, same editable gate as the top-left cluster's
+          undo/redo/upload-sheet actions. */}
+      {editable && (
+        <CanvasLeftRail items={[{ key: 'add-task', icon: 'add', onPress: () => setCreateTaskOpen(true) }]} />
+      )}
 
       <View className="absolute top-3 right-3 flex-row gap-1.5 bg-white rounded-full border border-neutral-200 px-2 py-1.5" style={{ elevation: 3 }}>
         {(['light', 'black'] as CanvasTheme[]).map((t) => (
@@ -673,12 +691,14 @@ export function TemplateCanvas({
         ))}
       </View>
 
-      {editable && activeTool !== 'select' && (
-        <View className="absolute top-14 right-3 bg-white rounded-xl border border-neutral-200 px-3 py-2" style={{ elevation: 3 }}>
-          <Text className="text-2xs text-neutral-500">
-            {pendingSourceId ? 'Tap the task this one blocks/pairs with' : 'Tap the prerequisite task'}
-          </Text>
-        </View>
+      {editable && pendingSourceId && (
+        <Pressable
+          onPress={() => setPendingSourceId(null)}
+          className="absolute top-14 right-3 bg-white rounded-xl border border-neutral-200 px-3 py-2"
+          style={{ elevation: 3 }}
+        >
+          <Text className="text-2xs text-neutral-500">Tap another task to link with (tap here to cancel)</Text>
+        </Pressable>
       )}
 
       {linkError && (
@@ -701,9 +721,7 @@ export function TemplateCanvas({
         </Pressable>
       )}
 
-      {editable && <RelationshipToolbar active={activeTool} onSelect={handleToolSelect} />}
-
-      <View className="absolute right-3 items-center gap-1.5" style={{ bottom: editable ? 108 : Math.max(insets.bottom, 12) + 4 }}>
+      <View className="absolute right-3 items-center gap-1.5" style={{ bottom: zoomBottomOffset }}>
         <Pressable onPress={() => zoomBy(1.25)} className="w-10 h-10 rounded-full bg-white border border-neutral-200 items-center justify-center" style={{ elevation: 3 }}>
           <Ionicons name="add" size={20} color="#0F1F33" />
         </Pressable>
@@ -716,8 +734,19 @@ export function TemplateCanvas({
         <TaskActionMenu
           taskCode={`#${actionMenuTask.sortOrder + 1}`}
           onEdit={() => handleEditTask(actionMenuTask.id)}
+          onLink={() => {
+            setActionMenuTaskId(null);
+            setPendingSourceId(actionMenuTask.id);
+          }}
           onDelete={() => handleDeleteTaskRequest(actionMenuTask.id)}
           onCancel={() => setActionMenuTaskId(null)}
+        />
+      )}
+
+      {linkPromptTargetId && (
+        <LinkTypeModal
+          onSelect={handleLinkTypeSelected}
+          onCancel={() => setLinkPromptTargetId(null)}
         />
       )}
 
@@ -747,6 +776,7 @@ export function TemplateCanvas({
       {detailTask && (
         <TemplateTaskSheet
           task={detailTask}
+          templateCreatedAt={templateCreatedAt}
           onClose={() => setDetailTaskId(null)}
           onSave={async (fields: TemplateTaskFields) => {
             const before: TemplateTaskFields = {
@@ -755,6 +785,7 @@ export function TemplateCanvas({
               trackLabel: detailTask.trackLabel,
               dayOffsetStart: detailTask.dayOffsetStart,
               dayOffsetEnd: detailTask.dayOffsetEnd,
+              accountabilityType: detailTask.accountabilityType,
             };
             await applyTemplateTaskFieldChanges(detailTask.id, before, fields);
             setTasks((prev) => prev.map((t) => (t.id === detailTask.id ? { ...t, ...fields } : t)));
@@ -770,12 +801,32 @@ export function TemplateCanvas({
       {createTaskOpen && (
         <TemplateTaskSheet
           task={null}
+          templateCreatedAt={templateCreatedAt}
           onClose={() => setCreateTaskOpen(false)}
           onSave={async (fields: TemplateTaskFields) => {
             const newTask = await createTemplateTask(templateId, fields, tasks.length);
+            const wasEmpty = tasks.length === 0;
             setTasks((prev) => {
               const result = safeLayout([...prev, newTask]);
               setNodeScale(result.nodeScale);
+              // A brand-new template's initial fit (the [containerSize]
+              // effect above) ran against zero tasks, so its scale/pan
+              // isn't centered on anything — re-fitting here is what
+              // actually leaves this first task visible without a manual
+              // zoom-out/pan, per the spec's own "leaving the new task box
+              // visible on the canvas" requirement. Only for the FIRST
+              // task: re-fitting on every later addition would yank the
+              // view away from wherever someone is currently looking.
+              if (wasEmpty && containerSize) {
+                const fit = fitInitialViewTransform(result.tasks, containerSize.width, containerSize.height);
+                scale.value = fit.scale;
+                savedScale.value = fit.scale;
+                translateX.value = fit.translateX;
+                savedTranslateX.value = fit.translateX;
+                translateY.value = fit.translateY;
+                savedTranslateY.value = fit.translateY;
+                setGridArea(computeGridArea(fit.scale, fit.translateX, fit.translateY, containerSize.width, containerSize.height));
+              }
               return result.tasks;
             });
           }}

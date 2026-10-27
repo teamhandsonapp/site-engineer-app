@@ -15,6 +15,13 @@ export interface AccountLockout {
   lockedAtISO: string;
   deviceManufacturer: string | null;
   deviceModel: string | null;
+  // account_lockouts has no project_id column of its own (a lockout is
+  // about the ACCOUNT, not tied to any one project) — derived best-effort
+  // via project_users for the cross-project notification center, which
+  // needs SOME project to label/deep-link a lockout notification with.
+  // Null if the locked user isn't assigned to any project; if assigned to
+  // more than one, this is just the first match, not a real "the" project.
+  projectId: string | null;
 }
 
 // Shared with the per-engineer admin detail screen (app/team-attendance-
@@ -24,6 +31,9 @@ export interface AccountLockout {
 // two copies that could drift.
 export const LOCKOUT_REASON_LABEL: Record<string, string> = {
   location_services_disabled: 'Location services were turned off',
+  // Audit fix — the other half of Case B (gpsLockout.ts); background
+  // location permission revoked while services stayed on.
+  background_permission_revoked: 'Background location permission was turned off',
 };
 
 // Two FKs from account_lockouts to user_profiles (user_id and
@@ -62,7 +72,18 @@ export async function fetchUnresolvedAccountLockouts(): Promise<AccountLockout[]
     .is('reactivated_at', null)
     .order('locked_at', { ascending: false });
   if (error) throw new Error(error.message);
-  return ((data ?? []) as unknown as RawAccountLockoutRow[]).map((r) => ({
+  const rows = (data ?? []) as unknown as RawAccountLockoutRow[];
+
+  const userIds = [...new Set(rows.map((r) => r.user_id))];
+  const projectByUserId = new Map<string, string>();
+  if (userIds.length > 0) {
+    const { data: assignments } = await supabase.from('project_users').select('user_id, project_id').in('user_id', userIds);
+    for (const a of assignments ?? []) {
+      if (!projectByUserId.has(a.user_id)) projectByUserId.set(a.user_id, a.project_id);
+    }
+  }
+
+  return rows.map((r) => ({
     id: r.id,
     userId: r.user_id,
     userName: oneOrNull(r.user)?.full_name ?? null,
@@ -70,6 +91,7 @@ export async function fetchUnresolvedAccountLockouts(): Promise<AccountLockout[]
     lockedAtISO: r.locked_at,
     deviceManufacturer: r.device_manufacturer,
     deviceModel: r.device_model,
+    projectId: projectByUserId.get(r.user_id) ?? null,
   }));
 }
 

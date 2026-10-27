@@ -20,11 +20,11 @@ interface ProjectContextValue {
   setSelectedProjectId: (id: string | null) => void;
   loading: boolean;
   error: string | null;
-  // True for a client (or before staff has picked anything) — screens that
-  // need a project chosen should treat a null selectedProjectId as "show a
-  // pick-a-project prompt," not silently default to the first one, now
-  // that project selection is a deliberate, visible step (App Home) rather
-  // than an implicit default.
+  // True for a client (or before staff has picked anything, once 2+
+  // projects actually exist to choose between — see load()'s own
+  // single-project auto-select) — screens that need a project chosen
+  // should still treat a null selectedProjectId as "show a pick-a-project
+  // prompt," not silently default to the first of several.
   isClient: boolean;
   reload: () => void;
 }
@@ -73,6 +73,26 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       const persisted = await getPersistedSelectedProjectId();
       if (persisted && list.some((p) => p.id === persisted)) {
         setSelectedProjectIdState((current) => current ?? persisted);
+      } else if (list.some((p) => p.name === 'ROAST @ Kokapet')) {
+        // TEMPORARY — by explicit request, while actively testing against
+        // this one project: always default to it instead of requiring a
+        // manual re-pick after every refresh. Remove this branch (revert to
+        // falling straight through to the list.length === 1 check below)
+        // once that testing is done.
+        setSelectedProjectIdState((current) => current ?? list.find((p) => p.name === 'ROAST @ Kokapet')!.id);
+      } else if (list.length === 1) {
+        // Confirmed live: a project-scoped screen (Gantt) reached directly
+        // via the sidebar — not via Home's own project card, which DOES
+        // call setSelectedProjectId first — showed a dead-end "no project
+        // selected" state even though there's only one project in the
+        // entire system to possibly mean. Nothing meaningful to "pick"
+        // when there's exactly one option, so auto-select it rather than
+        // requiring a visible choice step first. This naturally stops
+        // firing the moment a second project exists (list.length > 1 means
+        // a real choice actually exists then) — not a hardcoded
+        // single-project assumption, just the correct behavior for when
+        // there's nothing to choose between yet.
+        setSelectedProjectIdState((current) => current ?? list[0].id);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

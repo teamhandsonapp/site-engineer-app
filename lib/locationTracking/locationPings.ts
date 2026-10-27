@@ -71,7 +71,30 @@ export async function enqueuePing(params: {
 
 const BACKOFF_KEY = 'location-pings';
 
+// Audit fix — three independent, uncoordinated callers (the foreground
+// tick, the native ping task, and the background snapshot task) can all
+// call syncPendingPings() around the same time with no locking between
+// them. Without this guard, two overlapping calls can both read the same
+// "unsynced" queue before either has written back "synced," and both
+// insert the same batch — confirmed live as 24 exact-duplicate row groups
+// in location_pings. This closes the race within one running JS process by
+// making every concurrent caller share the SAME in-flight attempt rather
+// than each starting its own read-insert-write cycle. It does NOT protect
+// against the app dying mid-sync (after a successful insert but before the
+// local queue is marked synced) — that case is covered separately by the
+// unique index + upsert below (fix-location-pings-dedup.sql), which makes
+// a genuine duplicate insert attempt a no-op instead of a second row.
+let syncInFlight: Promise<void> | null = null;
+
 export async function syncPendingPings(): Promise<void> {
+  if (syncInFlight) return syncInFlight;
+  syncInFlight = doSyncPendingPings().finally(() => {
+    syncInFlight = null;
+  });
+  return syncInFlight;
+}
+
+async function doSyncPendingPings(): Promise<void> {
   const items = await readQueue();
   const unsynced = items.filter((i) => !i.synced);
   if (unsynced.length === 0) {
@@ -90,16 +113,26 @@ export async function syncPendingPings(): Promise<void> {
 
   const batch = unsynced.slice(0, MAX_BATCH_SIZE);
   try {
-    const { error } = await supabase.from('location_pings').insert(
-      batch.map((p) => ({
-        user_id: p.userId,
-        project_id: p.projectId,
-        latitude: p.latitude,
-        longitude: p.longitude,
-        accuracy_meters: p.accuracyMeters,
-        occurred_at: p.occurredAt,
-      }))
-    );
+    // upsert + ignoreDuplicates (ON CONFLICT DO NOTHING), not insert — a
+    // conflict on (user_id, occurred_at) means this exact ping already
+    // landed from a previous attempt (e.g. the app died between a
+    // successful insert and this queue being marked synced), so it's
+    // treated as "already synced," not a real failure. occurred_at is the
+    // GPS fix's own device timestamp, never a client-generated "now," so
+    // two distinct real pings for one user never legitimately collide here.
+    const { error } = await supabase
+      .from('location_pings')
+      .upsert(
+        batch.map((p) => ({
+          user_id: p.userId,
+          project_id: p.projectId,
+          latitude: p.latitude,
+          longitude: p.longitude,
+          accuracy_meters: p.accuracyMeters,
+          occurred_at: p.occurredAt,
+        })),
+        { onConflict: 'user_id,occurred_at', ignoreDuplicates: true }
+      );
     if (error) throw new Error(error.message);
 
     const batchIds = new Set(batch.map((p) => p.localId));

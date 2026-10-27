@@ -9,6 +9,42 @@
 export const WORK_HOURS_START_MINUTES = 9 * 60; // 9:00 AM
 export const WORK_HOURS_END_MINUTES = 18 * 60; // 6:00 PM
 
+// Background TRACKING's own end-of-window boundary — deliberately NOT the
+// same value as WORK_HOURS_END_MINUTES/projects.shiftEndMinutes above.
+// Those two govern when CHECKOUT becomes available (a manual, engineer-
+// initiated action); this governs how late background geofence exit
+// tracking and location pings (shiftWindow.ts's isWithinScheduledShiftWindow)
+// keep running. Confirmed live: sharing one end-time meant the 7pm->6pm
+// checkout-time correction also silently cut tracking off at 6pm, which
+// was never the intent — an engineer can check out at 6pm and still be
+// tracked (e.g. still on site, or before Leave) well past that. Explicit
+// client instruction: tracking should run 9 AM-8 PM specifically, not later
+// — was 10 PM, tightened to 8 PM. The same 20:00 boundary is mirrored
+// server-side in supabase/tracking-silence-watcher.sql's own window check,
+// since that cron job can't import this constant — keep both in sync if
+// this ever changes again.
+export const TRACKING_END_MINUTES = 20 * 60; // 8:00 PM
+
+// TEMPORARY (added 2026-08-14, remove after the 2-3 day diagnostic test
+// window closes) — see shiftWindow.ts's own comment on
+// isWithinScheduledShiftWindow for the full rationale. Shared here (not
+// duplicated) so shiftWindow.ts's actual tracking-registration gate and
+// trackingHealth.ts's UI badge can never disagree about which accounts
+// this applies to.
+export const TEMPORARY_24H_TRACKING_USER_IDS = new Set([
+  '37b0a4d4-519c-4c3b-b71b-3e58dc687320', // Kabilan
+  'bcb3b273-9cba-40e6-b65f-0c790b8a8d80', // Prashuramu
+]);
+
+// Pre-launch 3-day test-mode toggle (track EVERY site engineer from login,
+// 24h/day) now lives in its own file — see testModeConfig.ts's own header
+// for the full rationale and the complete list of call sites. Supersedes
+// TEMPORARY_24H_TRACKING_USER_IDS above in practice (that set is a subset
+// of "every site engineer") — both checks are kept in
+// isWithinScheduledShiftWindow/computeTrackingHealth so removing the
+// test-mode flag later doesn't silently also revert the still-separate
+// Kabilan/Prashuramu investigation if that one is still ongoing.
+
 export function minutesSinceMidnight(date: Date): number {
   return date.getHours() * 60 + date.getMinutes();
 }

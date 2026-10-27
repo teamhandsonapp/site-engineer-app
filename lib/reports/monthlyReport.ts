@@ -35,10 +35,10 @@ export interface MonthlyReportData {
   };
 }
 
-function utcMonthStartKey(year: number, month: number): string {
+export function utcMonthStartKey(year: number, month: number): string {
   return `${year}-${String(month).padStart(2, '0')}-01`;
 }
-function utcMonthEndKey(year: number, month: number): string {
+export function utcMonthEndKey(year: number, month: number): string {
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
   return `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 }

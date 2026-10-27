@@ -259,7 +259,15 @@ export function layoutTasks(tasks: FlowchartTask[]): PositionedTask[] {
 // this width, TaskNode's action text (now capped at 3 wrapped lines
 // instead of 2) comfortably fits even the single longest real task name in
 // the live data (74 characters) with zero truncation.
-export const NODE_WIDTH = 195;
+// 195 -> 205: bumped alongside TaskNode's padding going from a thin/
+// asymmetric 3/3/3/1 to a real uniform padding, by explicit request. Not
+// re-verified against all 311 real tasks the way the original 195 was
+// (no device/simulator available from this environment to re-run that
+// measurement) — HORIZONTAL_TARGET_GAP's own box-to-box spacing formula
+// (boxSize + targetGapPx) absorbs this automatically so nothing overlaps,
+// but the "does text still fit without ellipsizing more than before"
+// question needs a real-device check.
+export const NODE_WIDTH = 205;
 // Was 120, then 88, then 82, then 74 — that last trim assumed a wrapped
 // 2-line category AND the full 3-line action cap essentially never
 // happened together in practice; real feedback (and real overflow past
@@ -284,7 +292,15 @@ export const NODE_WIDTH = 195;
 // 2-line action) need exactly 91px. 92 covers that real measured max with
 // 1px to spare — the rare longest task names ellipsize at 2 lines instead
 // of the box growing to fit a 3rd, but nothing overflows past its border.
-export const NODE_HEIGHT = 92;
+// 92 -> 106: the AC/AV badge moved from sharing the taskId's in-box row to
+// its own chip above the box (see TaskNode), and padding went from a thin
+// 3/3/3/1 to a uniform ~10px, by explicit request — +14px gives that real
+// headroom back. Estimated, not re-measured against all 311 real tasks the
+// way 92 itself was (no device/simulator available here) — TaskNode also
+// sets `overflow: 'hidden'` now as a backstop so content clips cleanly at
+// the border in the worst case instead of visibly spilling past it, but a
+// real-device check is still worth doing to confirm nothing needs 3 lines.
+export const NODE_HEIGHT = 106;
 
 export interface Bounds {
   minX: number;

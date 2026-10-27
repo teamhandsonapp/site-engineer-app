@@ -2,6 +2,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 import * as Sentry from '@sentry/react-native';
 import { supabase } from './supabase';
 import { registerForPushNotificationsAsync } from './pushNotifications';
+import { recordDeviceActivity } from './deviceActivity';
 import { getOrCreateDeviceId } from './deviceId';
 import { clearSessionStart, recordSessionStart, useForceLogoutWatch } from './forceLogoutWatch';
 import { devWarn } from './devLog';
@@ -237,6 +238,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // a token obtained once can go stale (see pushNotifications.ts).
         // Never awaited — this must never delay showing the signed-in app.
         registerForPushNotificationsAsync(next.profile.email);
+        recordDeviceActivity(next.profile.id);
       }
     } catch (err) {
       if (restoreAttemptRef.current !== attemptId) return;
@@ -360,6 +362,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setState({ status: 'signed-in', profile: result.profile });
       logAction('auth', 'Login success', { email, role: result.profile.role });
       registerForPushNotificationsAsync(result.profile.email);
+      recordDeviceActivity(result.profile.id, true);
       // Fire-and-forget, field roles only — a plain informational log for
       // admin (see fieldLoginEvents.ts), never allowed to delay or fail a
       // real sign-in; that function already catches its own errors

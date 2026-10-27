@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Redirect, Stack, router, useLocalSearchParams } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { appRoleFor, useAuth } from '../../lib/AuthContext';
+import { ComposeCriticalAlertModal } from '../../components/ComposeCriticalAlertModal';
 import {
   fetchTaskDependencies,
   fetchTaskDetail,
@@ -17,15 +19,20 @@ import {
   CATEGORY_COLORS,
   CATEGORY_LABEL,
   CATEGORY_LETTER,
+  computeProcurementLeadTime,
   isCategoryNotRequired,
   isItemDone,
+  PROCUREMENT_INPUT_PRESET_DAYS,
   type DependencyCategory,
 } from '../../lib/taskDetail/constants';
 import { ChecklistItemRow } from '../../components/taskDetail/ChecklistItemRow';
+import { DelayPanel } from '../../components/taskDetail/DelayPanel';
+import { formatCardDateRange } from '../../lib/flowchart/delay';
 import { Card } from '../../components/ui/Card';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { formatTime12h } from '../../lib/formatTime';
+import { formatDateLabel, formatTime12h } from '../../lib/formatTime';
+import { fetchGeneralParameterReport, type GeneralParameterReportData } from '../../lib/reports/generalParameterReport';
 
 type VerifyAction = Exclude<ChecklistVerificationStatus, 'pending'>;
 
@@ -90,9 +97,84 @@ function VerificationBanner({
   );
 }
 
-// Same FS/SS/FF/SF badge convention as RelationshipToolbar's own type
-// picker (components/flowchart/RelationshipToolbar.tsx) — shown as-is, not
-// spelled out, since that's already the app's one existing precedent for
+// Procurement Duration Type (task_types.default_duration_days) + Client/
+// Architect/Consultant input (PROCUREMENT_INPUT_PRESET_DAYS, always all 3)
+// = the real total lead time before this task's live planned start date.
+// Same numbers admin's push-notification cron uses server-side (see
+// admin-web/prisma/add-procurement-lead-time-alerts.sql) — this is just
+// the on-screen equivalent so it's not ONLY visible via a notification.
+// Renders nothing when the task has no Procurement Duration Type or no
+// planned start date set yet — there's nothing to count back from.
+// Redesigned 2026-08-17 from a plain two-sentence paragraph into a
+// scannable stat card — the total, its two components, and a clear
+// urgency-colored "start by" action were all buried in one dense sentence
+// before, which is exactly what made it hard to act on at a glance.
+function ProcurementLeadTimeCard({ task }: { task: TaskDetailInfo }) {
+  if (task.procurementTypeDurationDays == null || !task.referenceStartDateISO) return null;
+
+  const { totalLeadTimeDays, startByISODate } = computeProcurementLeadTime(
+    task.procurementTypeDurationDays,
+    task.referenceStartDateISO
+  );
+
+  const startBy = new Date(startByISODate + 'T00:00:00Z');
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const daysUntilStart = Math.round((startBy.getTime() - today.getTime()) / 86_400_000);
+
+  // Same 3-tier red/amber/green convention as VerificationBanner above and
+  // the error banner further down this screen — not a new palette.
+  const urgency: 'overdue' | 'imminent' | 'normal' =
+    daysUntilStart < 0 ? 'overdue' : daysUntilStart <= 7 ? 'imminent' : 'normal';
+  const urgencyStyles: Record<typeof urgency, { wrap: string; text: string; sub: string }> = {
+    overdue: { wrap: 'bg-red-50 border-red-200', text: 'text-red-800', sub: 'text-red-700' },
+    imminent: { wrap: 'bg-amber-50 border-amber-200', text: 'text-amber-800', sub: 'text-amber-700' },
+    normal: { wrap: 'bg-green-50 border-green-200', text: 'text-green-800', sub: 'text-green-700' },
+  };
+  const style = urgencyStyles[urgency];
+  const actionLabel =
+    urgency === 'overdue'
+      ? `${Math.abs(daysUntilStart)} day${Math.abs(daysUntilStart) === 1 ? '' : 's'} overdue to start`
+      : urgency === 'imminent'
+        ? `Start in ${daysUntilStart} day${daysUntilStart === 1 ? '' : 's'}`
+        : `${daysUntilStart} days until you need to start`;
+
+  return (
+    <View className="rounded-xl bg-neutral-50 border border-neutral-200 px-3.5 py-3.5 mt-3.5">
+      <Text className="text-2xs font-bold uppercase tracking-wide text-neutral-400 mb-2.5">
+        Procurement Lead Time
+      </Text>
+
+      <View className="flex-row items-stretch gap-2.5 mb-3">
+        <View className="rounded-lg bg-white border border-neutral-200 px-3 py-2 items-center justify-center">
+          <Text className="text-2xl font-extrabold text-neutral-900 leading-none">{totalLeadTimeDays}</Text>
+          <Text className="text-2xs text-neutral-400 mt-0.5">total days</Text>
+        </View>
+        <View className="flex-1 rounded-lg bg-white border border-neutral-200 px-2.5 py-2 justify-center">
+          <Text className="text-sm font-bold text-neutral-800">{task.procurementTypeDurationDays}d</Text>
+          <Text className="text-2xs text-neutral-400 mt-0.5">Procurement</Text>
+        </View>
+        <View className="flex-1 rounded-lg bg-white border border-neutral-200 px-2.5 py-2 justify-center">
+          <Text className="text-sm font-bold text-neutral-800">+{PROCUREMENT_INPUT_PRESET_DAYS}d</Text>
+          <Text className="text-2xs text-neutral-400 mt-0.5">Client + Arch + Consult (7 each)</Text>
+        </View>
+      </View>
+
+      <View className={`rounded-lg border px-3 py-2.5 ${style.wrap}`}>
+        <Text className={`text-xs font-bold ${style.text}`}>
+          Start procurement by {formatDateLabel(startBy)} — {actionLabel}
+        </Text>
+        <Text className={`text-2xs mt-0.5 ${style.sub}`}>
+          To hit the {formatDateLabel(new Date(task.referenceStartDateISO + 'T00:00:00Z'))} planned start.
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+// Same FS/SS/FF/SF badge convention as the flowchart canvas's own edge
+// badges (components/flowchart/EdgeLayer.tsx) — shown as-is, not spelled
+// out, since that's already the app's one existing precedent for
 // surfacing this value to a user.
 function DependencyGroup({ label, refs }: { label: string; refs: TaskDependencyRef[] }) {
   if (refs.length === 0) return null;
@@ -137,11 +219,13 @@ export default function TaskDetailScreen() {
   const [task, setTask] = useState<TaskDetailInfo | null>(null);
   const [items, setItems] = useState<ChecklistItem[]>([]);
   const [dependencies, setDependencies] = useState<TaskDependencies | null>(null);
+  const [delay, setDelay] = useState<GeneralParameterReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [verifyAction, setVerifyAction] = useState<VerifyAction | null>(null);
   const [verifyNote, setVerifyNote] = useState('');
   const [verifying, setVerifying] = useState(false);
+  const [alertComposeOpen, setAlertComposeOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!taskId) return;
@@ -153,12 +237,16 @@ export default function TaskDetailScreen() {
       setTask(detail.task);
       setItems(detail.items);
       setDependencies(deps);
+      // Cumulative Pre + Construction delay — admin/manager oversight only
+      // (see the Post Construction category's own card below), reusing the
+      // existing General Parameter Report calculation for this one task.
+      setDelay(isAdminOrManager && detail.task.projectId ? await fetchGeneralParameterReport(taskId, detail.task.projectId) : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, [taskId]);
+  }, [taskId, isAdminOrManager]);
 
   useEffect(() => {
     setLoading(true);
@@ -216,6 +304,17 @@ export default function TaskDetailScreen() {
           headerStyle: { backgroundColor: '#0F1F33' },
           headerTintColor: '#fff',
           headerTitleStyle: { fontWeight: '600' },
+          // On every task's checklist page, not gated behind canEdit — a
+          // field engineer reading a locked/read-only checklist still needs
+          // a way to flag a real on-site problem immediately, same reach as
+          // the standalone Critical Alerts screen, just one tap closer from
+          // wherever they already are.
+          headerRight: () =>
+            task?.projectId ? (
+              <Pressable onPress={() => setAlertComposeOpen(true)} hitSlop={10} style={{ marginRight: 12 }}>
+                <Ionicons name="warning" size={22} color="#F87171" />
+              </Pressable>
+            ) : null,
         }}
       />
 
@@ -236,9 +335,17 @@ export default function TaskDetailScreen() {
         <ScrollView className="bg-neutral-50" contentContainerClassName="px-4 py-4 pb-10">
           <Text className="text-lg font-extrabold text-neutral-900">{task.taskName}</Text>
           <Text className="text-xs text-neutral-400 mt-1 mb-1">{task.workName} · {task.workCode}</Text>
+          {/* Planned Start/End — by explicit request, this screen previously
+              showed no dates at all. Same formatCardDateRange the flowchart
+              canvas's own yellow chip already uses, for one consistent
+              "planned span" wording across both screens. */}
+          <View className="px-2.5 py-1 rounded-full bg-amber-50 border border-amber-100 self-start mt-1 mb-1">
+            <Text className="text-2xs font-bold text-amber-900">{formatCardDateRange(task.plannedStartDate, task.dueDate)}</Text>
+          </View>
           {task.description && <Text className="text-xs text-neutral-500 mt-2 mb-1">{task.description}</Text>}
 
           <VerificationBanner task={task} isAdminOrManager={isAdminOrManager} onOpenAction={setVerifyAction} />
+          <ProcurementLeadTimeCard task={task} />
 
           {dependencies &&
             (dependencies.predecessors.length > 0 || dependencies.successors.length > 0 || dependencies.parallel.length > 0) && (
@@ -293,11 +400,15 @@ export default function TaskDetailScreen() {
                     </Text>
                   </View>
                 </View>
+                {cat === 'quality_post_construction' && isAdminOrManager && delay && (
+                  <DelayPanel delay={delay} />
+                )}
                 <View className="px-3.5">
                   {catItems.map((item, idx) => (
                     <ChecklistItemRow
                       key={item.id}
                       item={item}
+                      taskId={taskId}
                       editable={canEdit}
                       userId={profile?.id ?? null}
                       onChanged={handleItemChanged}
@@ -339,6 +450,18 @@ export default function TaskDetailScreen() {
             style={{ minHeight: 60, textAlignVertical: 'top' }}
           />
         </ConfirmDialog>
+      )}
+
+      {task?.projectId && profile && (
+        <ComposeCriticalAlertModal
+          visible={alertComposeOpen}
+          mode={isAdminOrManager ? 'admin' : 'engineer'}
+          projectId={task.projectId}
+          projectName={task.projectName}
+          senderId={profile.id}
+          onClose={() => setAlertComposeOpen(false)}
+          onSent={() => setAlertComposeOpen(false)}
+        />
       )}
     </View>
   );

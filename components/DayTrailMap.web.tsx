@@ -8,6 +8,7 @@ import type { DayTimeline } from '../lib/dayTimeline';
 // rather than cross-imported, same convention as that pair of files.
 export interface DayTrailMapHandle {
   focusOnCoordinate: (latitude: number, longitude: number) => void;
+  showGap: (gapId: string) => void;
 }
 
 interface Props {
@@ -22,6 +23,7 @@ interface Props {
 export const DayTrailMap = forwardRef<DayTrailMapHandle, Props>(function DayTrailMap(_props, ref) {
   useImperativeHandle(ref, () => ({
     focusOnCoordinate() {},
+    showGap() {},
   }));
 
   return (

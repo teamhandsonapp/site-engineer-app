@@ -291,6 +291,15 @@ export default function AttendanceScreen() {
   const scheduledEndMs = istStartOfToday().getTime() + scheduledEndMinutes * 60_000;
   const canCheckOutNow = !isCheckedIn || Date.now() >= scheduledEndMs;
 
+  // Confirmed live: a check-in was recorded with no project selected at
+  // all, from a different city than the actual site — geofencing never
+  // ran because there was nothing to geofence against (see
+  // recordAttendance's own guard in lib/attendance.ts, the actual fix).
+  // This disables the button proactively, matching canCheckOutNow's own
+  // "disable + explain" convention, instead of letting the tap go through
+  // and rejecting it after the fact.
+  const hasProjectSelected = !!selectedProjectId;
+
   async function handlePress() {
     if (state.status !== 'signed-in') return;
     setSubmitting(true);
@@ -431,22 +440,28 @@ export default function AttendanceScreen() {
             </Text>
             <Pressable
               onPress={handlePress}
-              disabled={submitting || !canCheckOutNow}
+              disabled={submitting || !canCheckOutNow || !hasProjectSelected}
               className="flex-row items-center gap-2 px-6 py-3.5 rounded-2xl mt-2"
               style={{
                 backgroundColor: nextAction === 'CHECK_IN' ? '#16A34A' : '#DC2626',
-                opacity: submitting || !canCheckOutNow ? 0.5 : 1,
+                opacity: submitting || !canCheckOutNow || !hasProjectSelected ? 0.5 : 1,
               }}
             >
               {submitting && <ActivityIndicator size="small" color="#fff" />}
               <Text className="text-sm font-bold text-white">{nextAction === 'CHECK_IN' ? 'Check In' : 'Check Out'}</Text>
             </Pressable>
 
+            {!hasProjectSelected && (
+              <Text className="text-xs text-neutral-400 mt-2 text-center">
+                Select a project first — your location can&apos;t be verified without one.
+              </Text>
+            )}
+
             {/* Bug 3.4 — the checkout button is disabled (not just rejected
                 on tap) until the scheduled end time; this caption is the
                 only place that explains why, and points at Leave as the
                 intended way to step away before then. */}
-            {isCheckedIn && !canCheckOutNow && (
+            {hasProjectSelected && isCheckedIn && !canCheckOutNow && (
               <Text className="text-xs text-neutral-400 mt-2 text-center">
                 You can check out starting {formatTime12h(new Date(scheduledEndMs))}. Use Leave if you need to step away.
               </Text>

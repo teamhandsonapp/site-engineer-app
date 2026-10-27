@@ -1,7 +1,9 @@
-import { forwardRef, useImperativeHandle, useRef } from 'react';
-import { Platform, Text, View } from 'react-native';
+import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
+import { Platform, Pressable, Text, View } from 'react-native';
 import MapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { TIMELINE_EVENT_COLORS, type DayTimeline, type TimelineEvent } from '../lib/dayTimeline';
+import { MapTypeToggle } from './ui/MapTypeToggle';
+import { gapLabel, splitTrailIntoRuns, type TrackingGap } from '../lib/trackingGaps';
 
 // Section 1 — the map half of the timeline view. Mirrors
 // SiteLocationMapPicker.tsx's platform handling (react-native-maps has zero
@@ -11,6 +13,7 @@ import { TIMELINE_EVENT_COLORS, type DayTimeline, type TimelineEvent } from '../
 // SiteLocationMapPicker's two files).
 export interface DayTrailMapHandle {
   focusOnCoordinate: (latitude: number, longitude: number) => void;
+  showGap: (gapId: string) => void;
 }
 
 interface Props {
@@ -29,6 +32,9 @@ interface Props {
 const TRAIL_COLOR = '#9CA3AF';
 const LEAVE_SEGMENT_COLOR = TIMELINE_EVENT_COLORS.leave;
 const REGION_DELTA = 0.01;
+// Tracking gaps — dashed red, the same "urgent" red family used for
+// red-zone circles, so a hole in the data reads as a problem, not a route.
+const GAP_COLOR = '#DC2626';
 
 // Item 5 — same blue site-boundary convention as SiteLocationMapPicker.tsx
 // (admin's own Site Location settings map), reused here rather than
@@ -76,6 +82,8 @@ export const DayTrailMap = forwardRef<DayTrailMapHandle, Props>(function DayTrai
   ref
 ) {
   const mapRef = useRef<MapView>(null);
+  const [satellite, setSatellite] = useState(false);
+  const [selectedGap, setSelectedGap] = useState<TrackingGap | null>(null);
 
   useImperativeHandle(ref, () => ({
     focusOnCoordinate(latitude: number, longitude: number) {
@@ -84,10 +92,27 @@ export const DayTrailMap = forwardRef<DayTrailMapHandle, Props>(function DayTrai
         300
       );
     },
+    showGap(gapId: string) {
+      const gap = timeline.gaps.find((g) => g.id === gapId) ?? null;
+      setSelectedGap(gap);
+      const at = gap?.fromPoint ?? gap?.toPoint;
+      if (at) {
+        mapRef.current?.animateToRegion(
+          { latitude: at.latitude, longitude: at.longitude, latitudeDelta: REGION_DELTA, longitudeDelta: REGION_DELTA },
+          300
+        );
+      }
+    },
   }));
 
-  const { trail, events, leavePeriods, siteLocation, restrictedZones } = timeline;
+  const { trail, gaps, events, leavePeriods, siteLocation, restrictedZones } = timeline;
   const coordinates = trail.map((p) => ({ latitude: p.latitude, longitude: p.longitude }));
+  // Solid line only within continuous runs — never drawn across a gap.
+  const runs = splitTrailIntoRuns(trail, gaps)
+    .map((run) => run.map((p) => ({ latitude: p.latitude, longitude: p.longitude })))
+    .filter((run) => run.length >= 2);
+  // A gap is drawable only when we know where tracking stopped AND resumed.
+  const drawableGaps = gaps.filter((g) => g.fromPoint && g.toPoint);
   const markers = events.filter((e) => e.latitude != null && e.longitude != null);
 
   // Ping points that fall inside an active Leave window get a dashed
@@ -116,10 +141,12 @@ export const DayTrailMap = forwardRef<DayTrailMapHandle, Props>(function DayTrai
 
   return (
     <View style={{ height, borderRadius: 12, overflow: 'hidden' }}>
+      <MapTypeToggle active={satellite} onToggle={() => setSatellite((s) => !s)} />
       <MapView
         ref={mapRef}
         style={{ flex: 1 }}
         provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
+        mapType={satellite ? 'hybrid' : 'standard'}
         initialRegion={initialRegion}
       >
         {/* Item 5 — static boundaries, drawn under everything else (trail,
@@ -166,7 +193,24 @@ export const DayTrailMap = forwardRef<DayTrailMapHandle, Props>(function DayTrai
             strokeWidth={2}
           />
         ))}
-        {coordinates.length >= 2 && <Polyline coordinates={coordinates} strokeColor={TRAIL_COLOR} strokeWidth={3} />}
+        {runs.map((run, i) => (
+          <Polyline key={`run-${i}`} coordinates={run} strokeColor={TRAIL_COLOR} strokeWidth={3} />
+        ))}
+        {drawableGaps.map((g) => (
+          <Polyline
+            key={g.id}
+            coordinates={[
+              { latitude: g.fromPoint!.latitude, longitude: g.fromPoint!.longitude },
+              { latitude: g.toPoint!.latitude, longitude: g.toPoint!.longitude },
+            ]}
+            strokeColor={GAP_COLOR}
+            strokeWidth={selectedGap?.id === g.id ? 5 : 3}
+            lineDashPattern={[10, 8]}
+            tappable
+            onPress={() => setSelectedGap(g)}
+            zIndex={2}
+          />
+        ))}
         {leaveSegments.map((s) => (
           <Polyline
             key={s.period.leaveId}
@@ -205,6 +249,17 @@ export const DayTrailMap = forwardRef<DayTrailMapHandle, Props>(function DayTrai
           </Marker>
         ))}
       </MapView>
+      {selectedGap && (
+        <Pressable
+          onPress={() => setSelectedGap(null)}
+          className="absolute left-3 right-3 bottom-3 rounded-xl bg-white px-3.5 py-2.5 flex-row items-center gap-2"
+          style={{ borderWidth: 1.5, borderColor: GAP_COLOR, elevation: 4, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 4 }}
+        >
+          <View style={{ width: 18, borderTopWidth: 3, borderColor: GAP_COLOR, borderStyle: 'dashed' }} />
+          <Text className="flex-1 text-xs font-semibold text-neutral-900">{gapLabel(selectedGap)}</Text>
+          <Text className="text-2xs text-neutral-400">✕</Text>
+        </Pressable>
+      )}
     </View>
   );
 });

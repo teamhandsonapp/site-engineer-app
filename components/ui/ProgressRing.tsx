@@ -11,12 +11,16 @@ export function ProgressRing({
   strokeWidth = 4,
   color = '#F0A227',
   trackColor = '#F1F1F2',
+  label,
 }: {
   percent: number;
   size?: number;
   strokeWidth?: number;
   color?: string;
   trackColor?: string;
+  // Overrides the default "{percent}%" text inside the ring — e.g. a real
+  // "4/5" fraction where the count matters more than the rounded percentage.
+  label?: string;
 }) {
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -41,7 +45,7 @@ export function ProgressRing({
           />
         )}
       </Svg>
-      <Text className="text-xs font-extrabold text-neutral-800">{clamped}%</Text>
+      <Text className="text-xs font-extrabold text-neutral-800">{label ?? `${clamped}%`}</Text>
     </View>
   );
 }

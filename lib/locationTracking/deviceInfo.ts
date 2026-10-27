@@ -20,7 +20,24 @@ export function getDeviceModel(): string | null {
 // offenders. Lowercased comparison: expo-device documents Android
 // `manufacturer` values as inconsistently-cased across OEMs (its own
 // example shows "xiaomi" lowercase, "Google" capitalized).
-const KNOWN_PROBLEM_MANUFACTURERS = ['xiaomi', 'samsung', 'huawei', 'oneplus', 'oppo', 'vivo'];
+// 'nothing'/'cmf' added 2026-08-14: CMF Phone 2 Pro (a Nothing sub-brand,
+// runs Nothing OS) is one of this project's real test devices. Nothing OS
+// markets itself as close to stock Android with historically lighter
+// background-app restriction than Xiaomi/Oppo's skins — but that was
+// checked, not assumed: real user reports (forum threads, not a
+// dontkillmyapp.com-grade per-OEM page) describe WiFi/mobile data and GPS
+// dropping during sleep on this exact device under its "extreme battery
+// saving" mode, which is enough evidence to NOT quietly skip it, even
+// though it's not enough to justify the MANDATORY, precisely-worded gate
+// (see manufacturerChecklist.ts's own comment on why that gate only
+// covers manufacturers with confirmed exact menu paths). Both 'nothing'
+// and 'cmf' are listed because this device's actual live
+// Build.MANUFACTURER string could not be confirmed from this machine (no
+// simulator, no adb/device connection available) — covering both is a
+// deliberate hedge, not a confirmed value. Needs real-device confirmation:
+// check Device.manufacturer's actual logged value on a real CMF Phone 2
+// Pro and drop whichever key turns out unused.
+const KNOWN_PROBLEM_MANUFACTURERS = ['xiaomi', 'samsung', 'huawei', 'oneplus', 'oppo', 'vivo', 'nothing', 'cmf'];
 
 export function isKnownProblemManufacturer(manufacturer: string | null): boolean {
   if (!manufacturer) return false;
@@ -42,6 +59,13 @@ const MANUFACTURER_TIPS: Record<string, string> = {
   oneplus: 'Settings → Apps → App management → Autostart → turn on PMC Portal, and set its battery usage to unrestricted.',
   oppo: 'Settings → Battery → App battery management → find PMC Portal and set it to allow background activity / autostart.',
   vivo: 'Settings → Battery → Background power consumption management → allow PMC Portal to run in the background, and enable it under Autostart.',
+  // Deliberately generic, unlike the other entries above — Nothing OS has
+  // no well-documented per-OEM toggle set the way Xiaomi/Oppo/Vivo/Huawei/
+  // OnePlus do, so this only asks for the one thing that's true regardless
+  // of exact menu wording: the standard Android battery-optimization
+  // exemption prompt. See KNOWN_PROBLEM_MANUFACTURERS' own comment above.
+  nothing: 'Settings → Apps → PMC Portal → Battery → set to "Unrestricted" (not "Optimized"), and allow it to run in the background if a separate toggle for that appears.',
+  cmf: 'Settings → Apps → PMC Portal → Battery → set to "Unrestricted" (not "Optimized"), and allow it to run in the background if a separate toggle for that appears.',
 };
 
 export function getManufacturerTip(manufacturer: string | null): string | null {

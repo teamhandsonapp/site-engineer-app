@@ -1,5 +1,7 @@
 import { supabase } from '../supabase';
-import { logAction } from '../sentryLog';
+import { logAction, logError } from '../sentryLog';
+import { markCorrelatedLeaveReturned } from '../leaveEvents';
+import { devWarn } from '../devLog';
 
 export async function insertConfirmedGeofenceAlert(params: {
   projectId: string;
@@ -37,9 +39,25 @@ export async function insertConfirmedGeofenceAlert(params: {
 }
 
 export async function markGeofenceAlertReturned(alertId: string): Promise<void> {
-  const { error } = await supabase
+  const returnedAtISO = new Date().toISOString();
+  const { data, error } = await supabase
     .from('geofence_alerts')
-    .update({ returned_at: new Date().toISOString() })
-    .eq('id', alertId);
+    .update({ returned_at: returnedAtISO })
+    .eq('id', alertId)
+    .select('user_id, exit_at')
+    .single();
   if (error) throw new Error(error.message);
+
+  // Audit fix — also write returnedAt directly onto whichever Leave record
+  // this same re-entry corresponds to (see leaveEvents.ts's own comment),
+  // rather than leaving it purely inferable at read time. Best-effort: a
+  // failure here must never undo the geofence_alerts write above, which
+  // already succeeded and is what dayTimeline.ts's own fallback
+  // correlation still reads from regardless.
+  try {
+    await markCorrelatedLeaveReturned(data.user_id, data.exit_at, returnedAtISO);
+  } catch (err) {
+    devWarn('[locationTracking] failed to correlate Leave return:', err);
+    logError(err, 'leave_correlated_return');
+  }
 }

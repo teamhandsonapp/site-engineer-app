@@ -15,3 +15,10 @@ export const TRACKING_STATUS_STATE_KEY = 'field-location:tracking-status-state';
 export const TRACKING_STATUS_QUEUE_KEY = 'field-location:tracking-status-queue';
 export const LOCATION_PING_QUEUE_KEY = 'field-location:location-ping-queue';
 export const LAST_FIX_AT_KEY = 'field-location:last-fix-at';
+export const MANUFACTURER_CHECKLIST_DONE_KEY = 'field-location:manufacturer-checklist-done';
+
+// TEMPORARY — testTrackingTask.ts's own device_label/session_id, read back
+// by the headless task handler (no React context there, same reasoning as
+// every other key in this file). Remove alongside that file once the
+// Oppo/Redmi/CMF 2-hour comparison is done.
+export const TEST_TRACKING_SESSION_KEY = 'field-location:test-tracking-session';

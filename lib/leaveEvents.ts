@@ -21,7 +21,23 @@ export interface LeaveEvent {
   leftAtISO: string;
   reasonPreset: LeaveReasonPresetValue;
   reasonNote: string | null;
+  // Audit fix — a real, direct column now (fix-leave-events-returned-at.sql),
+  // written by markCorrelatedLeaveReturned below the moment a boundary
+  // re-entry is confirmed. Null for a still-active Leave, OR for a
+  // historical row created before this column existed — dayTimeline.ts's
+  // own read-time geofence-alert correlation is the fallback for that
+  // second case specifically, not for every null.
+  returnedAtISO: string | null;
 }
+
+// An OS-detected boundary exit within this many minutes of a logged Leave's
+// left_at counts as "the same trip" — 15 minutes covers the geofence
+// debounce (3 min) plus background ping/exit-detection latency, without
+// being so wide it'd falsely match an unrelated later exit. Shared with
+// dayTimeline.ts's own fallback correlation (kept for historical Leave rows
+// with returnedAtISO still null) — one constant, not two copies that could
+// drift out of sync with each other.
+export const LEAVE_EXIT_CORRELATION_WINDOW_MS = 15 * 60 * 1000;
 
 // Shared by dayTimeline.ts and restrictedZoneAlerts.ts (both need to render
 // a Leave's reason as a human label) — one function, not two copies, since
@@ -51,7 +67,7 @@ export async function insertLeaveEvent(params: {
 export async function fetchLeaveEventsForDay(userId: string, dayStartISO: string, dayEndISO: string): Promise<LeaveEvent[]> {
   const { data, error } = await supabase
     .from('leave_events')
-    .select('id, left_at, reason_preset, reason_note')
+    .select('id, left_at, reason_preset, reason_note, returned_at')
     .eq('user_id', userId)
     .gte('left_at', dayStartISO)
     .lt('left_at', dayEndISO)
@@ -62,7 +78,36 @@ export async function fetchLeaveEventsForDay(userId: string, dayStartISO: string
     leftAtISO: r.left_at,
     reasonPreset: r.reason_preset as LeaveReasonPresetValue,
     reasonNote: r.reason_note,
+    returnedAtISO: r.returned_at,
   }));
+}
+
+// Called the moment a boundary re-entry is confirmed (see
+// lib/locationTracking/geofenceAlerts.ts's markGeofenceAlertReturned) —
+// finds whichever open Leave (returned_at IS NULL) this same user left on
+// within LEAVE_EXIT_CORRELATION_WINDOW_MS of the exit this re-entry pairs
+// with, and writes returnedAt directly onto it. Best-effort by design: no
+// matching open Leave is a completely normal, common outcome (most
+// boundary exits have no Leave announcement at all), not an error.
+export async function markCorrelatedLeaveReturned(userId: string, exitAtISO: string, returnedAtISO: string): Promise<void> {
+  const exitAtMs = new Date(exitAtISO).getTime();
+  const windowStartISO = new Date(exitAtMs - LEAVE_EXIT_CORRELATION_WINDOW_MS).toISOString();
+  const windowEndISO = new Date(exitAtMs + LEAVE_EXIT_CORRELATION_WINDOW_MS).toISOString();
+
+  const { data, error } = await supabase
+    .from('leave_events')
+    .select('id, left_at')
+    .eq('user_id', userId)
+    .is('returned_at', null)
+    .gte('left_at', windowStartISO)
+    .lte('left_at', windowEndISO)
+    .order('left_at', { ascending: false }); // most recent open Leave first
+  if (error) throw new Error(error.message);
+  const candidate = data?.[0];
+  if (!candidate) return; // no open Leave near this exit — nothing to correlate, not an error
+
+  const { error: updateError } = await supabase.from('leave_events').update({ returned_at: returnedAtISO }).eq('id', candidate.id);
+  if (updateError) throw new Error(updateError.message);
 }
 
 // New admin "Leave Log" tab's own data source — a rollup across EVERY

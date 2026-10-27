@@ -29,11 +29,13 @@ function buildMonthGrid(year: number, month: number): (Date | null)[] {
 export function CalendarPicker({
   value,
   minDate,
+  maxDate,
   onChange,
   onClose,
 }: {
   value: string | null; // 'YYYY-MM-DD'
   minDate?: string | null;
+  maxDate?: string | null;
   onChange: (isoDate: string) => void;
   onClose: () => void;
 }) {
@@ -43,6 +45,7 @@ export function CalendarPicker({
 
   const cells = buildMonthGrid(viewYear, viewMonth);
   const minTime = minDate ? new Date(minDate).setHours(0, 0, 0, 0) : null;
+  const maxTime = maxDate ? new Date(maxDate).setHours(0, 0, 0, 0) : null;
 
   function goMonth(delta: number) {
     let m = viewMonth + delta;
@@ -80,7 +83,7 @@ export function CalendarPicker({
               if (!cell) return <View key={i} style={{ width: '14.28%' }} className="py-1.5" />;
               const iso = toISODate(cell);
               const isSelected = value === iso;
-              const isDisabled = minTime != null && cell.getTime() < minTime;
+              const isDisabled = (minTime != null && cell.getTime() < minTime) || (maxTime != null && cell.getTime() > maxTime);
               return (
                 <View key={i} style={{ width: '14.28%' }} className="items-center py-1">
                   <Pressable

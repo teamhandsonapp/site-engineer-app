@@ -3,6 +3,7 @@ import { supabase } from './supabase';
 export interface GeofenceAlert {
   id: string;
   projectId: string;
+  userId: string;
   userName: string | null;
   exitAtISO: string;
   confirmedAtISO: string;
@@ -17,6 +18,7 @@ export interface GeofenceAlert {
 interface RawGeofenceAlertRow {
   id: string;
   project_id: string;
+  user_id: string;
   exit_at: string;
   confirmed_at: string;
   returned_at: string | null;
@@ -35,6 +37,7 @@ function toGeofenceAlert(row: RawGeofenceAlertRow): GeofenceAlert {
   return {
     id: row.id,
     projectId: row.project_id,
+    userId: row.user_id,
     userName: oneOrNull(row.user)?.full_name ?? null,
     exitAtISO: row.exit_at,
     confirmedAtISO: row.confirmed_at,
@@ -46,7 +49,7 @@ function toGeofenceAlert(row: RawGeofenceAlertRow): GeofenceAlert {
 }
 
 const SELECT = `
-  id, project_id, exit_at, confirmed_at, returned_at, resolved, resolved_at,
+  id, project_id, user_id, exit_at, confirmed_at, returned_at, resolved, resolved_at,
   user:user_profiles!geofence_alerts_user_id_fkey(full_name),
   resolved_by:user_profiles!geofence_alerts_resolved_by_id_fkey(full_name)
 `;

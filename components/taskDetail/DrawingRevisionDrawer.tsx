@@ -41,8 +41,11 @@ export function DrawingRevisionDrawer({
 
   useEffect(load, [itemId]);
 
-  const currentMax = revisions[0]?.revisionNumber ?? 0;
-  const atCap = currentMax >= MAX_DRAWING_REVISIONS;
+  // 0-indexed (2026-08-17): first revision is R0, not R1 — see this
+  // change's mirror in lib/taskDetail/data.ts and admin-web's own
+  // drawing-revisions action, since all three read/write the same table.
+  const currentMax = revisions[0]?.revisionNumber ?? -1;
+  const atCap = currentMax >= MAX_DRAWING_REVISIONS - 1;
 
   async function handleUpload() {
     if (!fileName.trim()) return;

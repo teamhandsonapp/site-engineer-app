@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/react-native';
+import { Platform } from 'react-native';
 import { devWarn } from './devLog';
 
 // Action-logging + error capture ONLY — deliberately no Session Replay.
@@ -17,6 +18,10 @@ export function initSentry(): void {
     devWarn('[sentry] EXPO_PUBLIC_SENTRY_DSN not set — Sentry will not report anything.');
     return;
   }
+  // Web dev: the browser's requests to Sentry's ingest endpoint are often
+  // blocked (ad blockers, CORS/COEP on localhost), and with debug on the SDK
+  // surfaces each failed send as a console error in the Expo overlay.
+  if (__DEV__ && Platform.OS === 'web') return;
 
   Sentry.init({
     dsn,

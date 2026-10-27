@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Card } from '../ui/Card';
 import { DateField } from '../ui/DateField';
+import { SubtaskDepartmentPicker } from '../dpr/SubtaskDepartmentPicker';
 import {
   createTask,
   fetchDependencyTemplate,
@@ -10,7 +11,26 @@ import {
   createDependency,
   type WorkOption,
 } from '../../lib/flowchart/data';
+import { addDaysToKey, createSubtask } from '../../lib/dprEntries';
 import type { DependencyType, FlowchartSeriesEdge, FlowchartTask, TaskTypeOption } from '../../lib/flowchart/types';
+
+// taskTypes (prop) is fetched ordered by default_duration_days ascending —
+// same deterministic A/B/C.../G-by-index labeling as TemplateTaskSheet.tsx's
+// identical typeLetter, kept consistent between the real and template task
+// sheets rather than showing letters on one and the DB's own raw "Type 1".
+// ."Type 7" names on the other.
+function typeLetter(index: number): string {
+  return String.fromCharCode(65 + index); // 65 = 'A'
+}
+
+const FULL_MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+function formatDateKeyLabel(key: string): string {
+  const [y, m, d] = key.split('-').map(Number);
+  return `${d} ${FULL_MONTHS[m - 1].slice(0, 3)} ${y}`;
+}
 
 const LINK_TYPES: DependencyType[] = ['FS', 'SS', 'FF', 'SF'];
 const LINK_TYPE_LABEL: Record<DependencyType, string> = {
@@ -52,6 +72,22 @@ export function CreateTaskSheet({
   const [dueDate, setDueDate] = useState<string | null>(null);
   const [linkTaskId, setLinkTaskId] = useState<string | null>(null);
   const [linkType, setLinkType] = useState<DependencyType | null>(null);
+  // One optional Subtask text per planned calendar day, by explicit request
+  // — filling these in now saves the admin re-typing them into each day's
+  // DPR entry later; a site engineer can still add/edit any day's Subtask
+  // directly in the DPR either way if this is left blank. Keyed by date key
+  // so it survives Start/End being adjusted before Create is pressed.
+  const [perDaySubtasks, setPerDaySubtasks] = useState<Record<string, string>>({});
+  // Each day's own optional Department tag, by explicit request —
+  // independent of this task's own single Department field above.
+  const [perDaySubtaskWorkIds, setPerDaySubtaskWorkIds] = useState<Record<string, string | null>>({});
+
+  const plannedDayKeys = useMemo(() => {
+    if (!plannedStartDate || !dueDate || plannedStartDate > dueDate) return [];
+    const keys: string[] = [];
+    for (let k = plannedStartDate; k <= dueDate; k = addDaysToKey(k, 1)) keys.push(k);
+    return keys;
+  }, [plannedStartDate, dueDate]);
 
   const [taskTypeOpen, setTaskTypeOpen] = useState(false);
   const [linkTaskOpen, setLinkTaskOpen] = useState(false);
@@ -76,8 +112,8 @@ export function CreateTaskSheet({
 
   const missing: string[] = [];
   if (!taskName.trim()) missing.push('Task Name');
-  if (!workId) missing.push('Work');
-  if (!taskTypeId) missing.push('Task Type');
+  if (!workId) missing.push('Department');
+  if (!taskTypeId) missing.push('Procurement Duration');
   if (!plannedStartDate) missing.push('Planned Start');
   if (!dueDate) missing.push('Planned End');
   if (!linkTaskId || !linkType) missing.push('Dependency Link');
@@ -108,6 +144,19 @@ export function CreateTaskSheet({
         // Non-fatal — the task itself is real either way; a missing
         // checklist seed is recoverable later, an uncreated task is not.
       });
+
+      // Pre-fill each planned day's Subtask, where entered — writes
+      // straight into dpr_entry_subtasks, the same table the DPR form and
+      // DPR History already read/write, so a day filled in here just shows
+      // up pre-populated there, no separate storage or wiring needed. Blank
+      // days are simply skipped, and a failure here is non-fatal for the
+      // same reason the checklist seed above is — the task is already real.
+      const filledDays = plannedDayKeys.filter((k) => perDaySubtasks[k]?.trim());
+      await Promise.all(
+        filledDays.map((k) =>
+          createSubtask(newTask.id, k, perDaySubtasks[k].trim(), perDaySubtaskWorkIds[k] ?? null, 0).catch(() => {})
+        )
+      );
 
       let edge: FlowchartSeriesEdge | null = null;
       try {
@@ -142,7 +191,7 @@ export function CreateTaskSheet({
                 </View>
               )}
 
-              <Text className="text-xs text-neutral-400 mb-1">Work *</Text>
+              <Text className="text-xs text-neutral-400 mb-1">Department *</Text>
               {loadingWorks ? (
                 <ActivityIndicator size="small" color="#0F1F33" style={{ marginBottom: 12, alignSelf: 'flex-start' }} />
               ) : (
@@ -184,28 +233,37 @@ export function CreateTaskSheet({
                 AC/AV is classified automatically from the task name — correct it later via Edit Task if needed.
               </Text>
 
-              <Text className="text-xs text-neutral-400 mb-1">Task Type *</Text>
+              <Text className="text-xs text-neutral-400 mb-1">Procurement Duration *</Text>
               <Pressable
                 onPress={() => setTaskTypeOpen((v) => !v)}
                 className="flex-row items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5 mb-1"
               >
                 <Text className="text-sm text-neutral-900">
-                  {selectedTaskType ? `${selectedTaskType.name} — ${selectedTaskType.defaultDurationDays} working days` : 'Select a type'}
+                  {selectedTaskType
+                    ? `Type ${typeLetter(taskTypes.indexOf(selectedTaskType))} — ${selectedTaskType.defaultDurationDays} working days`
+                    : 'Select a type'}
                 </Text>
                 <Text className="text-neutral-400">{taskTypeOpen ? '▲' : '▼'}</Text>
               </Pressable>
               {taskTypeOpen && (
-                <View className="mb-3">
-                  {taskTypes.map((t) => {
+                <View className="mb-3 border border-neutral-100 rounded-lg overflow-hidden">
+                  <View className="flex-row px-3 py-1.5 bg-neutral-50">
+                    <Text className="flex-1 text-2xs font-bold uppercase tracking-wide text-neutral-400">Type</Text>
+                    <Text className="text-2xs font-bold uppercase tracking-wide text-neutral-400">Days</Text>
+                  </View>
+                  {taskTypes.map((t, index) => {
                     const active = taskTypeId === t.id;
                     return (
                       <Pressable
                         key={t.id}
                         onPress={() => { setTaskTypeId(t.id); setTaskTypeOpen(false); }}
-                        className={`px-3 py-2 rounded-lg mb-1 ${active ? 'bg-brand-navy' : 'bg-neutral-50'}`}
+                        className={`flex-row items-center px-3 py-2.5 ${active ? 'bg-brand-navy' : ''} ${index < taskTypes.length - 1 ? 'border-b border-neutral-50' : ''}`}
                       >
-                        <Text className={`text-xs font-medium ${active ? 'text-white' : 'text-neutral-600'}`}>
-                          {t.name} — {t.defaultDurationDays} working days
+                        <Text className={`flex-1 text-xs font-bold ${active ? 'text-white' : 'text-neutral-800'}`}>
+                          Type {typeLetter(index)}
+                        </Text>
+                        <Text className={`text-xs font-medium ${active ? 'text-white' : 'text-neutral-500'}`}>
+                          {t.defaultDurationDays} days
                         </Text>
                       </Pressable>
                     );
@@ -221,6 +279,36 @@ export function CreateTaskSheet({
                   <DateField label="Planned End *" value={dueDate} minDate={plannedStartDate} onChange={setDueDate} />
                 </View>
               </View>
+
+              {plannedDayKeys.length > 0 && (
+                <View className="mb-3">
+                  <Text className="text-xs text-neutral-400 mb-1">
+                    Subtasks by Day ({plannedDayKeys.length} day{plannedDayKeys.length === 1 ? '' : 's'}, optional)
+                  </Text>
+                  <View className="gap-2">
+                    {plannedDayKeys.map((key) => (
+                      <View key={key}>
+                        <Text className="text-2xs font-semibold text-neutral-500 mb-1">{formatDateKeyLabel(key)}</Text>
+                        <TextInput
+                          value={perDaySubtasks[key] ?? ''}
+                          onChangeText={(v) => setPerDaySubtasks((prev) => ({ ...prev, [key]: v }))}
+                          placeholder="Describe this day's subtask (optional)"
+                          placeholderTextColor="#9CA3AF"
+                          multiline
+                          className="border border-neutral-200 rounded-lg px-3 py-2 text-sm text-neutral-900"
+                          style={{ minHeight: 44, textAlignVertical: 'top' }}
+                        />
+                        <SubtaskDepartmentPicker
+                          works={works}
+                          value={perDaySubtaskWorkIds[key] ?? null}
+                          onChange={(workId) => setPerDaySubtaskWorkIds((prev) => ({ ...prev, [key]: workId }))}
+                          editable
+                        />
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              )}
 
               <Text className="text-xs text-neutral-400 mb-1">Dependency Link *</Text>
               <Pressable

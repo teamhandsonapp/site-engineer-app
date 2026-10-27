@@ -26,6 +26,10 @@ interface RawTaskRow {
   task_type_id: string | null;
   manual_position_x: number | null;
   manual_position_y: number | null;
+  hidden_from_flowchart: boolean;
+  room_type: string | null;
+  floor_level: string | null;
+  milestone_id: string | null;
   work: { id: string; name: string; code: string; accountability_type: AccountabilityType | null } | null;
 }
 
@@ -54,6 +58,7 @@ const TASK_SELECT = `
   actual_start_date, actual_end_date, current_planned_start_date, current_due_date,
   cascade_delay_days,
   accountability_type, task_type_id, manual_position_x, manual_position_y,
+  hidden_from_flowchart, room_type, floor_level, milestone_id,
   work:works!inner(id, name, code, accountability_type, project_id)
 `;
 
@@ -81,7 +86,24 @@ function mapRawTaskRow(t: RawTaskRow): FlowchartTask {
     workName: t.work?.name ?? 'Unassigned',
     manualPositionX: t.manual_position_x,
     manualPositionY: t.manual_position_y,
+    roomType: t.room_type,
+    floorLevel: t.floor_level,
+    milestoneId: t.milestone_id,
   };
+}
+
+// Standalone — same task_types query fetchFlowchartData below bundles in
+// with tasks/dependencies for the real Flowchart, but the Template Kit's
+// task-creation popup (project-agnostic — a template isn't scoped to one
+// project) only ever needs this one table, not the other three.
+export async function fetchTaskTypes(): Promise<TaskTypeOption[]> {
+  const { data, error } = await supabase
+    .from('task_types')
+    .select('id, name, default_duration_days')
+    .order('default_duration_days', { ascending: true });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as { id: string; name: string; default_duration_days: number }[])
+    .map((t) => ({ id: t.id, name: t.name, defaultDurationDays: t.default_duration_days }));
 }
 
 // One fetch per table (tasks, task_dependencies, task_parallel_links,
@@ -109,8 +131,14 @@ export async function fetchFlowchartData(projectId: string): Promise<FlowchartDa
   // Pilot mode (lib/pilot.ts, mirrors admin-web's lib/config/pilot.ts):
   // client asked to scope every display surface down to only 12 Civil-work
   // tasks for now, everything else stays in the DB untouched but hidden.
-  const rawTasks = ((tasksRes.data ?? []) as unknown as RawTaskRow[]).filter((t) =>
-    isPilotVisible(t.task_id, t.work?.code)
+  //
+  // hidden_from_flowchart is a separate, narrower mechanism — flowchart
+  // canvas ONLY (not DPR/Task List/Reports/admin-web, which all still show
+  // every task normally). Used for ROAST @ Kokapet's own request: its 314
+  // granular tasks are hidden here in favor of ~15 milestone-level tasks
+  // meant just for this view (add-hidden-from-flowchart.sql).
+  const rawTasks = ((tasksRes.data ?? []) as unknown as RawTaskRow[]).filter(
+    (t) => isPilotVisible(t.task_id, t.work?.code) && !t.hidden_from_flowchart
   );
   const taskIds = new Set(rawTasks.map((t) => t.id));
 
@@ -181,8 +209,39 @@ export async function updateTaskName(taskId: string, taskName: string): Promise<
   if (error) throw new Error(error.message);
 }
 
-export async function updateTaskDescription(taskId: string, description: string | null): Promise<void> {
-  const { error } = await supabase.from('tasks').update({ description }).eq('id', taskId);
+// Department — the task's real Work assignment (id, name, code, badge
+// color etc. all resolve from this), same field CreateTaskSheet's "Work *"
+// picker sets at creation, made editable here too. Mandatory: unlike
+// Room Type/Floor Level, TaskDetailSheet never lets this be cleared back
+// to null.
+export async function updateTaskWork(taskId: string, workId: string): Promise<void> {
+  const { error } = await supabase.from('tasks').update({ work_id: workId }).eq('id', taskId);
+  if (error) throw new Error(error.message);
+}
+
+// Room Type / Floor Level (ROOM_TYPE_PRESETS/FLOOR_LEVEL_PRESETS in
+// lib/flowchart/types.ts) — plain preset tags on any task, editable from
+// TaskDetailSheet same as every other field here.
+export async function updateTaskRoomType(taskId: string, roomType: string | null): Promise<void> {
+  const { error } = await supabase.from('tasks').update({ room_type: roomType }).eq('id', taskId);
+  if (error) throw new Error(error.message);
+}
+
+export async function updateTaskFloorLevel(taskId: string, floorLevel: string | null): Promise<void> {
+  const { error } = await supabase.from('tasks').update({ floor_level: floorLevel }).eq('id', taskId);
+  if (error) throw new Error(error.message);
+}
+
+// "Push to Site Engineer" — the flowchart's own multi-select bulk action.
+// Sets assigned_to (already a real column elsewhere in this app) plus a
+// pushed-at/by pair, so DPR's own "Urgent" tab (fetchUrgentTasksForEngineer,
+// lib/dprEntries.ts) can pick these up regardless of the task's actual
+// scheduled date.
+export async function pushTasksUrgent(taskIds: string[], assignedTo: string, pushedBy: string | null): Promise<void> {
+  const { error } = await supabase
+    .from('tasks')
+    .update({ assigned_to: assignedTo, urgent_pushed_at: new Date().toISOString(), urgent_pushed_by: pushedBy })
+    .in('id', taskIds);
   if (error) throw new Error(error.message);
 }
 
@@ -355,6 +414,100 @@ export async function createTask(input: CreateTaskInput): Promise<FlowchartTask>
     workName: work?.name ?? 'Unassigned',
     manualPositionX: data.manual_position_x,
     manualPositionY: data.manual_position_y,
+    roomType: null,
+    floorLevel: null,
+    milestoneId: null,
+  };
+}
+
+// Duplicate an existing task — by explicit request, dates are left BLANK on
+// the copy (not carried over, since a duplicate is almost always meant for
+// a different point in the schedule), while name/department/type/
+// accountability carry over as-is. Status always resets to 'draft' (a copy
+// hasn't started, regardless of the source's current status/actual dates).
+// taskId generation matches createTask's own convention exactly — same
+// workCode + last-6-digits-of-Date.now() scheme, not a separate one invented
+// for copies. The caller (FlowchartCanvas's handleCopyTask) is responsible
+// for seeding the standard checklist afterward via fetchDependencyTemplate +
+// seedDependencyItems, same as any other freshly created task — this
+// function only creates the task row itself.
+export async function duplicateTask(sourceTaskId: string): Promise<FlowchartTask> {
+  const { data: source, error: sourceErr } = await supabase
+    .from('tasks')
+    .select(`
+      task_name, description, task_type_id, accountability_type, work_id,
+      hidden_from_flowchart, manual_position_x, manual_position_y,
+      work:works!inner(id, code)
+    `)
+    .eq('id', sourceTaskId)
+    .single();
+  if (sourceErr) throw new Error(sourceErr.message);
+  const work = Array.isArray(source.work) ? source.work[0] : source.work;
+  if (!work) throw new Error('Source task has no department to copy.');
+
+  const taskId = `${work.code}-${Date.now().toString().slice(-6)}`;
+  // Nudge the copy near the source rather than wherever safeLayout's
+  // "brand new task" fallback would stack it — only when the source itself
+  // has a real position; a source with no manual position yet just leaves
+  // the copy null too, so it gets that same standard fallback placement.
+  const hasSourcePosition = source.manual_position_x != null && source.manual_position_y != null;
+  const manualPositionX = hasSourcePosition ? source.manual_position_x + 60 : null;
+  const manualPositionY = hasSourcePosition ? source.manual_position_y + 60 : null;
+
+  const { data, error } = await supabase
+    .from('tasks')
+    .insert({
+      task_id: taskId,
+      task_name: source.task_name,
+      project_name: work.code,
+      description: source.description,
+      task_type_id: source.task_type_id,
+      accountability_type: source.accountability_type,
+      work_id: source.work_id,
+      hidden_from_flowchart: source.hidden_from_flowchart,
+      manual_position_x: manualPositionX,
+      manual_position_y: manualPositionY,
+      status: 'draft',
+      planned_start_date: null,
+      due_date: null,
+      // Task.updatedAt is `@updatedAt` in Prisma — a client-side ORM
+      // timestamp, not a Postgres column default. A direct PostgREST
+      // insert bypasses Prisma entirely, so it must be supplied explicitly
+      // (same fix as createTask's own comment above).
+      updated_at: new Date().toISOString(),
+    })
+    .select(`
+      id, task_id, task_name, description, planned_start_date, due_date,
+      actual_start_date, actual_end_date, current_planned_start_date, current_due_date,
+      cascade_delay_days, accountability_type, task_type_id, manual_position_x, manual_position_y,
+      work:works!inner(id, name, code, accountability_type, project_id)
+    `)
+    .single();
+  if (error) throw new Error(error.message);
+
+  const insertedWork = Array.isArray(data.work) ? data.work[0] : data.work;
+  return {
+    id: data.id,
+    taskId: data.task_id,
+    taskName: data.task_name,
+    description: data.description,
+    plannedStartDate: data.planned_start_date,
+    dueDate: data.due_date,
+    actualStartDate: data.actual_start_date,
+    actualEndDate: data.actual_end_date,
+    currentPlannedStartDate: data.current_planned_start_date,
+    currentDueDate: data.current_due_date,
+    cascadeDelayDays: data.cascade_delay_days,
+    accountabilityType: data.accountability_type,
+    workAccountabilityType: data.accountability_type ?? insertedWork?.accountability_type ?? null,
+    taskTypeId: data.task_type_id,
+    workId: insertedWork?.id ?? source.work_id,
+    workName: insertedWork?.name ?? 'Unassigned',
+    manualPositionX: data.manual_position_x,
+    manualPositionY: data.manual_position_y,
+    roomType: null,
+    floorLevel: null,
+    milestoneId: null,
   };
 }
 

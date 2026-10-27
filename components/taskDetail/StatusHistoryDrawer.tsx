@@ -7,6 +7,20 @@ function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
+function formatDateOnly(isoDate: string): string {
+  return new Date(`${isoDate}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// "Issue reported for Aug 5 — logged on Aug 10" — both dates shown when a
+// change was backdated, since they answer two different questions (when it
+// happened vs. when it was entered).
+function historyLine(h: StatusHistoryEntry): string {
+  const who = h.changedByName ?? 'Unknown';
+  return h.issueDate
+    ? `Issue reported for ${formatDateOnly(h.issueDate)} — logged by ${who} on ${formatDateTime(h.changedAtISO)}`
+    : `Changed by ${who} · ${formatDateTime(h.changedAtISO)}`;
+}
+
 function Chip({ status }: { status: CompletionStatus }) {
   const c = STATUS_CHIP[status];
   return (
@@ -46,7 +60,7 @@ export function StatusHistoryDrawer({
           <View className="bg-neutral-50 rounded-xl p-3 mb-3">
             <Chip status={currentStatus} />
             <Text className="text-2xs text-neutral-400 mt-1.5">
-              {latest ? `Changed by ${latest.changedByName ?? 'Unknown'} · ${formatDateTime(latest.changedAtISO)}` : 'No changes yet'}
+              {latest ? historyLine(latest) : 'No changes yet'}
             </Text>
           </View>
 
@@ -64,9 +78,7 @@ export function StatusHistoryDrawer({
                     {h.oldStatus && <Text className="text-neutral-300">→</Text>}
                     <Chip status={h.newStatus} />
                   </View>
-                  <Text className="text-2xs text-neutral-400 mt-1">
-                    {h.changedByName ?? 'Unknown'} · {formatDateTime(h.changedAtISO)}
-                  </Text>
+                  <Text className="text-2xs text-neutral-400 mt-1">{historyLine(h)}</Text>
                 </View>
               ))}
             </ScrollView>

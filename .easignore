@@ -1,0 +1,8 @@
+# Build artifacts should never be part of the EAS Build source upload —
+# they're outputs, not inputs (2026-08-15, after a stray 3.5GB file in
+# scripts/ pushed the archive past EAS's 2GB limit).
+*.apk
+*.aab
+*.rar
+*.zip
+*.ipa

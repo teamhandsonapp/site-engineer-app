@@ -14,6 +14,7 @@ import { daysSince, pendingLabel, urgencyTier, URGENCY_CLASSES } from '../../lib
 import { useDependencyCompletionsRealtime } from '../../lib/dependencyCompletionsRealtime';
 import { consumeLastViewedAlerts, isAfterViewedThreshold } from '../../lib/lastViewedAlerts';
 import { timeOfDayGreeting, firstName } from '../../lib/greeting';
+import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
 import { Card } from '../ui/Card';
 import { EmptyState } from '../ui/EmptyState';
 import { AlertCardSkeleton, ProgressCardSkeleton } from '../ui/Skeleton';
@@ -157,12 +158,13 @@ function TimelineSection({ works }: { works: TimelineWork[] }) {
 }
 
 function Toast({ toast }: { toast: { type: 'success' | 'error'; message: string } | null }) {
+  const bottom = useSafeBottomOffset(12);
   if (!toast) return null;
   const isSuccess = toast.type === 'success';
   return (
     <View
-      className="absolute left-4 right-4 bottom-6 rounded-xl px-4 py-3 flex-row items-center gap-2"
-      style={{ backgroundColor: isSuccess ? '#0F1F33' : '#DC2626', elevation: 4, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }}
+      className="absolute left-4 right-4 rounded-xl px-4 py-3 flex-row items-center gap-2"
+      style={{ bottom, backgroundColor: isSuccess ? '#0F1F33' : '#DC2626', elevation: 4, shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 2 } }}
     >
       <Ionicons name={isSuccess ? 'checkmark-circle' : 'alert-circle'} size={18} color="#fff" />
       <Text className="text-sm font-semibold text-white flex-1">{toast.message}</Text>

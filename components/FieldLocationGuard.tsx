@@ -2,9 +2,15 @@ import { Platform } from 'react-native';
 import { useEffect, useState, type ReactNode } from 'react';
 import { isFieldRole, useAuth } from '../lib/AuthContext';
 import { useProject } from '../lib/ProjectContext';
-import { hasPromptedBatteryOptimization } from '../lib/locationTracking/batteryOptimization';
+import { hasPromptedBatteryOptimization, requestIgnoreBatteryOptimizations } from '../lib/locationTracking/batteryOptimization';
+import { getDeviceManufacturer } from '../lib/locationTracking/deviceInfo';
+import { isTestModeActive } from '../lib/locationTracking/testModeConfig';
 import { useLocationGateStatus } from '../lib/locationTracking/locationGate';
 import { useBackgroundPermissionState } from '../lib/locationTracking/backgroundPermissionFlow';
+import {
+  getMandatoryChecklist,
+  hasCompletedManufacturerChecklist,
+} from '../lib/locationTracking/manufacturerChecklist';
 import { useShiftState } from '../lib/locationTracking/shiftState';
 import { useTrackingStatus } from '../lib/locationTracking/trackingStatus';
 import { useFieldLocationTracking } from '../lib/locationTracking/useFieldLocationTracking';
@@ -13,6 +19,7 @@ import { LocationBlockScreen } from './LocationBlockScreen';
 import { BackgroundLocationExplainer } from './BackgroundLocationExplainer';
 import { BackgroundLocationBanner } from './BackgroundLocationBanner';
 import { BatteryOptimizationPrompt } from './BatteryOptimizationPrompt';
+import { ManufacturerChecklistGate } from './ManufacturerChecklistGate';
 import { TrackingDegradedBanner } from './TrackingDegradedBanner';
 
 // The one mounting point for every part of the site-engineer location
@@ -59,6 +66,40 @@ export function FieldLocationGuard({ children }: { children: ReactNode }) {
       setBatteryPromptChecked(true);
     });
   }, [isField]);
+
+  // TEMPORARY (pre-launch 3-day test mode, see testModeConfig.ts's own
+  // TEST_MODE_ALWAYS_TRACK comment) — fires the real system exemption
+  // dialog on EVERY login while test mode is active, regardless of
+  // whether the one-time prompt above was already answered before.
+  // Testers shouldn't be relying only on having manually done this once —
+  // the OS (or the tester) can silently re-enable optimization later, and
+  // this re-asks every time rather than waiting for someone to notice
+  // tracking degraded first. No-ops entirely (never fires) once
+  // TEST_MODE_ALWAYS_TRACK is false — delete this effect at that point,
+  // the permanent one-time prompt above already covers normal, non-test
+  // behavior on its own.
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !isField || !isTestModeActive()) return;
+    requestIgnoreBatteryOptimizations().catch(() => {});
+  }, [isField]);
+
+  // Chained right after the generic Android battery-optimization step —
+  // mandatory (no "not now") specifically for the worst-offender
+  // manufacturers (see manufacturerChecklist.ts), since those are known to
+  // silently break tracking entirely rather than just degrade it. null
+  // checklist (a non-problem manufacturer, or web/iOS) means this step is
+  // skipped outright, same "ask once" persisted-flag pattern as the battery
+  // prompt above.
+  const manufacturerChecklist = Platform.OS === 'android' ? getMandatoryChecklist(getDeviceManufacturer()) : null;
+  const [checklistChecked, setChecklistChecked] = useState(false);
+  const [checklistDone, setChecklistDone] = useState(false);
+  useEffect(() => {
+    if (!manufacturerChecklist || !isField) return;
+    hasCompletedManufacturerChecklist().then((already) => {
+      setChecklistDone(already);
+      setChecklistChecked(true);
+    });
+  }, [isField, manufacturerChecklist]);
 
   // Return value intentionally unused here — background tracking no longer
   // depends on manual clock-in/out at all, so nothing in this component
@@ -107,6 +148,30 @@ export function FieldLocationGuard({ children }: { children: ReactNode }) {
     !batteryPromptDone
   ) {
     return <BatteryOptimizationPrompt onDone={() => setBatteryPromptDone(true)} />;
+  }
+
+  // Chained right after the generic battery-optimization step — mandatory
+  // (no skip) specifically for known worst-offender manufacturers. Waits
+  // for both the battery prompt AND its own persisted-flag check to
+  // resolve first, same "don't flash while still reading AsyncStorage"
+  // reasoning as batteryPromptChecked above.
+  if (
+    Platform.OS === 'android' &&
+    isField &&
+    profile &&
+    manufacturerChecklist &&
+    batteryPromptChecked &&
+    batteryPromptDone &&
+    checklistChecked &&
+    !checklistDone
+  ) {
+    return (
+      <ManufacturerChecklistGate
+        checklist={manufacturerChecklist}
+        userId={profile.id}
+        onDone={() => setChecklistDone(true)}
+      />
+    );
   }
 
   // At most one banner at a time: the urgent, window-scoped one (Point 9)

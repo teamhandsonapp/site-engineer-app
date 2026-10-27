@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { DayTrailMap, type DayTrailMapHandle } from './DayTrailMap';
 import { Card } from './ui/Card';
+import { gapLabel } from '../lib/trackingGaps';
 import {
   fetchDayTimeline,
   TIMELINE_EVENT_COLORS,
@@ -112,11 +113,38 @@ export const DayTimelineView = forwardRef<DayTimelineViewHandle, Props>(function
       <View className="mb-4">
         <DayTrailMap
           ref={mapRef}
-          timeline={timeline ?? { trail: [], events: [], leavePeriods: [], siteLocation: null, restrictedZones: [] }}
+          timeline={timeline ?? { trail: [], gaps: [], events: [], leavePeriods: [], siteLocation: null, restrictedZones: [] }}
           selectedEventId={selectedEventId}
           onMarkerPress={handleMarkerPress}
         />
       </View>
+
+      {/* Tracking gaps (lib/trackingGaps.ts) — listed first so a silent
+          hole is noticed before the normal events around it. Tapping one
+          jumps the map to it and shows the same label as tapping the
+          dashed segment itself. */}
+      {timeline && timeline.gaps.length > 0 && (
+        <View className="mb-3">
+          {timeline.gaps.map((gap) => (
+            <Pressable key={gap.id} onPress={() => mapRef.current?.showGap(gap.id)}>
+              <Card accentColor="#DC2626" className="mb-2.5 flex-row items-center gap-3">
+                <View className="w-7 h-7 rounded-full items-center justify-center bg-red-50">
+                  <Ionicons name="cloud-offline-outline" size={15} color="#DC2626" />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-sm font-semibold text-neutral-800">{gapLabel(gap)}</Text>
+                  <Text className="text-xs text-neutral-400 mt-0.5">
+                    {gap.source === 'watcher'
+                      ? 'Phone stopped reporting — detected by the server'
+                      : 'No location received between these two points'}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={14} color="#D1D5DB" />
+              </Card>
+            </Pressable>
+          ))}
+        </View>
+      )}
 
       {!timeline || timeline.events.length === 0 ? (
         <Text className="text-sm text-neutral-400">{emptyLabel}</Text>

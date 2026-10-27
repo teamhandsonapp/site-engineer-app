@@ -133,6 +133,8 @@ export class OutsideSiteRadiusError extends Error {
 // radius is now a hard block (see recordAttendance below), not just a flag
 // — confirmed as the intended behavior despite the tradeoff that testing
 // this from off-site now requires a mock-location app.
+const LOCATION_DISABLED = true;
+
 async function captureAttendanceLocation(projectId: string | null): Promise<AttendanceCapture> {
   const empty: AttendanceCapture = {
     latitude: null,
@@ -144,6 +146,10 @@ async function captureAttendanceLocation(projectId: string | null): Promise<Atte
     flagReason: null,
     mockLocationSuspected: null,
   };
+
+  // Location removed from the app entirely, by explicit request — check-in/
+  // out records no location and never asks for the permission.
+  if (LOCATION_DISABLED) return empty;
 
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
@@ -266,7 +272,25 @@ export interface RecordAttendanceResult {
   accuracyMeters: number | null;
 }
 
+// Confirmed live (real attendance_records data, 2026-08-14): a check-in
+// was recorded with project_id NULL and coordinates in a different city
+// entirely from the actual project site — not a geofencing bug, geofencing
+// never ran at all. captureAttendanceLocation below (and the DB's own
+// enforce_attendance_site_radius trigger, same reasoning) both correctly
+// skip the distance check when projectId is null — a deliberate "distance
+// check, not a location-required check" fallback — but nothing upstream
+// of that ever required a project to be selected before allowing a
+// check-in/out in the first place, so a screen that happens to render
+// with no project selected yet (or a persisted selection that got lost)
+// silently produces a real attendance row with zero geofence enforcement
+// applied. Blocking here — not just relying on the UI to disable the
+// button — is the same "backend guard closes what a UI-only check can't"
+// reasoning assertValidSessionTransition's own comment already uses.
 export async function recordAttendance(userId: string, projectId: string | null, type: AttendanceType): Promise<RecordAttendanceResult> {
+  if (!projectId) {
+    throw new AttendanceSessionError('Select a project before you can check in or out — location can\'t be verified without one.');
+  }
+
   assertValidSessionTransition(await fetchTodaysAttendance(userId), type);
 
   const capture = await captureAttendanceLocation(projectId);

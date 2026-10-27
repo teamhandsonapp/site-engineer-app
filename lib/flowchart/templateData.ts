@@ -1,5 +1,5 @@
 import { supabase } from '../supabase';
-import type { RelationshipType } from './types';
+import type { AccountabilityType, RelationshipType } from './types';
 import type {
   PositionedTemplateTask,
   TemplateMeta,
@@ -19,7 +19,11 @@ interface RawTemplateTaskRow {
   sort_order: number;
   position_x: number | null;
   position_y: number | null;
+  accountability_type: AccountabilityType | null;
 }
+
+const TEMPLATE_TASK_SELECT =
+  'id, track_label, task_name, work_name, day_offset_start, day_offset_end, sort_order, position_x, position_y, accountability_type';
 
 function toTemplateTask(r: RawTemplateTaskRow): TemplateTask {
   return {
@@ -32,6 +36,7 @@ function toTemplateTask(r: RawTemplateTaskRow): TemplateTask {
     sortOrder: r.sort_order,
     manualPositionX: r.position_x,
     manualPositionY: r.position_y,
+    accountabilityType: r.accountability_type,
   };
 }
 
@@ -53,18 +58,19 @@ export async function fetchFlowchartTemplates(): Promise<TemplateSummary[]> {
     .map((t) => ({ id: t.id, name: t.name, description: t.description, createdAt: t.created_at, taskCount: t.template_tasks?.length ?? 0 }));
 }
 
-// Creates the shell row and returns its id — the canvas screen navigates
-// straight here for a brand-new template (no name/description prompt up
-// front; both are editable inline once you're on the canvas, same as how a
-// new flowchart task itself has no separate "name the flowchart" step).
-export async function createTemplateShell(createdBy: string | null): Promise<TemplateMeta> {
+// Creates the shell row and returns its id — the caller (the Templates
+// list screen) prompts for a required name up front now, so `name` here is
+// always a real, non-empty value, never the old 'Untitled Template'
+// fallback (that fallback still exists on updateTemplateInfo below, for a
+// RENAME blanked out after the fact, which is a different situation).
+export async function createTemplateShell(createdBy: string | null, name: string): Promise<TemplateMeta> {
   const { data, error } = await supabase
     .from('flowchart_templates')
-    .insert({ name: 'Untitled Template', description: null, created_by: createdBy })
-    .select('id, name, description')
+    .insert({ name: name.trim(), description: null, created_by: createdBy })
+    .select('id, name, description, created_at')
     .single();
   if (error) throw new Error(error.message);
-  return { id: data.id, name: data.name, description: data.description };
+  return { id: data.id, name: data.name, description: data.description, createdAt: data.created_at };
 }
 
 export async function updateTemplateInfo(templateId: string, name: string, description: string | null): Promise<void> {
@@ -89,10 +95,10 @@ export interface TemplateEditorData {
 
 export async function fetchTemplateForEditing(templateId: string): Promise<TemplateEditorData> {
   const [templateRes, tasksRes, linksRes] = await Promise.all([
-    supabase.from('flowchart_templates').select('id, name, description').eq('id', templateId).single(),
+    supabase.from('flowchart_templates').select('id, name, description, created_at').eq('id', templateId).single(),
     supabase
       .from('template_tasks')
-      .select('id, track_label, task_name, work_name, day_offset_start, day_offset_end, sort_order, position_x, position_y')
+      .select(TEMPLATE_TASK_SELECT)
       .eq('template_id', templateId)
       .order('sort_order', { ascending: true }),
     supabase
@@ -115,7 +121,12 @@ export async function fetchTemplateForEditing(templateId: string): Promise<Templ
     .map((l) => ({ id: l.id, taskAId: l.from_template_task_id, taskBId: l.to_template_task_id }));
 
   return {
-    meta: { id: templateRes.data.id, name: templateRes.data.name, description: templateRes.data.description },
+    meta: {
+      id: templateRes.data.id,
+      name: templateRes.data.name,
+      description: templateRes.data.description,
+      createdAt: templateRes.data.created_at,
+    },
     tasks,
     seriesEdges,
     parallelEdges,
@@ -128,6 +139,7 @@ export interface TemplateTaskFields {
   workName: string;
   dayOffsetStart: number;
   dayOffsetEnd: number;
+  accountabilityType: AccountabilityType | null;
 }
 
 export async function createTemplateTask(
@@ -145,8 +157,9 @@ export async function createTemplateTask(
       day_offset_start: input.dayOffsetStart,
       day_offset_end: input.dayOffsetEnd,
       sort_order: existingCount,
+      accountability_type: input.accountabilityType,
     })
-    .select('id, track_label, task_name, work_name, day_offset_start, day_offset_end, sort_order, position_x, position_y')
+    .select(TEMPLATE_TASK_SELECT)
     .single();
   if (error) throw new Error(error.message);
   return toTemplateTask(data as RawTemplateTaskRow);
@@ -161,6 +174,7 @@ export async function updateTemplateTaskFields(templateTaskId: string, input: Te
       work_name: input.workName.trim(),
       day_offset_start: input.dayOffsetStart,
       day_offset_end: input.dayOffsetEnd,
+      accountability_type: input.accountabilityType,
     })
     .eq('id', templateTaskId);
   if (error) throw new Error(error.message);

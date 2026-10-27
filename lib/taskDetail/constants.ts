@@ -3,13 +3,24 @@
 // same enums/labels/colors/order, so a checklist looks and behaves
 // identically regardless of which app you're looking at it from.
 
-export type DependencyCategory = 'architect' | 'client' | 'consultant' | 'contractor' | 'procurement' | 'quantity';
+// quality_pre_construction/quality_construction/quality_post_construction
+// (admin-web's add-quality-of-work-categories.sql) are three real
+// categories grouped under one shared "Quality of Work" UI heading in this
+// screen (app/checklist-templates/[type].tsx) — the heading itself isn't a
+// stored value, only these three are, same flat category->items model as
+// every other category.
+export type DependencyCategory =
+  | 'architect' | 'client' | 'consultant' | 'contractor' | 'procurement' | 'quantity'
+  | 'quality_pre_construction' | 'quality_construction' | 'quality_post_construction';
 
-// 'inspector' is a 7th value that still technically exists in the Postgres
+// 'inspector' is an 8th value that still technically exists in the Postgres
 // enum but is formally retired (its one item moved under 'procurement') —
 // admin-web's own CATEGORIES list omits it everywhere it actually renders,
 // same here.
-export const CATEGORIES: DependencyCategory[] = ['architect', 'client', 'consultant', 'contractor', 'procurement', 'quantity'];
+export const CATEGORIES: DependencyCategory[] = [
+  'architect', 'client', 'consultant', 'contractor', 'procurement', 'quantity',
+  'quality_pre_construction', 'quality_construction', 'quality_post_construction',
+];
 
 export const CATEGORY_LABEL: Record<DependencyCategory, string> = {
   architect: 'Architect',
@@ -18,6 +29,9 @@ export const CATEGORY_LABEL: Record<DependencyCategory, string> = {
   contractor: 'Contractor',
   procurement: 'Procurement/Vendor',
   quantity: 'Quantity of Work',
+  quality_pre_construction: 'Pre Construction',
+  quality_construction: 'Construction',
+  quality_post_construction: 'Post Construction',
 };
 
 // Same short letter badge as admin-web's ChecklistCard header (CAT_LETTER
@@ -30,6 +44,9 @@ export const CATEGORY_LETTER: Record<DependencyCategory, string> = {
   contractor: 'Cr',
   procurement: 'P',
   quantity: 'Q',
+  quality_pre_construction: 'Pr',
+  quality_construction: 'Cn',
+  quality_post_construction: 'Po',
 };
 
 export const CATEGORY_COLORS: Record<DependencyCategory, { border: string; bg: string; text: string; badge: string; dot: string }> = {
@@ -39,6 +56,9 @@ export const CATEGORY_COLORS: Record<DependencyCategory, { border: string; bg: s
   contractor:  { border: '#7C3AED', bg: '#F5F3FF', text: '#6D28D9', badge: '#DDD6FE', dot: '#8B5CF6' },
   procurement: { border: '#B45309', bg: '#FFF7ED', text: '#9A3412', badge: '#FED7AA', dot: '#F97316' },
   quantity:    { border: '#BE185D', bg: '#FDF2F8', text: '#9D174D', badge: '#FBCFE8', dot: '#EC4899' },
+  quality_pre_construction:  { border: '#0D9488', bg: '#F0FDFA', text: '#0F766E', badge: '#99F6E4', dot: '#14B8A6' },
+  quality_construction:      { border: '#1D4ED8', bg: '#EFF6FF', text: '#1E40AF', badge: '#BFDBFE', dot: '#3B82F6' },
+  quality_post_construction: { border: '#475569', bg: '#F8FAFC', text: '#334155', badge: '#CBD5E1', dot: '#64748B' },
 };
 
 export type CompletionStatus = 'YES' | 'NO' | 'ON_HOLD' | 'PENDING' | 'REVISIONS' | 'PROCEED';
@@ -101,6 +121,53 @@ export const DRAWING_REVISION_ITEMS: { category: DependencyCategory; itemLabel: 
 
 export function hasDrawingRevisions(category: DependencyCategory, itemLabel: string): boolean {
   return DRAWING_REVISION_ITEMS.some((d) => d.category === category && d.itemLabel === itemLabel);
+}
+
+// The approval-side counterpart to DRAWING_REVISION_ITEMS above — the 4
+// real, already-seeded 'client'-category items this was requested for
+// (confirmed live against dependency_items, not guessed). Each submit-and-
+// decide round gets the next sequential A1/A2/... number, same pattern as
+// drawing revisions' R1/R2/....
+export const APPROVAL_TRACKING_ITEMS: { category: DependencyCategory; itemLabel: string }[] = [
+  { category: 'client', itemLabel: 'Contractor Approval' },
+  { category: 'client', itemLabel: 'Design Approval' },
+  { category: 'client', itemLabel: 'Equipment Approval' },
+  { category: 'client', itemLabel: 'Material Approval' },
+];
+
+export function hasApprovalTracking(category: DependencyCategory, itemLabel: string): boolean {
+  return APPROVAL_TRACKING_ITEMS.some((a) => a.category === category && a.itemLabel === itemLabel);
+}
+
+export type ApprovalOutcome = 'APPROVED' | 'REJECTED';
+
+// Client + Architect + Consultant input, 7 days each, always all 3 added in
+// full regardless of the task's AC/AV classification (explicit choice — no
+// skipping Consultant for AC tasks or Architect for AV tasks here). Added
+// on top of the task's own Procurement Duration Type (task_types.
+// default_duration_days) to get the real total lead time before the task's
+// planned start date. Mirrored as a plain constant in
+// admin-web/prisma/add-procurement-lead-time-alerts.sql for the server-side
+// notification cron (a SQL function can't import this file) — keep both in
+// sync by hand if this ever changes, same convention as this app's other
+// mirrored-constant comments (e.g. TRACKING_END_MINUTES).
+export const PROCUREMENT_INPUT_PRESET_DAYS = 21;
+
+export interface ProcurementLeadTime {
+  totalLeadTimeDays: number;
+  startByISODate: string; // 'YYYY-MM-DD' — the calendar day the whole chain needs to begin
+}
+
+// referenceStartISODate is the task's LIVE planned start (current_planned_
+// start_date if a cascade has touched it, else the original planned_start_
+// date) — scheduling procurement against a stale original commitment once
+// an upstream delay has already pushed the real start back would be
+// scheduling against a date that's no longer true.
+export function computeProcurementLeadTime(procurementTypeDurationDays: number, referenceStartISODate: string): ProcurementLeadTime {
+  const totalLeadTimeDays = procurementTypeDurationDays + PROCUREMENT_INPUT_PRESET_DAYS;
+  const start = new Date(referenceStartISODate + 'T00:00:00Z');
+  const startBy = new Date(start.getTime() - totalLeadTimeDays * 24 * 60 * 60 * 1000);
+  return { totalLeadTimeDays, startByISODate: startBy.toISOString().slice(0, 10) };
 }
 
 export const MAX_DRAWING_REVISIONS = 5;

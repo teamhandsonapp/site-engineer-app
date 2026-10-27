@@ -231,7 +231,7 @@ TaskManager.defineTask(GEOFENCE_TASK, async ({ data, error }) => {
   // a transition that arrives after the scheduled end but before that next
   // tick runs is rejected here too, rather than processed and then only
   // caught retroactively.
-  if (!(await isWithinScheduledShiftWindow(session.projectId))) return;
+  if (!(await isWithinScheduledShiftWindow(session.projectId, session.userId))) return;
 
   const parts = identifier.split(':');
   const ring = parts[parts.length - 1]; // 'inner' | 'outer'

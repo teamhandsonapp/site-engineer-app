@@ -18,6 +18,7 @@ import { useProject } from '../../lib/ProjectContext';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { formatDateLabel, formatTime12h } from '../../lib/formatTime';
+import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
 
 // New admin tab — a rollup of every "Leave" event across every engineer and
 // project, so admin doesn't have to open each engineer's own day-timeline
@@ -96,6 +97,10 @@ interface FilterModalProps {
 }
 
 function FilterModal({ visible, onClose, engineers, projects, filters, onApply }: FilterModalProps) {
+  // Clear all / Apply is a persistent footer bar sitting at the very
+  // bottom of this pageSheet Modal — same shape (and same clipping risk)
+  // as DrawerContent.tsx's Logout footer.
+  const footerBottomPadding = useSafeBottomOffset(12);
   const [engineerSearch, setEngineerSearch] = useState('');
   const [draft, setDraft] = useState<LeaveLogFilters>(filters);
   const [showFromPicker, setShowFromPicker] = useState(false);
@@ -224,7 +229,7 @@ function FilterModal({ visible, onClose, engineers, projects, filters, onApply }
           </FilterSection>
         </ScrollView>
 
-        <View className="flex-row gap-2 px-4 py-3 border-t border-neutral-100 bg-white">
+        <View className="flex-row gap-2 px-4 pt-3 border-t border-neutral-100 bg-white" style={{ paddingBottom: footerBottomPadding }}>
           <Pressable onPress={handleClearAll} className="flex-1 items-center py-3 rounded-xl bg-neutral-100">
             <Text className="text-sm font-semibold text-neutral-600">Clear all</Text>
           </Pressable>

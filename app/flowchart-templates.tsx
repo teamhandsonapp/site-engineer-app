@@ -1,17 +1,66 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { router, Stack, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { appRoleFor, useAuth } from '../lib/AuthContext';
 import { fetchFlowchartTemplates, type TemplateSummary } from '../lib/flowchart/templates';
 import { createTemplateShell, deleteFlowchartTemplate } from '../lib/flowchart/templateData';
+import { formatDateTimeLabel } from '../lib/formatTime';
 import { Card } from '../components/ui/Card';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { TaskActionMenu } from '../components/flowchart/TaskActionMenu';
 
-function formatShortDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+// A required name, asked for up front — replaces the old "create an
+// 'Untitled Template' immediately, rename later" flow. Its own small modal
+// rather than folding into TaskActionMenu/ConfirmDialog since neither of
+// those has a text input slot.
+function CreateTemplateModal({
+  creating,
+  onCancel,
+  onConfirm,
+}: {
+  creating: boolean;
+  onCancel: () => void;
+  onConfirm: (name: string) => void;
+}) {
+  const [name, setName] = useState('');
+  const trimmed = name.trim();
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
+      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onCancel}>
+        <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 400 }}>
+          <Card>
+            <Text className="text-sm font-bold text-neutral-900 mb-3">Name this template</Text>
+            <TextInput
+              value={name}
+              onChangeText={setName}
+              placeholder="e.g. Foundation Sequence"
+              autoFocus
+              editable={!creating}
+              className="border border-neutral-200 rounded-lg px-3 py-2 text-sm text-neutral-900 mb-1"
+            />
+            <Text className="text-2xs text-neutral-400 mb-3">Required — you can rename it later from its own canvas.</Text>
+            <View className="flex-row justify-end gap-2">
+              <Pressable onPress={onCancel} disabled={creating} className="px-3 py-1.5 rounded-lg bg-neutral-100">
+                <Text className="text-xs font-semibold text-neutral-600">Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => onConfirm(trimmed)}
+                disabled={!trimmed || creating}
+                className="px-3 py-1.5 rounded-lg bg-brand-navy flex-row items-center gap-1.5"
+                style={{ opacity: !trimmed || creating ? 0.5 : 1 }}
+              >
+                {creating && <ActivityIndicator size="small" color="#fff" />}
+                <Text className="text-xs font-semibold text-white">Create</Text>
+              </Pressable>
+            </View>
+          </Card>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
 }
 
 // A tap opens an Open/Edit/Delete menu (same TaskActionMenu the canvas
@@ -30,7 +79,7 @@ function TemplateRow({ template, onPress }: { template: TemplateSummary; onPress
               <Text className="text-xs text-neutral-500 mt-0.5" numberOfLines={2}>{template.description}</Text>
             )}
             <Text className="text-2xs text-neutral-400 mt-1.5">
-              {template.taskCount} task{template.taskCount === 1 ? '' : 's'} · saved {formatShortDate(template.createdAt)}
+              {template.taskCount} task{template.taskCount === 1 ? '' : 's'} · created {formatDateTimeLabel(new Date(template.createdAt))}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
@@ -53,6 +102,7 @@ export default function FlowchartTemplatesScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [nameModalOpen, setNameModalOpen] = useState(false);
   const [actionMenuTemplateId, setActionMenuTemplateId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -79,10 +129,11 @@ export default function FlowchartTemplatesScreen() {
 
   const profile = state.status === 'signed-in' ? state.profile : null;
 
-  async function handleCreateTemplate() {
+  async function handleConfirmCreateTemplate(name: string) {
     setCreating(true);
     try {
-      const shell = await createTemplateShell(profile?.id ?? null);
+      const shell = await createTemplateShell(profile?.id ?? null, name);
+      setNameModalOpen(false);
       router.push(`/flowchart-templates/canvas/${shell.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create a new template');
@@ -123,12 +174,10 @@ export default function FlowchartTemplatesScreen() {
 
       <View className="px-4 pt-4">
         <Pressable
-          onPress={handleCreateTemplate}
-          disabled={creating}
+          onPress={() => setNameModalOpen(true)}
           className="flex-row items-center justify-center gap-1.5 bg-brand-navy rounded-xl py-3 mb-1"
-          style={{ opacity: creating ? 0.6 : 1 }}
         >
-          {creating ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="add" size={16} color="#ffffff" />}
+          <Ionicons name="add" size={16} color="#ffffff" />
           <Text className="text-sm font-bold text-white">Create Template</Text>
         </Pressable>
       </View>
@@ -173,6 +222,14 @@ export default function FlowchartTemplatesScreen() {
           editIcon="rocket-outline"
           onDelete={() => { setActionMenuTemplateId(null); setDeleteConfirmId(actionMenuTemplate.id); }}
           onCancel={() => setActionMenuTemplateId(null)}
+        />
+      )}
+
+      {nameModalOpen && (
+        <CreateTemplateModal
+          creating={creating}
+          onCancel={() => setNameModalOpen(false)}
+          onConfirm={handleConfirmCreateTemplate}
         />
       )}
 

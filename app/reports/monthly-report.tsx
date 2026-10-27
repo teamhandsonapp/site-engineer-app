@@ -9,10 +9,17 @@ import {
   defaultMonthRange,
   shiftMonth,
   monthLabel,
+  utcMonthStartKey,
+  utcMonthEndKey,
   type MonthRange,
   type MonthlyReportData,
 } from '../../lib/reports/monthlyReport';
+import { ReportProjectPicker } from '../../components/reports/ReportProjectPicker';
 import { ReportSection } from '../../components/reports/ReportSection';
+import { RangeReportList } from '../../components/reports/RangeReportList';
+import { RangeDebugPanel } from '../../components/reports/RangeDebugPanel';
+import { SHOW_DEBUG_PARAM_CHECK } from '../../lib/debug/taskReportParamCheck';
+import { fetchRangeTaskReport, type RangeTaskRow } from '../../lib/reports/rangeTaskReport';
 import { BarChart } from '../../components/reports/charts/BarChart';
 import { ProgressRing } from '../../components/ui/ProgressRing';
 import { Card } from '../../components/ui/Card';
@@ -117,6 +124,7 @@ export default function MonthlyReportScreen() {
 
   const [range, setRange] = useState<MonthRange>(defaultMonthRange());
   const [data, setData] = useState<MonthlyReportData | null>(null);
+  const [rangeRows, setRangeRows] = useState<RangeTaskRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -125,7 +133,13 @@ export default function MonthlyReportScreen() {
     try {
       setError(null);
       setLoading(true);
-      setData(await fetchMonthlyReportData(selectedProjectId, range));
+      const dateRange = { from: utcMonthStartKey(range.year, range.month), to: utcMonthEndKey(range.year, range.month) };
+      const [monthly, rows] = await Promise.all([
+        fetchMonthlyReportData(selectedProjectId, range),
+        fetchRangeTaskReport(selectedProjectId, dateRange),
+      ]);
+      setData(monthly);
+      setRangeRows(rows);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -140,16 +154,13 @@ export default function MonthlyReportScreen() {
   if (state.status !== 'signed-in') {
     return <Redirect href="/login" />;
   }
-  if (!selectedProjectId) {
-    return <Redirect href="/home" />;
-  }
 
   return (
     <View className="flex-1 bg-neutral-50">
       <Stack.Screen
         options={{
           headerShown: true,
-          title: 'Monthly Report',
+          title: 'Monthly Status',
           headerStyle: { backgroundColor: '#0F1F33' },
           headerTintColor: '#fff',
           headerTitleStyle: { fontWeight: '600' },
@@ -157,26 +168,40 @@ export default function MonthlyReportScreen() {
       />
 
       <ScrollView contentContainerClassName="px-4 pt-4 pb-10">
-        <MonthPickerBar range={range} onChange={setRange} />
+        <ReportProjectPicker />
 
-        {loading ? (
-          <View className="items-center py-10">
-            <ActivityIndicator color="#0F1F33" />
-          </View>
-        ) : error ? (
-          <View className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-3">
-            <Text className="text-sm text-red-600 mb-2.5">{error}</Text>
-            <Pressable onPress={load} className="self-start px-3.5 py-1.5 rounded-lg bg-white border border-red-200">
-              <Text className="text-xs font-semibold text-red-600">Retry</Text>
-            </Pressable>
-          </View>
-        ) : !data ? (
-          <EmptyState icon="bar-chart-outline" iconColor="#9CA3AF" title="No tasks in this project yet" />
+        {!selectedProjectId ? (
+          <EmptyState icon="bar-chart-outline" iconColor="#9CA3AF" title="Select a project" subtitle="Pick a project above to generate its monthly report." />
         ) : (
           <>
-            <DelaySection title="Delay By Department" data={data.delayByDepartment} emptyLabel="No tasks due this month." />
-            <DelaySection title="Delay By Person" data={data.delayByPerson} emptyLabel="No tasks due this month." />
-            <QuantitySection quantity={data.quantity} />
+            <MonthPickerBar range={range} onChange={setRange} />
+
+            {!loading && !error && SHOW_DEBUG_PARAM_CHECK && <RangeDebugPanel rows={rangeRows} />}
+
+            {loading ? (
+              <View className="items-center py-10">
+                <ActivityIndicator color="#0F1F33" />
+              </View>
+            ) : error ? (
+              <View className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-3">
+                <Text className="text-sm text-red-600 mb-2.5">{error}</Text>
+                <Pressable onPress={load} className="self-start px-3.5 py-1.5 rounded-lg bg-white border border-red-200">
+                  <Text className="text-xs font-semibold text-red-600">Retry</Text>
+                </Pressable>
+              </View>
+            ) : !data ? (
+              <EmptyState icon="bar-chart-outline" iconColor="#9CA3AF" title="No tasks in this project yet" />
+            ) : (
+              <>
+                <DelaySection title="Delay By Department" data={data.delayByDepartment} emptyLabel="No tasks due this month." />
+                <DelaySection title="Delay By Person" data={data.delayByPerson} emptyLabel="No tasks due this month." />
+                <QuantitySection quantity={data.quantity} />
+
+                <ReportSection title="Task-Level Detail (by department)">
+                  <RangeReportList rows={rangeRows} />
+                </ReportSection>
+              </>
+            )}
           </>
         )}
       </ScrollView>

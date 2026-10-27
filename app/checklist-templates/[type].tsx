@@ -225,7 +225,13 @@ export default function ChecklistTemplateTypeScreen() {
             const shared = cat !== 'consultant' && cat !== 'procurement';
 
             return (
-              <Card key={cat} accentColor={colors.dot} className="mt-3.5 p-0 overflow-hidden">
+              <View key={cat}>
+                {cat === 'quality_pre_construction' && (
+                  <Text className="text-xs font-bold uppercase tracking-wide text-neutral-400 mt-6 mb-1 px-1">
+                    Quality of Work
+                  </Text>
+                )}
+                <Card accentColor={colors.dot} className="mt-3.5 p-0 overflow-hidden">
                 <View className="flex-row items-center justify-between px-3.5 py-3">
                   <View className="flex-row items-center gap-2">
                     <View className="w-6 h-6 rounded-full items-center justify-center" style={{ backgroundColor: colors.dot }}>
@@ -261,7 +267,8 @@ export default function ChecklistTemplateTypeScreen() {
                     <Text className="text-xs font-semibold text-brand-navy">Add item…</Text>
                   </Pressable>
                 </View>
-              </Card>
+                </Card>
+              </View>
             );
           })}
         </ScrollView>

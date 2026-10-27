@@ -6,7 +6,8 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "autoIncrement": true
     },
     "preview": {
       "distribution": "internal",
@@ -20,12 +21,27 @@
     },
     "production": {
       "autoIncrement": true,
+      "android": {
+        "autoIncrement": true
+      },
       "env": {
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "android": {
+        "serviceAccountKeyPath": "./secrets/google-play-service-account.json",
+        "track": "internal"
+      },
+      "ios": {
+        "appleTeamId": "BS62XTY4H3",
+        "ascAppId": "6812192263",
+        "ascApiKeyPath": "./secrets/AuthKey_LZ26LYW88T.p8",
+        "ascApiKeyIssuerId": "9c24226d-6940-4cfc-bc68-c7ee2071f2c3",
+        "ascApiKeyId": "LZ26LYW88T"
+      }
+    }
   }
 }

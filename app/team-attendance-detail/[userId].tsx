@@ -4,8 +4,10 @@ import { Stack, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import {
   fetchEngineerDailyAttendance,
+  fetchLiveTrackingStatus,
   type AttendanceSession,
   type DailyAttendanceRecord,
+  type LiveTrackingStatus,
   type LocationDisabledEpisode,
   type RedZoneEntryEpisode,
 } from '../../lib/attendanceReview';
@@ -18,9 +20,14 @@ import {
 import { useAttendanceRealtime } from '../../lib/attendanceRealtime';
 import { Card } from '../../components/ui/Card';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
+import { PulsingDot } from '../../components/ui/PulsingDot';
 import { DayTimelineView, type DayTimelineViewHandle } from '../../components/DayTimelineView';
 import { useProject } from '../../lib/ProjectContext';
-import { formatDateLabel, formatTime12h, formatTimeRange12h } from '../../lib/formatTime';
+import { fetchProjectSettings } from '../../lib/projectSettings';
+import { formatDateLabel, formatDateTimeLabel, formatTime12h, formatTimeRange12h } from '../../lib/formatTime';
+import { computeTrackingHealth, type TrackingHealthLevel } from '../../lib/trackingHealth';
+import { isDemoEngineerId } from '../../lib/demoAttendance';
+import { DemoEngineerDetail } from '../../components/team/DemoEngineerDetail';
 
 function deviceLabel(manufacturer: string | null, model: string | null): string | null {
   if (!manufacturer && !model) return null;
@@ -48,16 +55,30 @@ function LocationLink({ latitude, longitude, label }: { latitude: number; longit
   );
 }
 
+// The "real reason" behind a tracking gap — 'no_heartbeat' is the newest
+// entry here (supabase/tracking-silence-watcher.sql's server-side silence
+// detector, for whatever OS-level cause stopped the device reporting
+// entirely — a killed background service, force-stop, dead battery,
+// airplane mode — the app can't tell which, only that it went silent).
+const DISABLED_REASON_LABEL: Record<string, string> = {
+  gps_disabled: 'GPS turned off',
+  background_permission: 'Background location revoked',
+  no_heartbeat: "Stopped reporting — phone likely killed the app",
+  services: 'Location services turned off',
+  permission: 'Location permission revoked',
+};
+
 function LocationDisabledRow({ episode }: { episode: LocationDisabledEpisode }) {
-  const reasonLabel = episode.reason === 'gps_disabled' ? 'GPS turned off' : 'Background location revoked';
+  const reasonLabel = DISABLED_REASON_LABEL[episode.reason] ?? episode.reason;
+  const stillOpenLabel = episode.reason === 'no_heartbeat' ? 'Still silent' : 'Still off';
   return (
     <View className="flex-row items-center justify-between py-1.5">
       <View className="flex-row items-center gap-1.5 flex-1">
         <Ionicons name="location-outline" size={13} color="#B45309" />
-        <Text className="text-xs text-amber-800 flex-1">{reasonLabel} at {formatTime12h(episode.disabledAt)}</Text>
+        <Text className="text-xs text-amber-800 flex-1">{reasonLabel} at {formatDateTimeLabel(episode.disabledAt)}</Text>
       </View>
       <Text className="text-2xs font-bold" style={{ color: episode.enabledAt ? '#166534' : '#B45309' }}>
-        {episode.enabledAt ? `Back on at ${formatTime12h(episode.enabledAt)}` : 'Still off'}
+        {episode.enabledAt ? `Back on at ${formatDateTimeLabel(episode.enabledAt)}` : stillOpenLabel}
       </Text>
     </View>
   );
@@ -103,25 +124,32 @@ function SessionRow({ session, nowMs }: { session: AttendanceSession; nowMs: num
   );
 }
 
-// Distinct from the "On shift"/"Off shift" pair — dark/red rather than
-// green/gray, so a locked account reads as categorically different at a
-// glance, not just a variant of "Off shift" (an admin skimming this screen
-// needs to immediately tell "not on site right now" apart from "can't log
-// in at all until I act"). Takes priority over isOnShift's own on/off
-// split — gps_locked_at forces a sign-out on every device (see
-// lock_own_account_for_gps's force_logout_at write), so a locked account
-// can never actually be on shift at the same time regardless of what
-// today's attendance rows say.
-function StatusBadge({ isLocked, isOnShift }: { isLocked: boolean; isOnShift: boolean }) {
-  const style = isLocked
-    ? { bg: '#1F2937', dot: '#EF4444', text: '#F87171', label: 'Locked' }
-    : isOnShift
-      ? { bg: '#DCFCE7', dot: '#16A34A', text: '#166534', label: 'On shift' }
-      : { bg: '#F3F4F6', dot: '#9CA3AF', text: '#6B7280', label: 'Off shift' };
+// isLocked keeps its own distinct dark/red treatment (matches
+// computeTrackingHealth's own "Account locked" red-level result) so a
+// locked account still reads as categorically different from a plain red
+// tracking failure at a glance — this badge doesn't need to special-case it
+// separately anymore, computeTrackingHealth already checks isLocked first.
+const HEALTH_BADGE_STYLE: Record<TrackingHealthLevel, { bg: string; dot: string; text: string }> = {
+  green: { bg: '#DCFCE7', dot: '#16A34A', text: '#166534' },
+  red: { bg: '#FEE2E2', dot: '#DC2626', text: '#991B1B' },
+  grey: { bg: '#F3F4F6', dot: '#9CA3AF', text: '#6B7280' },
+};
+
+// Now shows the exact reason behind a red state, not just "not on shift" —
+// see lib/trackingHealth.ts for why (built directly from the Prashuramu/
+// Oppo debugging session, where this screen previously had no way to tell
+// "off shift, nothing expected" apart from "should be tracking and silently
+// isn't").
+function StatusBadge({ level, label, isLocked }: { level: TrackingHealthLevel; label: string; isLocked: boolean }) {
+  // A locked account additionally gets the darker, more alarming treatment
+  // the old badge used — distinct from a plain red tracking failure, since
+  // "can't log in at all until an admin acts" is a categorically bigger
+  // deal than "phone stopped reporting."
+  const style = isLocked ? { bg: '#1F2937', dot: '#EF4444', text: '#F87171' } : HEALTH_BADGE_STYLE[level];
   return (
     <View className="flex-row items-center gap-1.5 px-2.5 py-1 rounded-full" style={{ backgroundColor: style.bg }}>
-      <View className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: style.dot }} />
-      <Text className="text-2xs font-bold" style={{ color: style.text }}>{style.label}</Text>
+      {level === 'green' ? <PulsingDot color={style.dot} size={6} /> : <View className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: style.dot }} />}
+      <Text className="text-2xs font-bold" style={{ color: style.text }}>{label}</Text>
     </View>
   );
 }
@@ -143,7 +171,7 @@ function LockedNotice({
   return (
     <View className="rounded-xl bg-red-50 border border-red-200 px-3 py-2.5 mb-3">
       <Text className="text-xs font-semibold text-red-800">
-        Locked at {formatTime12h(new Date(lockout.lockedAtISO))} — {(LOCKOUT_REASON_LABEL[lockout.reason] ?? lockout.reason).toLowerCase()}.
+        Locked at {formatDateTimeLabel(new Date(lockout.lockedAtISO))} — {(LOCKOUT_REASON_LABEL[lockout.reason] ?? lockout.reason).toLowerCase()}.
       </Text>
       <Pressable
         onPress={() => setConfirming(true)}
@@ -188,30 +216,49 @@ function ReactivatedNotice({ lockout }: { lockout: LatestAccountLockout }) {
 // today (live-ticking while any is still open), sitting above the
 // trailing-30-day history list below.
 function LiveStatusCard({
+  userId,
   today,
   fullName,
   isLocked,
   latestLockout,
   reactivating,
   onReactivate,
+  liveTracking,
+  shiftStartMinutes,
 }: {
+  userId: string | null;
   today: DailyAttendanceRecord | undefined;
   fullName: string;
   isLocked: boolean;
   latestLockout: LatestAccountLockout | null;
   reactivating: boolean;
   onReactivate: () => void;
+  liveTracking: LiveTrackingStatus | null;
+  shiftStartMinutes: number | null;
 }) {
   const [nowMs, setNowMs] = useState(() => Date.now());
   const isOnShift = today?.isCurrentlyClockedIn ?? false;
 
-  // Only ticks while actually on shift — a finished/absent day never
-  // changes, so there's nothing to re-render for.
+  // Always ticks now, not just while on shift — computeTrackingHealth's own
+  // window/staleness checks are time-based (see trackingHealth.ts), so a
+  // device that silently stops reporting needs this to keep re-evaluating
+  // even for an engineer who was never checked in to begin with.
   useEffect(() => {
-    if (!isOnShift) return;
     const id = setInterval(() => setNowMs(Date.now()), 30_000);
     return () => clearInterval(id);
-  }, [isOnShift]);
+  }, []);
+
+  const health = computeTrackingHealth({
+    userId,
+    isLocked,
+    liveTrackingStatus: liveTracking?.status ?? null,
+    liveTrackingStatusReason: liveTracking?.reason ?? null,
+    liveTrackingStatusAt: liveTracking?.at ?? null,
+    isCurrentlyClockedIn: isOnShift,
+    todayCheckInTime: today?.checkInTime ?? null,
+    shiftStartMinutes,
+    now: new Date(nowMs),
+  });
 
   const sessions = today?.sessions ?? [];
   const totalElapsedMs = sessions.reduce(
@@ -233,10 +280,11 @@ function LiveStatusCard({
 
   return (
     <Card className="mb-4">
-      <View className="flex-row items-center justify-between mb-3">
+      <View className="flex-row items-center justify-between mb-1">
         <Text className="text-md font-bold text-neutral-900">{fullName}</Text>
-        <StatusBadge isLocked={isLocked} isOnShift={isOnShift} />
+        <StatusBadge level={health.level} label={health.label} isLocked={isLocked} />
       </View>
+      {health.detail && <Text className="text-2xs text-neutral-400 text-right mb-2">{health.detail}</Text>}
 
       {isLocked && latestLockout && (
         <LockedNotice lockout={latestLockout} reactivating={reactivating} onReactivate={onReactivate} />
@@ -385,13 +433,23 @@ function DayCard({ day }: { day: DailyAttendanceRecord }) {
   );
 }
 
-export default function TeamAttendanceDetailScreen() {
+// Demo-only engineers (lib/demoAttendance.ts) get a dummy activity page;
+// everyone else gets the real detail screen below.
+export default function TeamAttendanceDetailRoute() {
+  const { userId } = useLocalSearchParams<{ userId: string }>();
+  if (isDemoEngineerId(userId)) return <DemoEngineerDetail userId={userId} />;
+  return <TeamAttendanceDetailScreen />;
+}
+
+function TeamAttendanceDetailScreen() {
   const { userId, fullName } = useLocalSearchParams<{ userId: string; fullName?: string }>();
   const { selectedProjectId } = useProject();
 
   const [daily, setDaily] = useState<DailyAttendanceRecord[]>([]);
   const [isLocked, setIsLocked] = useState(false);
   const [latestLockout, setLatestLockout] = useState<LatestAccountLockout | null>(null);
+  const [liveTracking, setLiveTracking] = useState<LiveTrackingStatus | null>(null);
+  const [shiftStartMinutes, setShiftStartMinutes] = useState<number | null>(null);
   const [reactivating, setReactivating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -401,13 +459,17 @@ export default function TeamAttendanceDetailScreen() {
     if (!userId) return;
     try {
       setError(null);
-      const [attendance, lockStatus] = await Promise.all([
+      const [attendance, lockStatus, tracking, settings] = await Promise.all([
         fetchEngineerDailyAttendance(userId, { projectId: selectedProjectId }),
         fetchAccountLockStatus(userId),
+        fetchLiveTrackingStatus(userId),
+        selectedProjectId ? fetchProjectSettings(selectedProjectId) : Promise.resolve(null),
       ]);
       setDaily(attendance);
       setIsLocked(lockStatus.isLocked);
       setLatestLockout(lockStatus.latest);
+      setLiveTracking(tracking);
+      setShiftStartMinutes(settings?.shiftStartMinutes ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -468,12 +530,15 @@ export default function TeamAttendanceDetailScreen() {
           {/* daily[0] is today — fetchEngineerDailyAttendance returns most
               recent day first (see its own comment). */}
           <LiveStatusCard
+            userId={userId ?? null}
             today={daily[0]}
             fullName={fullName || 'This engineer'}
             isLocked={isLocked}
             latestLockout={latestLockout}
             reactivating={reactivating}
             onReactivate={handleReactivate}
+            liveTracking={liveTracking}
+            shiftStartMinutes={shiftStartMinutes}
           />
 
           {/* Section 4.1/4.2 — today's map trail + chronological checklist,

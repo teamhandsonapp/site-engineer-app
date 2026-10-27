@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -13,8 +14,8 @@ import {
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { SvgXml } from 'react-native-svg';
-import { Logo } from '../components/Logo';
-import { appRoleFor, useAuth } from '../lib/AuthContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '../lib/AuthContext';
 import { BUILDING_ILLUSTRATION_SVG } from '../assets/illustrations/buildingIllustration';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -27,9 +28,11 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // label choice only, not a new auth capability.
 export default function LoginScreen() {
   const { state, signIn } = useAuth();
+  const insets = useSafeAreaInsets();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [focused, setFocused] = useState<'email' | 'password' | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Deliberately separate from `error` below (a wrong-password message) —
@@ -63,12 +66,12 @@ export default function LoginScreen() {
         setError(result.message);
         return;
       }
-      // Client stays on the drawer-wrapped Home (it's already their one
-      // project's dashboard, no picker needed); staff go straight to the
-      // sidebar-less App Home / project picker (Part 6) — reading the role
-      // off `result` (not `state`) since `state` in this closure is still
-      // the pre-sign-in value the moment this line runs.
-      router.replace(appRoleFor(result.profile.role) === 'client' ? '/(authenticated)/home' : '/app-home');
+      // Everyone lands on the drawer-wrapped Home now — a client sees
+      // ClientHome (their one project's dashboard), staff see AppHome (the
+      // cross-project overview), both rendered inline by home.tsx itself.
+      // Staff used to go to a separate, sidebar-less /app-home (Part 6);
+      // the sidebar is now visible immediately after login instead.
+      router.replace('/(authenticated)/home');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not sign in — try again');
     } finally {
@@ -85,164 +88,165 @@ export default function LoginScreen() {
     Alert.alert('Forgot password?', 'Access is provisioned by your admin. Contact your PMC office to reset your password.');
   }
 
+  const inputBorder = (field: 'email' | 'password') => (focused === field ? '#F0A227' : '#E5E7EB');
+
   return (
     <KeyboardAvoidingView
-      className="flex-1 bg-black"
+      className="flex-1 bg-brand-navy"
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      {/* Fixed behind the ScrollView (a sibling, not a scrolling child) so
-          it stays put regardless of scroll position — a construction/
-          architecture-themed backdrop, low-opacity and monochrome so the
-          form stays the clearly legible, functional focus of this screen,
-          same "fast and functional" login reasoning as before, just no
-          longer completely bare. pointerEvents="none" so it never
-          intercepts taps meant for the form on top of it. */}
-      <View pointerEvents="none" className="absolute top-0 left-0 right-0 items-center" style={{ opacity: 0.1 }}>
-        <SvgXml xml={BUILDING_ILLUSTRATION_SVG} width="150%" style={{ aspectRatio: 870 / 724.95 }} />
-      </View>
-
       <ScrollView
-        contentContainerClassName="flex-grow px-6 pt-10"
+        contentContainerClassName="flex-grow"
         keyboardShouldPersistTaps="handled"
+        bounces={false}
       >
-        <View className="flex-1 items-center justify-center">
-          <Text
-            className="text-3xl font-bold text-white tracking-tight"
-            style={{ fontFamily: 'IBMPlexSans_700Bold' }}
-          >
+        {/* Brand header — navy, with the building illustration as a faint
+            backdrop and the real app icon (the same orange helmet as the
+            home-screen icon), so the first screen reads as this app. */}
+        <View className="items-center px-6 pb-10 overflow-hidden" style={{ paddingTop: insets.top + 36 }}>
+          <View pointerEvents="none" className="absolute left-0 right-0 bottom-0 items-center" style={{ opacity: 0.07 }}>
+            <SvgXml xml={BUILDING_ILLUSTRATION_SVG} width="140%" style={{ aspectRatio: 870 / 724.95 }} />
+          </View>
+          <Image
+            source={require('../assets/icon.png')}
+            style={{ width: 72, height: 72, borderRadius: 18 }}
+          />
+          <Text className="mt-4 text-2xl text-white" style={{ fontFamily: 'IBMPlexSans_700Bold' }}>
             PMC Portal
           </Text>
-
-          <View className="mt-5">
-            <Logo size={40} variant="mono" />
-          </View>
-
-          <Text
-            className="mt-6 text-2xl font-bold text-white"
-            style={{ fontFamily: 'IBMPlexSans_700Bold' }}
-          >
-            Log in
+          <Text className="mt-1 text-sm text-white/60" style={{ fontFamily: 'IBMPlexSans_400Regular' }}>
+            Construction project management
           </Text>
-          <Text
-            className="mt-1.5 mb-8 text-center text-sm text-white/55"
-            style={{ fontFamily: 'IBMPlexSans_400Regular' }}
-          >
-            For clients and site staff
+        </View>
+
+        {/* Form sheet */}
+        <View
+          className="flex-1 bg-white px-6 pt-8"
+          style={{ borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: insets.bottom + 16 }}
+        >
+          <Text className="text-xl text-neutral-900" style={{ fontFamily: 'IBMPlexSans_700Bold' }}>
+            Welcome back
+          </Text>
+          <Text className="mt-1 mb-6 text-base text-neutral-500" style={{ fontFamily: 'IBMPlexSans_400Regular' }}>
+            Sign in to continue to your projects
           </Text>
 
-          <View className="w-full gap-4">
+          <View className="gap-4">
             {forcedLogoutMessage && (
-              <View className="rounded-xl border border-white/20 bg-white/5 px-3.5 py-3 flex-row gap-2.5">
-                <Ionicons name="shield-checkmark-outline" size={18} color="#ffffff" style={{ marginTop: 1 }} />
+              <View className="rounded-xl bg-amber-50 border border-amber-200 px-3.5 py-3 flex-row gap-2.5">
+                <Ionicons name="shield-checkmark-outline" size={18} color="#B45309" style={{ marginTop: 1 }} />
                 <View className="flex-1">
-                  <Text className="text-sm font-semibold text-white mb-0.5" style={{ fontFamily: 'IBMPlexSans_600SemiBold' }}>
-                    Session Ended
+                  <Text className="text-sm text-amber-900 mb-0.5" style={{ fontFamily: 'IBMPlexSans_600SemiBold' }}>
+                    Session ended
                   </Text>
-                  <Text className="text-xs leading-[17px] text-white/80" style={{ fontFamily: 'IBMPlexSans_400Regular' }}>
+                  <Text className="text-sm text-amber-800" style={{ fontFamily: 'IBMPlexSans_400Regular' }}>
                     {forcedLogoutMessage}
                   </Text>
                 </View>
               </View>
             )}
             {error && (
-              <View className="rounded-xl border border-white/25 bg-white/5 px-3.5 py-3">
-                <Text className="text-sm font-medium text-white" style={{ fontFamily: 'IBMPlexSans_500Medium' }}>
+              <View className="rounded-xl bg-red-50 border border-red-200 px-3.5 py-3 flex-row gap-2.5 items-center">
+                <Ionicons name="alert-circle-outline" size={18} color="#DC2626" />
+                <Text className="flex-1 text-sm text-red-700" style={{ fontFamily: 'IBMPlexSans_500Medium' }}>
                   {error}
                 </Text>
               </View>
             )}
 
             <View>
-              <Text className="mb-1.5 text-xs font-medium text-white/70" style={{ fontFamily: 'IBMPlexSans_500Medium' }}>
-                Email or phone
+              <Text className="mb-2 text-sm text-neutral-700" style={{ fontFamily: 'IBMPlexSans_500Medium' }}>
+                Email
               </Text>
               <View
-                className="flex-row items-center gap-2 rounded-xl px-3.5 py-3"
-                style={{ backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#3A3A3A' }}
+                className="flex-row items-center gap-2.5 rounded-xl bg-neutral-50 px-4"
+                style={{ height: 52, borderWidth: 1.5, borderColor: inputBorder('email') }}
               >
-                <Ionicons name="mail-outline" size={16} color="#8A8A8A" />
+                <Ionicons name="mail-outline" size={18} color="#9CA3AF" />
                 <TextInput
                   value={email}
                   onChangeText={setEmail}
+                  onFocus={() => setFocused('email')}
+                  onBlur={() => setFocused(null)}
                   placeholder="name@company.com"
-                  placeholderTextColor="#8A8A8A"
+                  placeholderTextColor="#9CA3AF"
                   autoCapitalize="none"
                   autoComplete="email"
                   keyboardType="email-address"
+                  returnKeyType="next"
                   editable={!loading}
-                  className="flex-1 text-base text-white"
+                  className="flex-1 text-md text-neutral-900"
                   style={{ fontFamily: 'IBMPlexSans_400Regular' }}
                 />
               </View>
             </View>
 
             <View>
-              <Text className="mb-1.5 text-xs font-medium text-white/70" style={{ fontFamily: 'IBMPlexSans_500Medium' }}>
-                Password
-              </Text>
+              <View className="mb-2 flex-row items-center justify-between">
+                <Text className="text-sm text-neutral-700" style={{ fontFamily: 'IBMPlexSans_500Medium' }}>
+                  Password
+                </Text>
+                <Pressable onPress={handleForgotPassword} hitSlop={8}>
+                  <Text className="text-sm text-brand-navy-light" style={{ fontFamily: 'IBMPlexSans_600SemiBold' }}>
+                    Forgot password?
+                  </Text>
+                </Pressable>
+              </View>
               <View
-                className="flex-row items-center gap-2 rounded-xl px-3.5 py-3"
-                style={{ backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#3A3A3A' }}
+                className="flex-row items-center gap-2.5 rounded-xl bg-neutral-50 px-4"
+                style={{ height: 52, borderWidth: 1.5, borderColor: inputBorder('password') }}
               >
-                <Ionicons name="lock-closed-outline" size={16} color="#8A8A8A" />
+                <Ionicons name="lock-closed-outline" size={18} color="#9CA3AF" />
                 <TextInput
                   value={password}
                   onChangeText={setPassword}
-                  placeholder="••••••••"
-                  placeholderTextColor="#8A8A8A"
+                  onFocus={() => setFocused('password')}
+                  onBlur={() => setFocused(null)}
+                  onSubmitEditing={handleSubmit}
+                  placeholder="Enter your password"
+                  placeholderTextColor="#9CA3AF"
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
                   autoComplete="password"
+                  returnKeyType="go"
                   editable={!loading}
-                  className="flex-1 text-base text-white"
+                  className="flex-1 text-md text-neutral-900"
                   style={{ fontFamily: 'IBMPlexSans_400Regular' }}
                 />
                 <Pressable onPress={() => setShowPassword((v) => !v)} hitSlop={10}>
-                  <Ionicons
-                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                    size={16}
-                    color="#8A8A8A"
-                  />
+                  <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#6B7280" />
                 </Pressable>
               </View>
             </View>
 
             <Pressable
-              onPress={handleForgotPassword}
-              hitSlop={8}
-              className="self-end -mt-1"
-            >
-              <Text className="text-xs text-white/55" style={{ fontFamily: 'IBMPlexSans_400Regular' }}>
-                Forgot password?
-              </Text>
-            </Pressable>
-
-            <Pressable
               onPress={handleSubmit}
               disabled={loading}
-              className="items-center justify-center rounded-xl bg-white mt-1 disabled:opacity-60"
-              style={{ minHeight: 48 }}
+              className="mt-2 items-center justify-center rounded-xl bg-brand-amber flex-row gap-2"
+              style={{ height: 52, opacity: loading ? 0.75 : 1 }}
             >
               {loading ? (
-                <ActivityIndicator color="#000000" />
+                <ActivityIndicator color="#0F1F33" />
               ) : (
-                <Text className="text-base font-bold text-black" style={{ fontFamily: 'IBMPlexSans_700Bold' }}>
-                  Log In
-                </Text>
+                <>
+                  <Text className="text-md text-brand-navy" style={{ fontFamily: 'IBMPlexSans_700Bold' }}>
+                    Log in
+                  </Text>
+                  <Ionicons name="arrow-forward" size={18} color="#0F1F33" />
+                </>
               )}
             </Pressable>
           </View>
 
-          <Text
-            className="mt-6 text-center text-xs leading-[18px] text-white/55"
-            style={{ fontFamily: 'IBMPlexSans_400Regular' }}
-          >
-            Access is provisioned by your admin.{'\n'}Contact your PMC office if you need help.
-          </Text>
-        </View>
+          <View className="mt-6 flex-row items-start gap-2 rounded-xl bg-neutral-50 px-3.5 py-3">
+            <Ionicons name="information-circle-outline" size={18} color="#6B7280" />
+            <Text className="flex-1 text-sm text-neutral-500" style={{ fontFamily: 'IBMPlexSans_400Regular' }}>
+              Accounts are created by your admin. Contact your PMC office if you need access.
+            </Text>
+          </View>
 
-        <View className="items-center pb-3">
-          <Text className="text-2xs text-white/45" style={{ fontFamily: 'IBMPlexSans_400Regular' }}>
+          <View className="flex-1" />
+          <Text className="mt-8 text-center text-xs text-neutral-400" style={{ fontFamily: 'IBMPlexSans_400Regular' }}>
             Developed by TeamHandsOn © 2026
           </Text>
         </View>

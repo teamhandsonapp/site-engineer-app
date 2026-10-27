@@ -18,8 +18,10 @@ expo-env.d.ts
 *.p12
 *.key
 *.mobileprovision
-google-services.json
 GoogleService-Info.plist
+
+# EAS Submit service-account credentials — never committed
+/secrets/
 
 # Metro
 .metro-health-check*
@@ -43,3 +45,9 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+scripts/.seed-demo-dprs.json
+
+# build artifacts / CLI caches
+*.aab
+*.apk
+supabase/.temp/

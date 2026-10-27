@@ -2,125 +2,22 @@ import { useEffect, useRef } from 'react';
 import { AppState, Platform, type AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { devWarn } from '../devLog';
-import { fetchProjectSettings } from '../projectSettings';
 import { registerBackgroundSnapshotTask, unregisterBackgroundSnapshotTask } from './backgroundSnapshotTask';
 import { runCheckpointCatchUp } from './checkpoints';
-import {
-  confirmPendingExitIfDue,
-  confirmPendingZoneEntriesIfDue,
-  hasBackgroundLocationPermission,
-  hasPendingZoneEntry,
-  isGeofenceRegistered,
-  registerGeofence,
-  unregisterGeofence,
-  type RestrictedZoneBoundary,
-  type SiteBoundary,
-} from './geofence';
-import { isLocationPingTaskRegistered, registerLocationPingTask, unregisterLocationPingTask } from './locationPingTask';
+import { cancelCheckoutReminder, cancelDailyTrackingReminder, scheduleCheckoutReminder, scheduleDailyTrackingReminder } from './dailyReminderNotification';
+import { runDebugWatchdog } from './debugWatchdog';
+import { confirmPendingExitIfDue, confirmPendingZoneEntriesIfDue, hasPendingZoneEntry, unregisterGeofence } from './geofence';
+import { evaluateGeofence, evaluateLocationPingTask } from './evaluateTracking';
+import { unregisterLocationPingTask } from './locationPingTask';
 import { syncPendingPings } from './locationPings';
-import { fetchRestrictedZones } from './restrictedZones';
 import { logShiftWindowTransition } from './shiftWindow';
 import { syncPendingTrackingStatusEvents } from './trackingStatusQueue';
 import { syncPendingZoneEvents } from './zoneEventQueue';
 import { persistSelectedProjectId } from './currentFieldSession';
 import { CHECKPOINT_STATE_KEY, PENDING_EXIT_KEY, PENDING_ZONE_ENTRIES_KEY } from './storageKeys';
-import { logAction, logError } from '../sentryLog';
+import { logError } from '../sentryLog';
 
 const FOREGROUND_TICK_MS = 60_000;
-
-// Encodes BOTH the site boundary and every restricted zone so a change in
-// either (site location edited, a zone added/removed/moved) is detected —
-// zones are sorted by id first since fetchRestrictedZones's own ordering
-// isn't guaranteed to be stable across calls.
-function regionsKey(b: SiteBoundary | null, zones: RestrictedZoneBoundary[]): string {
-  const boundaryPart = b ? `${b.projectId}:${b.latitude}:${b.longitude}:${b.radiusMeters}` : 'none';
-  const zonesPart = [...zones]
-    .sort((a, b2) => a.zoneId.localeCompare(b2.zoneId))
-    // severity included so a severity-only edit (no lat/lng/radius change)
-    // still triggers registerGeofence again — that's what refreshes
-    // geofence.ts's own zoneSeverityCache, which the debounce lookup reads.
-    .map((z) => `${z.zoneId}:${z.latitude}:${z.longitude}:${z.radiusMeters}:${z.severity}`)
-    .join(',');
-  return `${boundaryPart}|${zonesPart}`;
-}
-
-async function evaluateGeofence(
-  shouldTrack: boolean,
-  projectId: string | null,
-  lastRegionsKeyRef: { current: string }
-): Promise<void> {
-  if (!shouldTrack || !projectId) {
-    if (await isGeofenceRegistered()) await unregisterGeofence();
-    lastRegionsKeyRef.current = 'none';
-    return;
-  }
-
-  let boundary: SiteBoundary | null = null;
-  let zones: RestrictedZoneBoundary[] = [];
-  try {
-    const settings = await fetchProjectSettings(projectId);
-    if (settings.siteLatitude != null && settings.siteLongitude != null && settings.siteRadiusMeters != null) {
-      boundary = {
-        projectId,
-        latitude: settings.siteLatitude,
-        longitude: settings.siteLongitude,
-        radiusMeters: settings.siteRadiusMeters,
-      };
-    }
-    const rawZones = await fetchRestrictedZones(projectId);
-    zones = rawZones.map((z) => ({ zoneId: z.id, latitude: z.latitude, longitude: z.longitude, radiusMeters: z.radiusMeters, severity: z.severity }));
-    logAction('geofence', 'Zones fetched from Supabase', { zoneCount: zones.length, hasBoundary: boundary != null });
-  } catch (err) {
-    devWarn('[locationTracking] could not load project site location/restricted zones:', err);
-    logError(err, 'geofence_fetch_zones', { projectId });
-    return; // leave existing registration as-is on a transient fetch failure
-  }
-
-  if (!boundary && zones.length === 0) {
-    if (await isGeofenceRegistered()) await unregisterGeofence();
-    lastRegionsKeyRef.current = 'none';
-    return;
-  }
-
-  const key = regionsKey(boundary, zones);
-  if (key === lastRegionsKeyRef.current) return; // nothing actually changed since the last check
-
-  // Pure check — never prompts (see geofence.ts's own comment). Until the
-  // user has gone through BackgroundLocationExplainer and granted "Allow
-  // all the time," this just leaves geofencing unregistered rather than
-  // silently requesting it from a background tick, which neither platform
-  // reliably honors outside a real user gesture anyway.
-  if (!(await hasBackgroundLocationPermission())) return;
-
-  try {
-    await registerGeofence(boundary, zones);
-    lastRegionsKeyRef.current = key;
-  } catch (err) {
-    // Not re-reported here — registerGeofence itself already calls
-    // logError before re-throwing (see geofence.ts), so this stays a
-    // devWarn only to avoid a duplicate Sentry issue for the same failure.
-    devWarn('[locationTracking] failed to register geofence:', err);
-  }
-}
-
-// Addition B (part 3) — much simpler than evaluateGeofence above, since
-// the ping task doesn't depend on any per-project zone/boundary data, just
-// on/off. Same background-permission gate as geofencing (starting
-// startLocationUpdatesAsync without it would just throw).
-async function evaluateLocationPingTask(shiftOn: boolean): Promise<void> {
-  if (!shiftOn) {
-    if (await isLocationPingTaskRegistered()) await unregisterLocationPingTask();
-    return;
-  }
-  if (await isLocationPingTaskRegistered()) return;
-  if (!(await hasBackgroundLocationPermission())) return;
-  try {
-    await registerLocationPingTask();
-  } catch (err) {
-    devWarn('[locationTracking] failed to register location ping task:', err);
-    logError(err, 'location_ping_register');
-  }
-}
 
 // The single wiring point for Parts 2-4's tracking logic (Part 2's own
 // permission/services check lives separately in locationGate.ts, consumed
@@ -209,6 +106,8 @@ export function useFieldLocationTracking(
       unregisterBackgroundSnapshotTask().catch(() => {});
       unregisterGeofence().catch(() => {});
       unregisterLocationPingTask().catch(() => {});
+      cancelDailyTrackingReminder().catch(() => {});
+      cancelCheckoutReminder().catch(() => {});
       lastRegionsKeyRef.current = 'none';
       if (fastPollTimeoutRef.current) clearTimeout(fastPollTimeoutRef.current);
       fastPollTimeoutRef.current = null;
@@ -218,6 +117,25 @@ export function useFieldLocationTracking(
     registerBackgroundSnapshotTask().catch((err) => {
       devWarn('[locationTracking] failed to register background task:', err);
       logError(err, 'background_task_register');
+    });
+
+    // A visible, OS-owned backstop for when tracking doesn't resume on its
+    // own overnight — fires even if the background snapshot task's own
+    // self-heal (see that file) never got a chance to run (a hard OEM
+    // kill, or the app got fully force-stopped, which revokes even
+    // WorkManager's ability to wake this app — nothing app-side can
+    // override that specific case). Re-scheduled on every activation, not
+    // just once — scheduleDailyTrackingReminder's fixed identifier makes
+    // this idempotent, and re-scheduling picks up a changed project's own
+    // shift start automatically.
+    scheduleDailyTrackingReminder(projectId).catch((err) => {
+      devWarn('[locationTracking] failed to schedule daily tracking reminder:', err);
+    });
+    // Symmetric end-of-day nudge — see dailyReminderNotification.ts's own
+    // comment on why this was missing and why that matters (real
+    // check-in-never-checked-out data, both real field accounts).
+    scheduleCheckoutReminder(projectId).catch((err) => {
+      devWarn('[locationTracking] failed to schedule checkout reminder:', err);
     });
 
     // Self-scheduling, not setInterval — stops on its own the moment
@@ -267,10 +185,13 @@ export function useFieldLocationTracking(
       // tracking at shiftStartMinutes and auto-stops it at shiftEndMinutes
       // purely on the scheduled window, regardless of whether the engineer
       // ever checks in/out at all.
-      const withinWindow = await logShiftWindowTransition(projectId);
+      const withinWindow = await logShiftWindowTransition(projectId, userId);
       await evaluateGeofence(withinWindow, projectId, lastRegionsKeyRef);
       await evaluateLocationPingTask(withinWindow);
       if (await hasPendingZoneEntry().catch(() => false)) ensureFastPollRunning();
+      // TEMPORARY — see debugWatchdog.ts's own header for scope/removal.
+      // A no-op for every account except the 2 in the active debug window.
+      if (userId) runDebugWatchdog(userId, withinWindow).catch(() => {});
     }
 
     // Never called bare — tick() reaches real native APIs (permissions,

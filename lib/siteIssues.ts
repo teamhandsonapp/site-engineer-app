@@ -5,6 +5,7 @@ export interface SiteIssue {
   projectId: string;
   title: string;
   description: string;
+  reportedById: string | null;
   reportedByName: string | null;
   reportedAtISO: string;
   resolved: boolean;
@@ -20,6 +21,7 @@ interface RawSiteIssueRow {
   project_id: string;
   title: string;
   description: string;
+  reported_by_id: string | null;
   reported_at: string;
   resolved: boolean;
   resolved_at: string | null;
@@ -38,6 +40,7 @@ function toSiteIssue(row: RawSiteIssueRow): SiteIssue {
     projectId: row.project_id,
     title: row.title,
     description: row.description,
+    reportedById: row.reported_by_id,
     reportedByName: oneOrNull(row.reported_by)?.full_name ?? null,
     reportedAtISO: row.reported_at,
     resolved: row.resolved,
@@ -47,7 +50,7 @@ function toSiteIssue(row: RawSiteIssueRow): SiteIssue {
 }
 
 const SELECT = `
-  id, project_id, title, description, reported_at, resolved, resolved_at,
+  id, project_id, title, description, reported_by_id, reported_at, resolved, resolved_at,
   reported_by:user_profiles!site_issues_reported_by_id_fkey(full_name),
   resolved_by:user_profiles!site_issues_resolved_by_id_fkey(full_name)
 `;

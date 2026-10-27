@@ -10,7 +10,7 @@ import { enqueueTrackingStatusEvent } from './trackingStatusQueue';
 import { isWithinScheduledShiftWindow } from './shiftWindow';
 import { TRACKING_STATUS_STATE_KEY } from './storageKeys';
 import { logAction, logError } from '../sentryLog';
-import { maybeLockForServicesDisabled } from './gpsLockout';
+import { maybeLockForBackgroundPermissionRevoked, maybeLockForServicesDisabled } from './gpsLockout';
 
 // Point 9 (part 2) + Addition A (part 3) — "silence should never be
 // interpreted as everything is fine." Derived purely from local OS-state
@@ -65,6 +65,25 @@ async function syncTrackingStatusToBackend(userId: string, result: TrackingStatu
       tracking_device_model: getDeviceModel(),
     })
     .eq('id', userId);
+  if (error) throw new Error(error.message);
+}
+
+// Audit fix — reportTrackingStatusIfChanged's `nextKey === lastKey` dedup
+// (below) is correct for its own job (log a transition once, fire one
+// notification, retry a pending lockout), but it means `tracking_status_at`
+// previously only ever advanced on a status CHANGE. A device that stays
+// healthy the entire shift, never transitioning, never got this column
+// refreshed — so trackingHealth.ts's staleness check (red past
+// TRACKING_STALE_AFTER_MINUTES) would misleadingly flag a genuinely-live,
+// continuously-pinging device as red partway into every shift. This is the
+// unconditional counterpart: called on every successful ping
+// (locationPingTask.ts), independent of whether the status key changed, so
+// "last seen" stays honest. Deliberately does NOT touch tracking_status/
+// tracking_status_reason — reportTrackingStatusIfChanged already owns
+// writing those (via syncTrackingStatusToBackend above) whenever they
+// actually change; this only ever moves the timestamp.
+export async function touchTrackingHeartbeat(userId: string): Promise<void> {
+  const { error } = await supabase.from('user_profiles').update({ tracking_status_at: new Date().toISOString() }).eq('id', userId);
   if (error) throw new Error(error.message);
 }
 
@@ -181,19 +200,29 @@ export async function reportTrackingStatusIfChanged(
 ): Promise<void> {
   // Section 5, Case B — checked BEFORE the "is this actually new" dedup
   // below (and unconditionally, every call), not just on the transition
-  // into 'degraded'. Once persisted state is already 'degraded:gps_disabled'
+  // into 'degraded'. Once persisted state is already 'degraded:<reason>'
   // for THIS episode, everything below this point short-circuits on every
   // later call — but the lock itself might still be pending (e.g. the
-  // toggle-off happened during the startup grace period). Re-attempting on
-  // every call is what lets it catch up as soon as grace elapses, instead
-  // of only ever getting the one attempt at the original transition. This
-  // call site is the one that also runs from locationPingTask.ts's headless
-  // background task (see that file's own follow-up block), which is what
-  // makes the lockout reachable even while the app is fully backgrounded,
-  // not just foregrounded. maybeLockForServicesDisabled is idempotent and
-  // internally grace-gated, so calling it unconditionally here is safe.
+  // toggle-off/permission-revoke happened during the startup grace period).
+  // Re-attempting on every call is what lets it catch up as soon as grace
+  // elapses, instead of only ever getting the one attempt at the original
+  // transition. This call site is the one that also runs from
+  // locationPingTask.ts's headless background task (see that file's own
+  // follow-up block), which is what makes the lockout reachable even while
+  // the app is fully backgrounded, not just foregrounded. Both
+  // maybeLockFor* calls are idempotent and internally grace-gated, so
+  // calling either unconditionally here is safe.
+  //
+  // Audit fix — 'background_permission' used to fall through to neither
+  // branch here at all: it produced a degraded alert/notification (below)
+  // but never locked, no matter how long it persisted, unlike gps_disabled.
+  // Treated identically now — same mechanism, same grace period, no
+  // separate leniency for permission specifically (see gpsLockout.ts's own
+  // comment on why).
   if (next.status === 'degraded' && next.reason === 'gps_disabled') {
     maybeLockForServicesDisabled().catch(() => {});
+  } else if (next.status === 'degraded' && next.reason === 'background_permission') {
+    maybeLockForBackgroundPermissionRevoked().catch(() => {});
   }
 
   const last = await readPersistedState();
@@ -250,7 +279,7 @@ export function useTrackingStatus(active: boolean, userId: string | null, projec
 
     async function run() {
       try {
-        withinWindow = await isWithinScheduledShiftWindow(projectId);
+        withinWindow = await isWithinScheduledShiftWindow(projectId, uid);
         if (cancelled) return;
         const next = withinWindow ? await checkTrackingStatusNow() : OFF;
         if (cancelled) return;

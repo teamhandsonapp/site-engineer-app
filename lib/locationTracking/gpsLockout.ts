@@ -86,31 +86,57 @@ export async function checkDeadZoneAndReport(
   }
 }
 
-// Case B — the OS-level location toggle was explicitly turned off. Called
-// from both locationGate.ts's foreground poll and trackingStatus.ts's
+// Case B — a manual, deliberate-enough-to-notice-and-act-on disable, as
+// opposed to Case A's dead zone (signal just isn't there right now,
+// nobody did anything). Two sub-cases share this one RPC/audit-trail
+// mechanism, just with a different p_reason: the OS-level location toggle
+// turned off entirely, or (audit fix) background location permission
+// specifically revoked while services stay on — previously only the
+// first of these ever locked; the second only ever produced a degraded
+// alert/notification, no matter how long it persisted. Treated identically
+// here (same RPC, same grace period, no extra leniency for permission
+// specifically) per explicit product decision: both are equally deliberate
+// ways to stop being tracked, and a lighter touch for one just becomes the
+// one people learn to use instead.
+type GpsLockoutReason = 'location_services_disabled' | 'background_permission_revoked';
+
+// Called from both locationGate.ts's foreground poll and trackingStatus.ts's
 // reportTrackingStatusIfChanged (which also runs from the headless
 // background task via locationPingTask.ts) — safe to call repeatedly from
 // either or both, since the underlying RPC is idempotent (guarded by
 // gps_locked_at IS NULL server-side).
-export async function maybeLockForServicesDisabled(): Promise<void> {
+async function lockAccountForGpsReason(reason: GpsLockoutReason): Promise<void> {
   if (await isWithinStartupGrace()) return;
 
   try {
     const { error } = await supabase.rpc('lock_own_account_for_gps', {
-      p_reason: 'location_services_disabled',
+      p_reason: reason,
       p_device_manufacturer: getDeviceManufacturer(),
       p_device_model: getDeviceModel(),
     });
     if (error) throw new Error(error.message);
-    logAction('permission', 'GPS lockout triggered — location services turned off', {});
+    logAction('permission', `GPS lockout triggered — ${reason}`, {});
   } catch (err) {
     // Best-effort — this must never throw back into the gate/tracking-status
     // poll it's hooked into. A failed lock attempt here isn't the end of the
     // story either: the poll that called this will call it again on its
-    // next tick as long as services are still off, and useForceLogoutWatch's
+    // next tick as long as the condition persists, and useForceLogoutWatch's
     // own 60s poll/AppState-resume check are independent backstops for any
     // lock that DID land despite this call itself erroring on the response.
     devWarn('[locationTracking] gps lockout RPC failed:', err);
-    logError(err, 'gps_lockout_rpc');
+    logError(err, 'gps_lockout_rpc', { reason });
   }
+}
+
+export async function maybeLockForServicesDisabled(): Promise<void> {
+  await lockAccountForGpsReason('location_services_disabled');
+}
+
+// Audit fix — the missing half of Case B. trackingStatus.ts's
+// checkTrackingStatusNow() reports reason: 'background_permission' the
+// moment hasBackgroundLocationPermission() comes back false, regardless of
+// how long that's been true; this is what makes THAT condition actually
+// reachable by the lock, the same way gps_disabled already was.
+export async function maybeLockForBackgroundPermissionRevoked(): Promise<void> {
+  await lockAccountForGpsReason('background_permission_revoked');
 }
