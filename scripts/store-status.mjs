@@ -3,14 +3,13 @@
 //
 // Shows the latest Android/iOS builds and whether each one was uploaded to
 // Google Play / App Store Connect, refreshing every 20s. Reads your own Expo
-// login from ~/.expo/state.json on this Mac only — the page is served on
+// login from ~/.expo/state.json on this machine only — the page is served on
 // localhost and the session never leaves this machine, which is why this is
 // a local script and not a hosted website.
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { exec } from 'node:child_process';
 
 const PORT = 4477;
 const APP_ID = '23496903-a9cc-44b2-8c89-724e265c34f1';
@@ -76,12 +75,13 @@ h1{font-size:22px;margin:0}.sub{color:var(--muted);font-size:13px}
 .ok{background:#16a34a1f;color:var(--ok)}.run{background:#d977061f;color:var(--run)}.bad{background:#dc26261f;color:var(--bad)}.none{background:#6b72801f;color:var(--muted)}
 table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:9px 8px;border-top:1px solid var(--line)}th{color:var(--muted);font-weight:600;font-size:12px}
 .tablewrap{overflow-x:auto}a{color:inherit}.err{color:var(--bad);font-size:12px}
+a.dl{display:inline-block;background:var(--brand);color:#0f1f33;text-decoration:none;font-weight:700;font-size:13px;padding:5px 11px;border-radius:8px;white-space:nowrap}
 button{background:var(--brand);color:#0f1f33;border:0;border-radius:10px;padding:8px 14px;font-weight:700;cursor:pointer}
 </style></head><body><main>
 <header><div><h1>PMC Portal — Store Status</h1><div class="sub" id="updated">Loading…</div></div><button onclick="load()">Refresh</button></header>
 <div class="grid" id="summary"></div>
-<div class="card"><h2>Recent builds</h2><div class="tablewrap"><table><thead><tr><th>App</th><th>Build</th><th>Build status</th><th>Store upload</th><th>Started</th></tr></thead><tbody id="rows"></tbody></table></div></div>
-<p class="sub">Full logs: <a href="${EXPO_BUILDS}" target="_blank">expo.dev builds</a> · "Uploaded" means it reached Google Play internal testing / App Store Connect (TestFlight). Checks for updates every 5 minutes by itself — no need to reload.</p>
+<div class="card"><h2>Recent builds</h2><div class="tablewrap"><table><thead><tr><th>App</th><th>Build</th><th>Build status</th><th>Store upload</th><th>Download</th><th>Started</th></tr></thead><tbody id="rows"></tbody></table></div></div>
+<p class="sub">Full logs: <a href="${EXPO_BUILDS}" target="_blank">expo.dev builds</a> · "Uploaded" means it reached Google Play internal testing / App Store Connect (TestFlight). Updates by itself every 10 minutes without reloading the page — use Refresh to check sooner.</p>
 </main><script>
 const BUILD={FINISHED:['Built','ok'],IN_PROGRESS:['Building…','run'],IN_QUEUE:['Waiting in queue','run'],NEW:['Starting','run'],ERRORED:['Build failed','bad'],CANCELED:['Cancelled','none']};
 const STORE={FINISHED:['Uploaded','ok'],IN_PROGRESS:['Uploading…','run'],AWAITING_BUILD:['Waits for build','run'],IN_QUEUE:['Upload queued','run'],ERRORED:['Upload failed','bad'],CANCELED:['Cancelled','none']};
@@ -127,6 +127,13 @@ function storeTime(b){
 }
 const when=(d)=>new Date(d).toLocaleString([], {day:'numeric',month:'short',hour:'numeric',minute:'2-digit'});
 const name=(p)=>p==='IOS'?'📱 iPhone':'🤖 Android';
+function dl(b){
+  if(!(b.downloadUrl&&b.buildStatus==='FINISHED'))return '';
+  const tail=b.downloadUrl.split('?')[0].split('.').pop().toLowerCase();
+  const ext=['aab','apk','ipa'].includes(tail)?tail:(b.platform==='IOS'?'ipa':'file');
+  const hint=ext==='aab'?'upload to Play Console':ext==='apk'?'install on Android':ext==='ipa'?'install via TestFlight / device':'';
+  return '<a class="dl" href="'+b.downloadUrl+'" target="_blank" rel="noopener">⬇ Download .'+ext+'</a>'+(hint?sub(hint):'');
+}
 function summary(list,p){
   const mine=list.filter(b=>b.platform===p);
   const live=mine.find(b=>b.storeStatus==='FINISHED');
@@ -134,6 +141,7 @@ function summary(list,p){
   return '<div class="card"><h2>'+name(p)+'</h2><div class="sub">Latest in '+(p==='IOS'?'TestFlight':'Play Store (internal testing)')+'</div>'
    +'<div class="big">'+(live?'Build '+live.build:'—')+'</div>'
    +(live?'<div class="sub">v'+live.version+' · in store since '+when(live.storeUpdatedAt||live.completedAt||live.createdAt)+'</div>':'')
+   +(mine.find(b=>b.downloadUrl&&b.buildStatus==='FINISHED')?'<div class="row"><span>Latest build file</span>'+dl(mine.find(b=>b.downloadUrl&&b.buildStatus==='FINISHED'))+'</div>':'')
    +'<div class="row"><span>Right now</span>'+(busy?pill(BUILD[busy.buildStatus]&&busy.buildStatus!=='FINISHED'?BUILD[busy.buildStatus]:STORE[busy.storeStatus]||['Working','run'])+' <b>build '+busy.build+'</b>':pill(['Idle','none']))+'</div></div>';
 }
 async function load(){
@@ -145,16 +153,16 @@ function render(){
   const d=LAST;if(!d)return;
   {
     document.getElementById('summary').innerHTML=summary(d,'ANDROID')+summary(d,'IOS');
-    document.getElementById('rows').innerHTML=d.map(b=>'<tr><td>'+name(b.platform)+'</td><td>v'+b.version+' ('+b.build+')</td><td>'+pill(BUILD[b.buildStatus]||[b.buildStatus,'none'])+buildTime(b)+(b.buildError?'<div class="err">'+b.buildError+'</div>':'')+'</td><td>'+(b.storeStatus?pill(STORE[b.storeStatus]||[b.storeStatus,'none']):b.internal?pill(['Preview · direct install','none'])+(b.downloadUrl&&b.buildStatus==='FINISHED'?sub('<a href="'+b.downloadUrl+'" target="_blank">Download / install link</a> · not for the store'):''):pill(['Not sent','none']))+storeTime(b)+storeEta(b)+(b.storeError?'<div class="err">'+b.storeError+'</div>':'')+'</td><td>'+when(b.createdAt)+'</td></tr>').join('');
+    document.getElementById('rows').innerHTML=d.map(b=>'<tr><td>'+name(b.platform)+'</td><td>v'+b.version+' ('+b.build+')</td><td>'+pill(BUILD[b.buildStatus]||[b.buildStatus,'none'])+buildTime(b)+(b.buildError?'<div class="err">'+b.buildError+'</div>':'')+'</td><td>'+(b.storeStatus?pill(STORE[b.storeStatus]||[b.storeStatus,'none']):b.internal?pill(['Preview · direct install','none']):pill(['Not sent','none']))+storeTime(b)+storeEta(b)+(b.storeError?'<div class="err">'+b.storeError+'</div>':'')+'</td><td>'+(dl(b)||'<span class="sub">—</span>')+'</td><td>'+when(b.createdAt)+'</td></tr>').join('');
     const next=Math.max(0,Math.round((FETCHED+REFRESH_MS-Date.now())/1000));
     document.getElementById('updated').innerHTML='<span style="color:var(--ok)">●</span> Live · checked '+clock(FETCHED)+' · next check in '+Math.floor(next/60)+':'+String(next%60).padStart(2,'0');
   }
 }
-let LAST=null,FETCHED=0;const REFRESH_MS=5*60*1000;
+let LAST=null,FETCHED=0;const REFRESH_MS=10*60*1000;
+// Fetches fresh data in the background every 10 minutes — the tab itself never reloads.
 load();
-setInterval(load,REFRESH_MS);            // quiet background check every 5 minutes
+setInterval(load,REFRESH_MS);
 setInterval(render,1000);                // timers/progress tick every second
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&Date.now()-FETCHED>60000)load();});
 </script></body></html>`;
 
 http
@@ -179,5 +187,4 @@ http
   .listen(PORT, '127.0.0.1', () => {
     const url = `http://localhost:${PORT}`;
     console.log(`Store status page: ${url}  (Ctrl+C to stop)`);
-    exec(`open ${url}`);
   });

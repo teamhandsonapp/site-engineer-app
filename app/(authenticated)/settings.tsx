@@ -34,6 +34,7 @@ import { SiteLocationMapPicker } from '../../components/SiteLocationMapPicker';
 import { RedZonesCard } from '../../components/RedZonesCard';
 import { SendNotificationCard } from '../../components/SendNotificationCard';
 import { SendCriticalAlertCard } from '../../components/SendCriticalAlertCard';
+import { LOCATION_FEATURES_ENABLED } from '../../lib/featureFlags';
 
 const INPUT_CLASS = 'border border-neutral-200 rounded-lg px-3 py-2.5 text-sm text-neutral-900';
 
@@ -708,6 +709,8 @@ export default function SettingsScreen() {
           </Card>
 
           <Card>
+            {LOCATION_FEATURES_ENABLED && (
+            <>
             <View className="flex-row items-center justify-between mb-1">
               <Text className="text-sm font-bold text-neutral-900">Site Location</Text>
               {/* "Use current location" removed — the app no longer uses device location. */}
@@ -767,6 +770,8 @@ export default function SettingsScreen() {
               />
             </Field>
 
+            </>
+            )}
             <Pressable
               onPress={save}
               disabled={saving}
@@ -778,7 +783,7 @@ export default function SettingsScreen() {
             </Pressable>
           </Card>
 
-          {profile && <RedZonesCard projectId={selectedProjectId} userId={profile.id} />}
+          {LOCATION_FEATURES_ENABLED && profile && <RedZonesCard projectId={selectedProjectId} userId={profile.id} />}
         </ScrollView>
       )}
       <Toast toast={toast} />

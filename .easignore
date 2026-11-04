@@ -6,3 +6,11 @@
 *.rar
 *.zip
 *.ipa
+
+# Generated native folders and local env files never go to EAS
+/android
+/ios
+.env*
+
+# Privacy policy website — deployed separately, not part of app builds
+/privacy-policy-page

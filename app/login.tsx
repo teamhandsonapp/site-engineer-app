@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SvgXml } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../lib/AuthContext';
+import { openPrivacyPolicy } from '../lib/legal';
 import { BUILDING_ILLUSTRATION_SVG } from '../assets/illustrations/buildingIllustration';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -249,6 +250,11 @@ export default function LoginScreen() {
           <Text className="mt-8 text-center text-xs text-neutral-400" style={{ fontFamily: 'IBMPlexSans_400Regular' }}>
             Developed by TeamHandsOn © 2026
           </Text>
+          <Pressable onPress={openPrivacyPolicy} hitSlop={8} className="mt-2 self-center" accessibilityRole="link">
+            <Text className="text-xs text-neutral-500 underline" style={{ fontFamily: 'IBMPlexSans_500Medium' }}>
+              Privacy Policy
+            </Text>
+          </Pressable>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

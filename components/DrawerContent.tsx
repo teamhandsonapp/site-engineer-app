@@ -9,6 +9,8 @@ import { appRoleFor, isFieldRole, roleLabel, useAuth } from '../lib/AuthContext'
 import { useProject } from '../lib/ProjectContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSafeBottomOffset } from '../lib/useSafeBottomOffset';
+import { openPrivacyPolicy } from '../lib/legal';
+import { LOCATION_FEATURES_ENABLED } from '../lib/featureFlags';
 
 // Renders "Not available for this account" for a client role (see its own
 // isStaff check) — showing it in the drawer anyway would just be a menu
@@ -37,7 +39,7 @@ const FIELD_ROLE_ONLY_ROUTES = new Set(['attendance', 'day-timeline', 'daily-upd
 // role themselves), not this filter — this just keeps the menu itself from
 // offering a screen/action a lower-access account would get rejected from
 // anyway.
-const ADMIN_MANAGER_ONLY_ROUTES = new Set(['access-roles', 'invoices', 'settings', 'devices', 'team-attendance', 'engineer-attendance', 'leave-log', 'notifications']);
+const ADMIN_MANAGER_ONLY_ROUTES = new Set(['mom', 'access-roles', 'invoices', 'settings', 'devices', 'team-attendance', 'engineer-attendance', 'leave-log', 'notifications']);
 
 // Stricter than ADMIN_MANAGER_ONLY_ROUTES above — Contact Book is
 // admin-only per its own requirement, explicitly excluding manager/site
@@ -54,14 +56,21 @@ const ADMIN_ONLY_ROUTES = new Set(['contacts', 'dpr-edit-requests']);
 // dpr-edit-requests is rendered as a sub-item under DPR instead (by
 // explicit request), so it's hidden as its own top-level row.
 // leave-log likewise sits under Attendance (team-attendance) as a sub-item,
-// and mom (Minutes of Meeting) under Meeting.
-const HIDDEN_ROUTES = new Set(['gantt', 'flowchart', 'task-list', 'critical-alerts', 'dpr-edit-requests', 'leave-log', 'engineer-attendance', 'devices', 'mom']);
+// (MoM's own Meeting / Reports / Custom Alerts tabs are its sub-items.)
+const HIDDEN_ROUTES = new Set(['gantt', 'flowchart', 'task-list', 'critical-alerts', 'dpr-edit-requests', 'leave-log', 'engineer-attendance', 'devices',
+  // Day Timeline is a location map trail — hidden while location features are off.
+  ...(LOCATION_FEATURES_ENABLED ? [] : ['day-timeline'])]);
 
 // Top-level rows that carry collapsible sub-items (parent route -> children).
-const SUBMENUS: Record<string, { route: string; label: string }[]> = {
+const SUBMENUS: Record<string, { route: string; label: string; params?: { tab: string } }[]> = {
   'daily-updates': [{ route: 'dpr-edit-requests', label: 'Edit Requests' }],
   settings: [{ route: 'devices', label: 'Devices & Logins' }],
-  meetings: [{ route: 'mom', label: 'MoM' }],
+  // MoM's three tabs (one screen, opened on the matching tab).
+  mom: [
+    { route: 'mom', label: 'Meeting', params: { tab: 'meeting' } },
+    { route: 'mom', label: 'Reports', params: { tab: 'reports' } },
+    { route: 'mom', label: 'Custom Alerts', params: { tab: 'alerts' } },
+  ],
   'team-attendance': [
     { route: 'engineer-attendance', label: 'Site Engineer Attendance' },
     { route: 'leave-log', label: 'Leave Log' },
@@ -118,7 +127,6 @@ const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   contacts: 'call-outline',
   documents: 'folder-open-outline',
   files: 'folder-outline',
-  meetings: 'people-circle-outline',
   mom: 'clipboard-outline',
 };
 
@@ -167,6 +175,12 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
   // Dynamic Island (iPhone 17 Pro Max, ~62pt) phones differ, and a fixed
   // value either crowds the island or leaves a gap on older phones.
   const { top: topInset } = useSafeAreaInsets();
+
+  const visibleRoutes = state.routes
+    .map((route, index) => ({ route, index }))
+    .filter(({ route }) => isRouteVisible(route.name));
+  const singleRoutes = visibleRoutes.filter(({ route }) => !routeHasSubmenu(route.name));
+  const submenuRoutes = visibleRoutes.filter(({ route }) => routeHasSubmenu(route.name));
 
   return (
     // overflow-hidden — same web-only flex-min-size fix as GestureHandlerRootView
@@ -222,18 +236,67 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
           Menu
         </Text>
         <View className="gap-1">
-          {state.routes.map((route, index) => {
-            if (isClient && STAFF_ONLY_ROUTES.has(route.name)) return null;
-            if (!isField && !(isAdmin && route.name === 'daily-updates') && FIELD_ROLE_ONLY_ROUTES.has(route.name)) return null;
-            if (!isAdminOrManager && ADMIN_MANAGER_ONLY_ROUTES.has(route.name)) return null;
-            if (!isAdmin && ADMIN_ONLY_ROUTES.has(route.name)) return null;
-            // Admin reaches Specific Book from inside Contact Book instead
-            // of as its own top-level menu row (by explicit request) — but
-            // it stays a normal top-level row for everyone else, since
-            // non-admin staff don't have Contact Book in their menu at all
-            // and would otherwise lose access to it entirely.
-            if (isAdmin && route.name === 'project-contacts') return null;
-            if (HIDDEN_ROUTES.has(route.name)) return null;
+          {/* Single (no-dropdown) menus first, then — after a divider —
+              every menu that has a dropdown, so the two kinds aren't
+              interleaved (by explicit request). */}
+          {singleRoutes.map(renderRoute)}
+
+          <View className="my-2 mx-3 border-t border-white/10" />
+
+          {submenuRoutes.map(renderRoute)}
+          {renderProjectsSection()}
+          {renderReportsSection()}
+        </View>
+      </ScrollView>
+
+      {/* Logout — deliberately a sibling of the ScrollView above, not its
+          last item, so it stays visible without scrolling regardless of
+          menu length. paddingBottom uses the real safe-area inset (gesture
+          nav bar height varies by device) rather than a fixed guess, same
+          convention as FlowchartCanvas's own zoom controls. */}
+      <View className="border-t border-white/10 px-3 pt-3" style={{ paddingBottom: bottomPadding }}>
+        <Pressable onPress={handleLogOut} className="flex-row items-center gap-3 rounded-xl px-3" style={{ minHeight: 44 }}>
+          <Ionicons name="log-out-outline" size={18} color="rgba(255,255,255,0.65)" />
+          <Text className="text-base font-medium text-white/80">Log Out</Text>
+        </Pressable>
+        <Pressable onPress={openPrivacyPolicy} hitSlop={6} className="px-3 pt-1" accessibilityRole="link">
+          <Text className="text-xs text-white/55 underline">Privacy Policy</Text>
+        </Pressable>
+      </View>
+
+      <NewProjectModal
+        visible={newProjectModalVisible}
+        onClose={() => setNewProjectModalVisible(false)}
+        onCreated={(projectId) => {
+          reloadProjects();
+          openProject(projectId);
+        }}
+      />
+    </View>
+  );
+
+  function isRouteVisible(name: string): boolean {
+    if (isClient && STAFF_ONLY_ROUTES.has(name)) return false;
+    if (!isField && !(isAdmin && name === 'daily-updates') && FIELD_ROLE_ONLY_ROUTES.has(name)) return false;
+    if (!isAdminOrManager && ADMIN_MANAGER_ONLY_ROUTES.has(name)) return false;
+    if (!isAdmin && ADMIN_ONLY_ROUTES.has(name)) return false;
+    // Admin reaches Specific Book from inside Contact Book instead
+    // of as its own top-level menu row (by explicit request) — but
+    // it stays a normal top-level row for everyone else, since
+    // non-admin staff don't have Contact Book in their menu at all
+    // and would otherwise lose access to it entirely.
+    if (isAdmin && name === 'project-contacts') return false;
+    if (HIDDEN_ROUTES.has(name)) return false;
+    return true;
+  }
+
+  // Edit Requests under DPR is admin only, so DPR only counts as a dropdown
+  // menu for admin; for everyone else it's a plain single row.
+  function routeHasSubmenu(name: string): boolean {
+    return SUBMENUS[name] != null && (name !== 'daily-updates' || isAdmin);
+  }
+
+  function renderRoute({ route, index }: { route: (typeof state.routes)[number]; index: number }) {
             const { options } = descriptors[route.key];
             // "Home" used to bounce staff OUT of the drawer to a sidebar-
             // less /project-dashboard (Part 6) — the drawer is now visible
@@ -248,7 +311,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
             // Edit Requests under DPR (admin only); Leave Log under
             // Attendance (team-attendance is already admin/manager only).
             const submenu = SUBMENUS[route.name];
-            const hasSubmenu = submenu != null && (route.name !== 'daily-updates' || isAdmin);
+            const hasSubmenu = routeHasSubmenu(route.name);
             const focusedRouteName = state.routes[state.index]?.name;
             const childFocused = submenu != null && submenu.some((c) => c.route === focusedRouteName);
             const submenuOpen = hasSubmenu && (expandedSections[route.name] || childFocused);
@@ -286,11 +349,12 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
 
                 {submenuOpen &&
                   submenu?.map((child) => {
-                    const active = focusedRouteName === child.route;
+                    const focusedTab = (state.routes[state.index]?.params as { tab?: string } | undefined)?.tab ?? 'meeting';
+                    const active = focusedRouteName === child.route && (!child.params || child.params.tab === focusedTab);
                     return (
                       <Pressable
-                        key={child.route}
-                        onPress={() => navigation.navigate(child.route)}
+                        key={`${child.route}:${child.label}`}
+                        onPress={() => (child.params ? navigation.navigate(child.route, child.params) : navigation.navigate(child.route))}
                         className="flex-row items-center gap-2.5 rounded-xl pr-3"
                         style={{ minHeight: 36, paddingLeft: 30, backgroundColor: active ? 'rgba(240,162,39,0.14)' : 'transparent' }}
                       >
@@ -323,8 +387,11 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
                 )}
               </View>
             );
-          })}
+  }
 
+  function renderProjectsSection() {
+    return (
+      <>
           {/* Projects — a drawer-level switcher for the shared
               useProject() selection (lib/ProjectContext.tsx), same
               expand/collapse shell as Reports below. Staff-only: a client's
@@ -390,7 +457,13 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
               )}
             </View>
           )}
+      </>
+    );
+  }
 
+  function renderReportsSection() {
+    return (
+      <>
           {/* Reports — visible to BOTH staff and client (unlike Template Kit
               above, no isClient gate: a client can view their own project's
               reports, matching admin-web's separate client-facing Client
@@ -433,29 +506,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
                 </Pressable>
               ))}
           </View>
-        </View>
-      </ScrollView>
-
-      {/* Logout — deliberately a sibling of the ScrollView above, not its
-          last item, so it stays visible without scrolling regardless of
-          menu length. paddingBottom uses the real safe-area inset (gesture
-          nav bar height varies by device) rather than a fixed guess, same
-          convention as FlowchartCanvas's own zoom controls. */}
-      <View className="border-t border-white/10 px-3 pt-3" style={{ paddingBottom: bottomPadding }}>
-        <Pressable onPress={handleLogOut} className="flex-row items-center gap-3 rounded-xl px-3" style={{ minHeight: 44 }}>
-          <Ionicons name="log-out-outline" size={18} color="rgba(255,255,255,0.65)" />
-          <Text className="text-base font-medium text-white/80">Log Out</Text>
-        </Pressable>
-      </View>
-
-      <NewProjectModal
-        visible={newProjectModalVisible}
-        onClose={() => setNewProjectModalVisible(false)}
-        onCreated={(projectId) => {
-          reloadProjects();
-          openProject(projectId);
-        }}
-      />
-    </View>
-  );
+      </>
+    );
+  }
 }

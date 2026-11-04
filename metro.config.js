@@ -10,6 +10,8 @@ const config = getDefaultConfig(__dirname);
 // forever waiting for a worker response that can never arrive (the queue-
 // backed "Saved" flow — Attendance, DPR, everything — depends on this).
 config.resolver.assetExts.push('wasm');
+// The privacy-policy website (deployed separately to Vercel) is not part of the app.
+config.resolver.blockList = [].concat(config.resolver.blockList ?? [], [/privacy-policy-page[\\/].*/]);
 config.server.enhanceMiddleware = (middleware) => {
   return (req, res, next) => {
     res.setHeader('Cross-Origin-Embedder-Policy', 'credentialless');

@@ -28,6 +28,7 @@ import { formatDateLabel, formatDateTimeLabel, formatTime12h, formatTimeRange12h
 import { computeTrackingHealth, type TrackingHealthLevel } from '../../lib/trackingHealth';
 import { isDemoEngineerId } from '../../lib/demoAttendance';
 import { DemoEngineerDetail } from '../../components/team/DemoEngineerDetail';
+import { LOCATION_FEATURES_ENABLED } from '../../lib/featureFlags';
 
 function deviceLabel(manufacturer: string | null, model: string | null): string | null {
   if (!manufacturer && !model) return null;
@@ -115,7 +116,7 @@ function SessionRow({ session, nowMs }: { session: AttendanceSession; nowMs: num
           {formatTime12h(session.checkInTime)} – {isOpen ? 'now' : formatTime12h(session.checkOutTime)}
         </Text>
         {device && <Text className="text-2xs text-neutral-400 mt-0.5">{device}</Text>}
-        {session.checkInLocation && (
+        {LOCATION_FEATURES_ENABLED && session.checkInLocation && (
           <LocationLink latitude={session.checkInLocation.latitude} longitude={session.checkInLocation.longitude} label="View check-in" />
         )}
       </View>
@@ -282,14 +283,14 @@ function LiveStatusCard({
     <Card className="mb-4">
       <View className="flex-row items-center justify-between mb-1">
         <Text className="text-md font-bold text-neutral-900">{fullName}</Text>
-        <StatusBadge level={health.level} label={health.label} isLocked={isLocked} />
+        {LOCATION_FEATURES_ENABLED && <StatusBadge level={health.level} label={health.label} isLocked={isLocked} />}
       </View>
-      {health.detail && <Text className="text-2xs text-neutral-400 text-right mb-2">{health.detail}</Text>}
+      {LOCATION_FEATURES_ENABLED && health.detail && <Text className="text-2xs text-neutral-400 text-right mb-2">{health.detail}</Text>}
 
-      {isLocked && latestLockout && (
+      {LOCATION_FEATURES_ENABLED && isLocked && latestLockout && (
         <LockedNotice lockout={latestLockout} reactivating={reactivating} onReactivate={onReactivate} />
       )}
-      {!isLocked && latestLockout && <ReactivatedNotice lockout={latestLockout} />}
+      {LOCATION_FEATURES_ENABLED && !isLocked && latestLockout && <ReactivatedNotice lockout={latestLockout} />}
 
       {sessions.length > 0 ? (
         <>
@@ -308,7 +309,7 @@ function LiveStatusCard({
           </Text>
           {sessions.map((s, i) => <SessionRow key={i} session={s} nowMs={nowMs} />)}
 
-          {today && today.locationDisabledEpisodes.length > 0 && (
+          {LOCATION_FEATURES_ENABLED && today && today.locationDisabledEpisodes.length > 0 && (
             <View className="mt-3 pt-3 border-t border-neutral-100">
               <Text className="text-2xs font-bold uppercase tracking-wide text-amber-700 mb-1">
                 {unresolvedEpisodes.length > 0 ? 'Location currently off' : 'Location was turned off today'}
@@ -317,7 +318,7 @@ function LiveStatusCard({
             </View>
           )}
 
-          {today && today.redZoneEntries.length > 0 && (
+          {LOCATION_FEATURES_ENABLED && today && today.redZoneEntries.length > 0 && (
             <View className="mt-3 pt-3 border-t border-neutral-100">
               <Text className="text-2xs font-bold uppercase tracking-wide text-red-700 mb-1">
                 {unresolvedZoneEntries.length > 0 ? 'Currently in a red zone' : 'Red zone entry today'}
@@ -366,7 +367,7 @@ function DayCard({ day }: { day: DailyAttendanceRecord }) {
                 <Text className="text-sm font-semibold text-neutral-800">
                   {formatTime12h(s.checkInTime)} – {s.checkOutTime ? formatTime12h(s.checkOutTime) : 'Ongoing'}
                 </Text>
-                {s.checkInLocation && <LocationLink latitude={s.checkInLocation.latitude} longitude={s.checkInLocation.longitude} label="View" />}
+                {LOCATION_FEATURES_ENABLED && s.checkInLocation && <LocationLink latitude={s.checkInLocation.latitude} longitude={s.checkInLocation.longitude} label="View" />}
               </View>
             </View>
           ))}
@@ -389,7 +390,7 @@ function DayCard({ day }: { day: DailyAttendanceRecord }) {
                 <Text className="text-2xs font-bold text-amber-700">Left Early</Text>
               </View>
             )}
-            {day.unresolvedRedZoneEntryCount > 0 && (
+            {LOCATION_FEATURES_ENABLED && day.unresolvedRedZoneEntryCount > 0 && (
               <View className="px-2 py-0.5 rounded-full bg-red-50 border border-red-200">
                 <Text className="text-2xs font-bold text-red-700">
                   {day.unresolvedRedZoneEntryCount} unresolved red-zone {day.unresolvedRedZoneEntryCount === 1 ? 'entry' : 'entries'}
@@ -412,14 +413,14 @@ function DayCard({ day }: { day: DailyAttendanceRecord }) {
                 <Text className="text-2xs font-bold text-neutral-500">{deviceLabel(day.deviceManufacturer, day.deviceModel)}</Text>
               </View>
             )}
-            {day.locationDisabledEpisodes.length > 0 && (
+            {LOCATION_FEATURES_ENABLED && day.locationDisabledEpisodes.length > 0 && (
               <View className="px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200">
                 <Text className="text-2xs font-bold text-amber-700">
                   Location off {day.locationDisabledEpisodes.length} {day.locationDisabledEpisodes.length === 1 ? 'time' : 'times'}
                 </Text>
               </View>
             )}
-            {day.redZoneEntries.length > 0 && (
+            {LOCATION_FEATURES_ENABLED && day.redZoneEntries.length > 0 && (
               <View className="px-2 py-0.5 rounded-full bg-red-50 border border-red-200">
                 <Text className="text-2xs font-bold text-red-700">
                   Red zone entry {day.redZoneEntries.length} {day.redZoneEntries.length === 1 ? 'time' : 'times'}
@@ -544,8 +545,10 @@ function TeamAttendanceDetailScreen() {
           {/* Section 4.1/4.2 — today's map trail + chronological checklist,
               admin's per-engineer view of the exact same feature the field
               role sees for themselves on day-timeline.tsx. */}
+          {LOCATION_FEATURES_ENABLED && (
           <Text className="text-xs font-bold uppercase tracking-wide text-neutral-400 mb-2.5">Today&apos;s Trail</Text>
-          {userId && (
+          )}
+          {LOCATION_FEATURES_ENABLED && userId && (
             <View className="mb-4">
               <DayTimelineView ref={timelineViewRef} userId={userId} projectId={selectedProjectId} emptyLabel="No activity recorded yet today." />
             </View>

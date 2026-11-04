@@ -1,8 +1,1341 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider        = "prisma-client"
+  output          = "../generated/prisma"
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model account_lockouts {
+  id                                                              String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                                                         String         @db.Uuid
+  reason                                                          String
+  locked_at                                                       DateTime       @default(now()) @db.Timestamptz(6)
+  device_manufacturer                                             String?
+  device_model                                                    String?
+  reactivated_at                                                  DateTime?      @db.Timestamptz(6)
+  reactivated_by_id                                               String?        @db.Uuid
+  created_at                                                      DateTime       @default(now()) @db.Timestamptz(6)
+  user_profiles_account_lockouts_reactivated_by_idTouser_profiles user_profiles? @relation("account_lockouts_reactivated_by_idTouser_profiles", fields: [reactivated_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user_profiles_account_lockouts_user_idTouser_profiles           user_profiles  @relation("account_lockouts_user_idTouser_profiles", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id, locked_at], map: "account_lockouts_user_id_idx")
+}
+
+model accountability_trades {
+  id         String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  type       AccountabilityType
+  name       String
+  sort_order Int                @default(0) @db.SmallInt
+  work_id    String?            @db.Uuid
+  works      works?             @relation(fields: [work_id], references: [id])
+
+  @@unique([type, name])
+}
+
+model activity_log {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  task_id     String?  @db.Uuid
+  user_id     String?  @db.Uuid
+  action_type String   @db.VarChar(50)
+  payload     Json?
+  created_at  DateTime @default(now())
+  tasks       tasks?   @relation(fields: [task_id], references: [id])
+
+  @@index([created_at])
+  @@index([task_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model attendance_records {
+  id                        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                   String         @db.Uuid
+  project_id                String?        @db.Uuid
+  type                      AttendanceType
+  latitude                  Decimal?       @db.Decimal(10, 7)
+  longitude                 Decimal?       @db.Decimal(10, 7)
+  accuracy_meters           Decimal?       @db.Decimal(6, 1)
+  distance_from_site_meters Decimal?       @db.Decimal(8, 1)
+  is_flagged                Boolean        @default(false)
+  flag_reason               String?
+  mock_location_suspected   Boolean?
+  client_captured_at        DateTime       @db.Timestamptz(6)
+  server_received_at        DateTime       @default(now()) @db.Timestamptz(6)
+  reviewed_at               DateTime?      @db.Timestamptz(6)
+  reviewed_by               String?        @db.Uuid
+  scheduled_start_minutes   Int?
+  scheduled_end_minutes     Int?
+  device_manufacturer       String?
+  device_model              String?
+  projects                  projects?      @relation(fields: [project_id], references: [id])
+
+  @@index([project_id])
+  @@index([user_id, client_captured_at])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model comments {
+  id                 String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dependency_item_id String           @db.Uuid
+  author_id          String?          @db.Uuid
+  body               String
+  parent_comment_id  String?          @db.Uuid
+  created_at         DateTime         @default(now())
+  user_profiles      user_profiles?   @relation(fields: [author_id], references: [id])
+  dependency_items   dependency_items @relation(fields: [dependency_item_id], references: [id], onDelete: Cascade)
+  comments           comments?        @relation("commentsTocomments", fields: [parent_comment_id], references: [id], onDelete: Cascade)
+  other_comments     comments[]       @relation("commentsTocomments")
+
+  @@index([dependency_item_id])
+  @@index([parent_comment_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model contacts {
+  id                 String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name               String
+  phone_number       String
+  company_name       String?
+  category           contact_category
+  notes              String?
+  created_by         String?          @db.Uuid
+  created_at         DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime         @default(now()) @db.Timestamptz(6)
+  email              String?
+  location_link      String?
+  alt_phone_number   String?
+  team_member_number String?
+  user_profiles      user_profiles?   @relation(fields: [created_by], references: [id], onUpdate: NoAction)
+
+  @@index([category])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model critical_alert_messages {
+  id                                                                      String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  project_id                                                              String         @db.Uuid
+  sender_id                                                               String         @db.Uuid
+  recipient_id                                                            String?        @db.Uuid
+  message                                                                 String
+  acknowledged_at                                                         DateTime?      @db.Timestamptz(6)
+  acknowledged_by_id                                                      String?        @db.Uuid
+  created_at                                                              DateTime       @default(now()) @db.Timestamptz(6)
+  sound                                                                   String?
+  user_profiles_critical_alert_messages_acknowledged_by_idTouser_profiles user_profiles? @relation("critical_alert_messages_acknowledged_by_idTouser_profiles", fields: [acknowledged_by_id], references: [id], onUpdate: NoAction)
+  projects                                                                projects       @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_profiles_critical_alert_messages_recipient_idTouser_profiles       user_profiles? @relation("critical_alert_messages_recipient_idTouser_profiles", fields: [recipient_id], references: [id], onUpdate: NoAction)
+  user_profiles_critical_alert_messages_sender_idTouser_profiles          user_profiles  @relation("critical_alert_messages_sender_idTouser_profiles", fields: [sender_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([project_id, created_at], map: "critical_alert_messages_project_id_idx")
+  @@index([recipient_id])
+  @@index([sender_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model daily_progress_report_photos {
+  id                     String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  report_id              String                 @db.Uuid
+  storage_path           String
+  caption                String?
+  created_at             DateTime               @default(now()) @db.Timestamptz(6)
+  daily_progress_reports daily_progress_reports @relation(fields: [report_id], references: [id], onDelete: Cascade)
+
+  @@index([report_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model daily_progress_reports {
+  id                           String                         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                      String                         @db.Uuid
+  project_id                   String?                        @db.Uuid
+  task_id                      String?                        @db.Uuid
+  report_date                  DateTime                       @db.Date
+  client_captured_at           DateTime                       @db.Timestamptz(6)
+  server_received_at           DateTime                       @default(now()) @db.Timestamptz(6)
+  equipment_used               String?
+  materials_used               String?
+  remarks                      String?
+  safety_observations          String?
+  sft_completed                Decimal?                       @db.Decimal(10, 2)
+  site_issues                  String?
+  visitors_on_site             String?
+  weather_condition            WeatherCondition?
+  work_description             String
+  work_type                    String
+  workforce_count              Int?
+  slot                         String?
+  daily_progress_report_photos daily_progress_report_photos[]
+  projects                     projects?                      @relation(fields: [project_id], references: [id])
+  tasks                        tasks?                         @relation(fields: [task_id], references: [id])
+  user_profiles                user_profiles                  @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([project_id])
+  @@index([user_id, report_date])
+}
+
+model daily_update_reminders_sent {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String        @db.Uuid
+  report_date   DateTime      @db.Date
+  slot          String
+  sent_at       DateTime      @default(now()) @db.Timestamptz(6)
+  user_profiles user_profiles @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, report_date, slot])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dependency_approvals {
+  id                 String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dependency_item_id String           @db.Uuid
+  approval_number    Int              @db.SmallInt
+  outcome            String
+  note               String?
+  recorded_by        String?          @db.Uuid
+  recorded_at        DateTime         @default(now()) @db.Timestamptz(6)
+  dependency_items   dependency_items @relation(fields: [dependency_item_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_profiles      user_profiles?   @relation(fields: [recorded_by], references: [id], onUpdate: NoAction)
+
+  @@unique([dependency_item_id, approval_number])
+  @@index([dependency_item_id], map: "dependency_approvals_item_idx")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dependency_completions {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  item_id          String           @unique @db.Uuid
+  status           CompletionStatus @default(PENDING)
+  comment          String?
+  completed_by     String?          @db.Uuid
+  completed_at     DateTime?
+  updated_at       DateTime
+  issue_date       DateTime?        @db.Date
+  dependency_items dependency_items @relation(fields: [item_id], references: [id], onDelete: Cascade)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dependency_items {
+  id                        String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  task_id                   String                      @db.Uuid
+  category                  DependencyCategory
+  item_label                String
+  is_mandatory              Boolean                     @default(true)
+  sort_order                Int                         @default(0) @db.SmallInt
+  created_at                DateTime                    @default(now())
+  quantity_unit             QuantityUnit?
+  quantity_value            Decimal?                    @db.Decimal(12, 2)
+  comments                  comments[]
+  dependency_approvals      dependency_approvals[]
+  dependency_completions    dependency_completions?
+  tasks                     tasks                       @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  dependency_status_history dependency_status_history[]
+  drawing_revisions         drawing_revisions[]
+
+  @@index([task_id, category])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dependency_status_history {
+  id                 String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dependency_item_id String            @db.Uuid
+  old_status         CompletionStatus?
+  new_status         CompletionStatus
+  changed_by         String?           @db.Uuid
+  changed_at         DateTime          @default(now())
+  issue_date         DateTime?         @db.Date
+  user_profiles      user_profiles?    @relation(fields: [changed_by], references: [id])
+  dependency_items   dependency_items  @relation(fields: [dependency_item_id], references: [id], onDelete: Cascade)
+
+  @@index([dependency_item_id, changed_at])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dependency_template_items {
+  id         String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  category   DependencyCategory
+  label      String
+  sort_order Int                @default(0) @db.SmallInt
+  updated_at DateTime
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model document_task_links {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  document_id   String         @db.Uuid
+  task_id       String         @db.Uuid
+  assigned_by   String?        @db.Uuid
+  created_at    DateTime       @default(now()) @db.Timestamptz(6)
+  user_profiles user_profiles? @relation(fields: [assigned_by], references: [id], onUpdate: NoAction)
+  documents     documents      @relation(fields: [document_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tasks         tasks          @relation(fields: [task_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([document_id, task_id])
+  @@index([document_id])
+  @@index([task_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model documents {
+  id                  String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  project_id          String                @db.Uuid
+  title               String
+  storage_path        String
+  revision_label      String
+  document_date       DateTime              @db.Date
+  uploaded_by         String?               @db.Uuid
+  created_at          DateTime              @default(now()) @db.Timestamptz(6)
+  document_task_links document_task_links[]
+  projects            projects              @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_profiles       user_profiles?        @relation(fields: [uploaded_by], references: [id], onUpdate: NoAction)
+
+  @@index([project_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dpr_edit_requests {
+  id                                                          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  task_id                                                     String         @db.Uuid
+  report_date                                                 DateTime       @db.Date
+  project_id                                                  String         @db.Uuid
+  requested_by                                                String         @db.Uuid
+  message                                                     String?
+  status                                                      String         @default("pending")
+  created_at                                                  DateTime       @default(now()) @db.Timestamptz(6)
+  reviewed_by                                                 String?        @db.Uuid
+  reviewed_at                                                 DateTime?      @db.Timestamptz(6)
+  projects                                                    projects       @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_profiles_dpr_edit_requests_requested_byTouser_profiles user_profiles  @relation("dpr_edit_requests_requested_byTouser_profiles", fields: [requested_by], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_profiles_dpr_edit_requests_reviewed_byTouser_profiles  user_profiles? @relation("dpr_edit_requests_reviewed_byTouser_profiles", fields: [reviewed_by], references: [id], onUpdate: NoAction)
+  tasks                                                       tasks          @relation(fields: [task_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([requested_by])
+  @@index([status])
+  @@index([task_id, report_date], map: "dpr_edit_requests_task_date_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dpr_entries {
+  id                         String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  task_id                    String                    @db.Uuid
+  report_date                DateTime                  @db.Date
+  dependency_categories      dpr_dependency_category[] @default([])
+  submitted_by               String?                   @db.Uuid
+  created_at                 DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime                  @default(now()) @db.Timestamptz(6)
+  comment_preset             dpr_comment_preset?
+  comment_text               String?
+  percent_complete           Int?                      @db.SmallInt
+  targeted_workforce_per_day Int?
+  actual_workforce_per_day   Int?
+  submitted_at               DateTime?                 @db.Timestamptz(6)
+  subtask                    String?
+  dependency_other_text      String?
+  subtask_work_id            String?                   @db.Uuid
+  architect_comment          String?
+  client_comment             String?
+  user_profiles              user_profiles?            @relation(fields: [submitted_by], references: [id], onUpdate: NoAction)
+  works                      works?                    @relation(fields: [subtask_work_id], references: [id], onUpdate: NoAction)
+  tasks                      tasks                     @relation(fields: [task_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([task_id, report_date])
+  @@index([report_date])
+  @@index([task_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dpr_entry_photos {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  task_id       String         @db.Uuid
+  storage_path  String
+  uploaded_by   String?        @db.Uuid
+  created_at    DateTime       @default(now()) @db.Timestamptz(6)
+  photo_type    String         @default("signed_checklist")
+  tasks         tasks          @relation(fields: [task_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_profiles user_profiles? @relation(fields: [uploaded_by], references: [id], onUpdate: NoAction)
+
+  @@index([task_id])
+  @@index([task_id, photo_type])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dpr_entry_subtasks {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  task_id           String    @db.Uuid
+  report_date       DateTime  @db.Date
+  text              String
+  work_id           String?   @db.Uuid
+  sort_order        Int       @default(0)
+  created_at        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime  @default(now()) @db.Timestamptz(6)
+  percent_complete  Int?
+  actual_start_date DateTime? @db.Date
+  tasks             tasks     @relation(fields: [task_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  works             works?    @relation(fields: [work_id], references: [id], onUpdate: NoAction)
+
+  @@index([task_id, report_date], map: "dpr_entry_subtasks_task_date_idx")
+}
+
+model draft_sequences {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  project_id       String             @db.Uuid
+  created_by       String             @db.Uuid
+  created_at       DateTime           @default(now())
+  updated_at       DateTime
+  projects         projects           @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  draft_task_edges draft_task_edges[]
+  draft_task_nodes draft_task_nodes[]
+}
+
+model draft_task_edges {
+  id                                                                 String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  draft_sequence_id                                                  String           @db.Uuid
+  source_node_id                                                     String           @db.Uuid
+  target_node_id                                                     String           @db.Uuid
+  draft_sequences                                                    draft_sequences  @relation(fields: [draft_sequence_id], references: [id], onDelete: Cascade)
+  draft_task_nodes_draft_task_edges_source_node_idTodraft_task_nodes draft_task_nodes @relation("draft_task_edges_source_node_idTodraft_task_nodes", fields: [source_node_id], references: [id], onDelete: Cascade)
+  draft_task_nodes_draft_task_edges_target_node_idTodraft_task_nodes draft_task_nodes @relation("draft_task_edges_target_node_idTodraft_task_nodes", fields: [target_node_id], references: [id], onDelete: Cascade)
+
+  @@unique([source_node_id, target_node_id])
+}
+
+model draft_task_nodes {
+  id                                                                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  draft_sequence_id                                                  String             @db.Uuid
+  label                                                              String
+  notes                                                              String?
+  planned_duration_days                                              Int?
+  position_x                                                         Float
+  position_y                                                         Float
+  created_at                                                         DateTime           @default(now())
+  draft_task_edges_draft_task_edges_source_node_idTodraft_task_nodes draft_task_edges[] @relation("draft_task_edges_source_node_idTodraft_task_nodes")
+  draft_task_edges_draft_task_edges_target_node_idTodraft_task_nodes draft_task_edges[] @relation("draft_task_edges_target_node_idTodraft_task_nodes")
+  draft_sequences                                                    draft_sequences    @relation(fields: [draft_sequence_id], references: [id], onDelete: Cascade)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model drawing_revisions {
+  id                 String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dependency_item_id String           @db.Uuid
+  revision_number    Int              @db.SmallInt
+  file_name          String
+  file_url           String?
+  uploaded_by        String?          @db.Uuid
+  uploaded_at        DateTime         @default(now())
+  dependency_items   dependency_items @relation(fields: [dependency_item_id], references: [id], onDelete: Cascade)
+  user_profiles      user_profiles?   @relation(fields: [uploaded_by], references: [id])
+
+  @@unique([dependency_item_id, revision_number])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model field_login_events {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String        @db.Uuid
+  logged_in_at  DateTime      @default(now()) @db.Timestamptz(6)
+  latitude      Decimal?      @db.Decimal(10, 7)
+  longitude     Decimal?      @db.Decimal(10, 7)
+  device_model  String?
+  device_os     String?
+  user_profiles user_profiles @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, logged_in_at])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model flowchart_templates {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name           String
+  description    String?
+  created_by     String?          @db.Uuid
+  created_at     DateTime         @default(now())
+  template_links template_links[]
+  template_tasks template_tasks[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model geofence_alerts {
+  id                                                          String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  project_id                                                  String         @db.Uuid
+  user_id                                                     String         @db.Uuid
+  exit_at                                                     DateTime       @db.Timestamptz(6)
+  confirmed_at                                                DateTime       @default(now()) @db.Timestamptz(6)
+  returned_at                                                 DateTime?      @db.Timestamptz(6)
+  resolved                                                    Boolean        @default(false)
+  resolved_at                                                 DateTime?      @db.Timestamptz(6)
+  resolved_by_id                                              String?        @db.Uuid
+  created_at                                                  DateTime       @default(now()) @db.Timestamptz(6)
+  latitude                                                    Decimal?       @db.Decimal(10, 7)
+  longitude                                                   Decimal?       @db.Decimal(10, 7)
+  accuracy_meters                                             Decimal?       @db.Decimal(10, 2)
+  device_manufacturer                                         String?
+  device_model                                                String?
+  projects                                                    projects       @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user_profiles_geofence_alerts_resolved_by_idTouser_profiles user_profiles? @relation("geofence_alerts_resolved_by_idTouser_profiles", fields: [resolved_by_id], references: [id])
+  user_profiles_geofence_alerts_user_idTouser_profiles        user_profiles  @relation("geofence_alerts_user_idTouser_profiles", fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([project_id])
+  @@index([user_id])
+}
+
+model holidays {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  date        DateTime    @unique @db.Date
+  name        String      @db.VarChar(200)
+  description String?
+  created_at  DateTime    @default(now())
+  type        HolidayType @default(national_holiday)
+}
+
+model inventory_items {
+  id                     String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                   String
+  sku                    String?                  @unique
+  category               String?
+  unit                   InventoryUnit            @default(PCS)
+  quantity_on_hand       Decimal                  @default(0) @db.Decimal(12, 2)
+  reorder_level          Decimal?                 @db.Decimal(12, 2)
+  unit_cost              Decimal?                 @db.Decimal(12, 2)
+  supplier               String?
+  project_id             String?                  @db.Uuid
+  notes                  String?
+  created_at             DateTime                 @default(now())
+  updated_at             DateTime
+  projects               projects?                @relation(fields: [project_id], references: [id])
+  inventory_transactions inventory_transactions[]
+}
+
+model inventory_transactions {
+  id              String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  item_id         String                   @db.Uuid
+  type            InventoryTransactionType
+  quantity        Decimal                  @db.Decimal(12, 2)
+  source_doc_path String?
+  note            String?
+  recorded_by     String?                  @db.Uuid
+  created_at      DateTime                 @default(now())
+  inventory_items inventory_items          @relation(fields: [item_id], references: [id], onDelete: Cascade)
+
+  @@index([item_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model invoices {
+  id                                                               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  invoice_number                                                   Int            @unique @default(autoincrement())
+  project_id                                                       String         @db.Uuid
+  client_user_profile_id                                           String?        @db.Uuid
+  created_by_user_profile_id                                       String?        @db.Uuid
+  issue_date                                                       DateTime       @db.Date
+  description                                                      String         @db.VarChar(500)
+  amount                                                           Decimal        @db.Decimal(12, 2)
+  status                                                           InvoiceStatus  @default(draft)
+  sent_at                                                          DateTime?
+  created_at                                                       DateTime       @default(now())
+  updated_at                                                       DateTime
+  user_profiles_invoices_client_user_profile_idTouser_profiles     user_profiles? @relation("invoices_client_user_profile_idTouser_profiles", fields: [client_user_profile_id], references: [id], onUpdate: NoAction)
+  user_profiles_invoices_created_by_user_profile_idTouser_profiles user_profiles? @relation("invoices_created_by_user_profile_idTouser_profiles", fields: [created_by_user_profile_id], references: [id], onUpdate: NoAction)
+  projects                                                         projects       @relation(fields: [project_id], references: [id])
+
+  @@index([client_user_profile_id])
+  @@index([project_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model leave_events {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String        @db.Uuid
+  project_id    String?       @db.Uuid
+  left_at       DateTime      @db.Timestamptz(6)
+  reason_preset String
+  reason_note   String?
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  returned_at   DateTime?     @db.Timestamptz(6)
+  projects      projects?     @relation(fields: [project_id], references: [id], onUpdate: NoAction)
+  user_profiles user_profiles @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([project_id])
+  @@index([user_id, left_at], map: "leave_events_user_id_idx")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model location_disabled_alerts {
+  id                                                                   String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id                                                              String         @db.Uuid
+  project_id                                                           String?        @db.Uuid
+  reason                                                               String
+  disabled_at                                                          DateTime       @db.Timestamptz(6)
+  enabled_at                                                           DateTime?      @db.Timestamptz(6)
+  resolved                                                             Boolean        @default(false)
+  resolved_at                                                          DateTime?      @db.Timestamptz(6)
+  resolved_by_id                                                       String?        @db.Uuid
+  created_at                                                           DateTime       @default(now()) @db.Timestamptz(6)
+  device_manufacturer                                                  String?
+  device_model                                                         String?
+  projects                                                             projects?      @relation(fields: [project_id], references: [id])
+  user_profiles_location_disabled_alerts_resolved_by_idTouser_profiles user_profiles? @relation("location_disabled_alerts_resolved_by_idTouser_profiles", fields: [resolved_by_id], references: [id])
+  user_profiles_location_disabled_alerts_user_idTouser_profiles        user_profiles  @relation("location_disabled_alerts_user_idTouser_profiles", fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, reason], map: "location_disabled_alerts_open_episode_uidx", where: raw("(enabled_at IS NULL)"))
+  @@index([project_id])
+  @@index([user_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model location_pings {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id         String        @db.Uuid
+  project_id      String?       @db.Uuid
+  latitude        Decimal       @db.Decimal(10, 7)
+  longitude       Decimal       @db.Decimal(10, 7)
+  accuracy_meters Decimal?      @db.Decimal(10, 2)
+  occurred_at     DateTime      @db.Timestamptz(6)
+  created_at      DateTime      @default(now()) @db.Timestamptz(6)
+  projects        projects?     @relation(fields: [project_id], references: [id], onUpdate: NoAction)
+  user_profiles   user_profiles @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, occurred_at], map: "location_pings_user_occurred_at_key")
+  @@index([project_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model location_snapshots {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String        @db.Uuid
+  project_id    String?       @db.Uuid
+  latitude      Decimal       @db.Decimal(10, 7)
+  longitude     Decimal       @db.Decimal(10, 7)
+  captured_at   DateTime
+  created_at    DateTime      @default(now())
+  projects      projects?     @relation(fields: [project_id], references: [id])
+  user_profiles user_profiles @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([project_id])
+  @@index([user_id, captured_at])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model location_test_logs {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  device_label  String
+  session_id    String   @db.Uuid
+  occurred_at   DateTime @db.Timestamptz(6)
+  latitude      Decimal  @db.Decimal(10, 7)
+  longitude     Decimal  @db.Decimal(10, 7)
+  battery_level Decimal? @db.Decimal(4, 3)
+  app_state     String?
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([session_id, occurred_at], map: "location_test_logs_session_idx")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model milestones {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  project_id    String         @db.Uuid
+  name          String
+  color         String
+  created_by    String?        @db.Uuid
+  created_at    DateTime       @default(now()) @db.Timestamptz(6)
+  user_profiles user_profiles? @relation(fields: [created_by], references: [id], onUpdate: NoAction)
+  projects      projects       @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tasks         tasks[]
+
+  @@index([project_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model progress_tracker_items {
+  id                        String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  section_id                String                    @db.Uuid
+  item                      String                    @db.VarChar(300)
+  status                    ProgressStatus            @default(not_started)
+  notes                     String?
+  in_original_proposal      Boolean                   @default(false)
+  display_order             Int                       @default(0)
+  created_at                DateTime                  @default(now()) @db.Timestamptz(6)
+  updated_at                DateTime                  @default(now()) @db.Timestamptz(6)
+  progress_tracker_sections progress_tracker_sections @relation(fields: [section_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([section_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model progress_tracker_sections {
+  id                     String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                   String                   @db.VarChar(200)
+  display_order          Int                      @default(0)
+  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  progress_tracker_items progress_tracker_items[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model project_contacts {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  project_id       String           @db.Uuid
+  name             String
+  phone_number     String
+  alt_phone_number String?
+  email            String?
+  company_name     String?
+  category         contact_category
+  notes            String?
+  created_by       String?          @db.Uuid
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime         @default(now()) @db.Timestamptz(6)
+  user_profiles    user_profiles?   @relation(fields: [created_by], references: [id], onUpdate: NoAction)
+  projects         projects         @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([category])
+  @@index([project_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model project_users {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String        @db.Uuid
+  project_id    String        @db.Uuid
+  created_at    DateTime      @default(now())
+  projects      projects      @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_profiles user_profiles @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, project_id])
+  @@index([project_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model projects {
+  id                                                       String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                                                     String                     @db.VarChar(200)
+  address                                                  String?                    @db.VarChar(500)
+  area                                                     String?                    @db.VarChar(50)
+  budget                                                   String?                    @db.VarChar(100)
+  photo_url                                                String?
+  created_at                                               DateTime                   @default(now())
+  updated_at                                               DateTime
+  site_latitude                                            Decimal?                   @db.Decimal(10, 7)
+  site_longitude                                           Decimal?                   @db.Decimal(10, 7)
+  total_sft                                                Decimal?                   @db.Decimal(10, 2)
+  site_radius_meters                                       Int?
+  report_sent_at                                           DateTime?
+  location_set_at                                          DateTime?                  @db.Timestamptz(6)
+  location_set_by_id                                       String?                    @db.Uuid
+  shift_start_minutes                                      Int                        @default(540)
+  shift_end_minutes                                        Int                        @default(1080)
+  floor_count                                              Int?
+  room_count                                               Int?
+  show_workforce_on_report                                 Boolean                    @default(false)
+  attendance_records                                       attendance_records[]
+  critical_alert_messages                                  critical_alert_messages[]
+  daily_progress_reports                                   daily_progress_reports[]
+  documents                                                documents[]
+  dpr_edit_requests                                        dpr_edit_requests[]
+  draft_sequences                                          draft_sequences[]
+  geofence_alerts                                          geofence_alerts[]
+  inventory_items                                          inventory_items[]
+  invoices                                                 invoices[]
+  leave_events                                             leave_events[]
+  location_disabled_alerts                                 location_disabled_alerts[]
+  location_pings                                           location_pings[]
+  location_snapshots                                       location_snapshots[]
+  milestones                                               milestones[]
+  project_contacts                                         project_contacts[]
+  project_users                                            project_users[]
+  user_profiles_projects_location_set_by_idTouser_profiles user_profiles?             @relation("projects_location_set_by_idTouser_profiles", fields: [location_set_by_id], references: [id], onUpdate: NoAction)
+  restricted_zone_alerts                                   restricted_zone_alerts[]
+  restricted_zones                                         restricted_zones[]
+  site_issues                                              site_issues[]
+  user_profiles_user_profiles_client_project_idToprojects  user_profiles[]            @relation("user_profiles_client_project_idToprojects")
+  works                                                    works[]
+  zone_alert_recipients                                    zone_alert_recipients[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model restricted_zone_alerts {
+  id                                                                 String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  restricted_zone_id                                                 String           @db.Uuid
+  project_id                                                         String           @db.Uuid
+  user_id                                                            String           @db.Uuid
+  entered_at                                                         DateTime         @db.Timestamptz(6)
+  exited_at                                                          DateTime?        @db.Timestamptz(6)
+  resolved                                                           Boolean          @default(false)
+  resolved_at                                                        DateTime?        @db.Timestamptz(6)
+  resolved_by_id                                                     String?          @db.Uuid
+  created_at                                                         DateTime         @default(now()) @db.Timestamptz(6)
+  alert_sent                                                         Boolean          @default(false)
+  alert_sent_at                                                      DateTime?        @db.Timestamptz(6)
+  latitude                                                           Decimal?         @db.Decimal(10, 7)
+  longitude                                                          Decimal?         @db.Decimal(10, 7)
+  accuracy_meters                                                    Decimal?         @db.Decimal(10, 2)
+  device_manufacturer                                                String?
+  device_model                                                       String?
+  reminder_sent_at                                                   DateTime?        @db.Timestamptz(6)
+  projects                                                           projects         @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_profiles_restricted_zone_alerts_resolved_by_idTouser_profiles user_profiles?   @relation("restricted_zone_alerts_resolved_by_idTouser_profiles", fields: [resolved_by_id], references: [id], onUpdate: NoAction)
+  restricted_zones                                                   restricted_zones @relation(fields: [restricted_zone_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_profiles_restricted_zone_alerts_user_idTouser_profiles        user_profiles    @relation("restricted_zone_alerts_user_idTouser_profiles", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([project_id])
+  @@index([user_id])
+  @@index([restricted_zone_id], map: "restricted_zone_alerts_zone_id_idx")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model restricted_zones {
+  id                     String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  project_id             String                   @db.Uuid
+  name                   String                   @db.VarChar(200)
+  latitude               Decimal                  @db.Decimal(10, 7)
+  longitude              Decimal                  @db.Decimal(10, 7)
+  radius_meters          Int                      @default(50)
+  created_by_id          String?                  @db.Uuid
+  created_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime                 @default(now()) @db.Timestamptz(6)
+  zone_type              ZoneType                 @default(red)
+  shape_type             ZoneShapeType            @default(circle)
+  polygon_points         Json?
+  severity               ZoneSeverity             @default(warning)
+  active                 Boolean                  @default(true)
+  restricted_zone_alerts restricted_zone_alerts[]
+  user_profiles          user_profiles?           @relation(fields: [created_by_id], references: [id], onUpdate: NoAction)
+  projects               projects                 @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([project_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model role_permissions {
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  role       UserRole
+  permission Permission
+  created_at DateTime   @default(now())
+
+  @@unique([role, permission])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model sft_progress_entries {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  task_id       String   @db.Uuid
+  entry_date    DateTime @db.Date
+  sft_completed Decimal  @db.Decimal(10, 2)
+  headcount     Int?
+  notes         String?
+  recorded_by   String?  @db.Uuid
+  created_at    DateTime @default(now())
+  tasks         tasks    @relation(fields: [task_id], references: [id], onDelete: Cascade)
+
+  @@index([task_id, entry_date])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model site_issues {
+  id                                                      String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  project_id                                              String         @db.Uuid
+  title                                                   String         @db.VarChar(200)
+  description                                             String
+  reported_by_id                                          String?        @db.Uuid
+  reported_at                                             DateTime       @default(now()) @db.Timestamptz(6)
+  resolved                                                Boolean        @default(false)
+  resolved_at                                             DateTime?      @db.Timestamptz(6)
+  resolved_by_id                                          String?        @db.Uuid
+  projects                                                projects       @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  user_profiles_site_issues_reported_by_idTouser_profiles user_profiles? @relation("site_issues_reported_by_idTouser_profiles", fields: [reported_by_id], references: [id])
+  user_profiles_site_issues_resolved_by_idTouser_profiles user_profiles? @relation("site_issues_resolved_by_idTouser_profiles", fields: [resolved_by_id], references: [id])
+
+  @@index([project_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model task_dependencies {
+  id                                                String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  task_id                                           String         @db.Uuid
+  depends_on_task_id                                String         @db.Uuid
+  created_at                                        DateTime       @default(now())
+  type                                              DependencyType @default(FS)
+  tasks_task_dependencies_depends_on_task_idTotasks tasks          @relation("task_dependencies_depends_on_task_idTotasks", fields: [depends_on_task_id], references: [id], onDelete: Cascade)
+  tasks_task_dependencies_task_idTotasks            tasks          @relation("task_dependencies_task_idTotasks", fields: [task_id], references: [id], onDelete: Cascade)
+
+  @@unique([task_id, depends_on_task_id])
+  @@index([depends_on_task_id])
+  @@index([task_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model task_parallel_links {
+  id                                         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  task_a_id                                  String   @db.Uuid
+  task_b_id                                  String   @db.Uuid
+  created_at                                 DateTime @default(now())
+  tasks_task_parallel_links_task_a_idTotasks tasks    @relation("task_parallel_links_task_a_idTotasks", fields: [task_a_id], references: [id], onDelete: Cascade)
+  tasks_task_parallel_links_task_b_idTotasks tasks    @relation("task_parallel_links_task_b_idTotasks", fields: [task_b_id], references: [id], onDelete: Cascade)
+
+  @@unique([task_a_id, task_b_id])
+  @@index([task_a_id])
+  @@index([task_b_id])
+}
+
+model task_types {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String   @unique
+  default_duration_days Int
+  created_at            DateTime @default(now())
+  tasks                 tasks[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model tasks {
+  id                                                            String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  task_id                                                       String                   @unique @db.VarChar(20)
+  task_name                                                     String
+  project_name                                                  String
+  description                                                   String?
+  status                                                        TaskStatus               @default(draft)
+  created_by                                                    String?                  @db.Uuid
+  created_at                                                    DateTime                 @default(now())
+  due_date                                                      DateTime?                @db.Date
+  updated_at                                                    DateTime
+  assigned_to                                                   String?                  @db.Uuid
+  work_id                                                       String?                  @db.Uuid
+  planned_start_date                                            DateTime?                @db.Date
+  total_sft                                                     Decimal?                 @db.Decimal(10, 2)
+  actual_end_date                                               DateTime?                @db.Date
+  actual_start_date                                             DateTime?                @db.Date
+  task_type_id                                                  String?                  @db.Uuid
+  manual_position_x                                             Float?
+  manual_position_y                                             Float?
+  deleted_at                                                    DateTime?
+  cascade_delay_days                                            Int?
+  current_due_date                                              DateTime?                @db.Date
+  current_planned_start_date                                    DateTime?                @db.Date
+  accountability_type                                           AccountabilityType?
+  checklist_completed_at                                        DateTime?                @db.Timestamptz(6)
+  checklist_completed_by                                        String?                  @db.Uuid
+  checklist_verification_status                                 String?
+  checklist_verified_by                                         String?                  @db.Uuid
+  checklist_verified_at                                         DateTime?                @db.Timestamptz(6)
+  checklist_verification_note                                   String?
+  hidden_from_flowchart                                         Boolean                  @default(false)
+  room_type                                                     String?
+  floor_level                                                   String?
+  urgent_pushed_at                                              DateTime?                @db.Timestamptz(6)
+  urgent_pushed_by                                              String?                  @db.Uuid
+  milestone_id                                                  String?                  @db.Uuid
+  activity_log                                                  activity_log[]
+  daily_progress_reports                                        daily_progress_reports[]
+  dependency_items                                              dependency_items[]
+  document_task_links                                           document_task_links[]
+  dpr_edit_requests                                             dpr_edit_requests[]
+  dpr_entries                                                   dpr_entries[]
+  dpr_entry_photos                                              dpr_entry_photos[]
+  dpr_entry_subtasks                                            dpr_entry_subtasks[]
+  sft_progress_entries                                          sft_progress_entries[]
+  task_dependencies_task_dependencies_depends_on_task_idTotasks task_dependencies[]      @relation("task_dependencies_depends_on_task_idTotasks")
+  task_dependencies_task_dependencies_task_idTotasks            task_dependencies[]      @relation("task_dependencies_task_idTotasks")
+  task_parallel_links_task_parallel_links_task_a_idTotasks      task_parallel_links[]    @relation("task_parallel_links_task_a_idTotasks")
+  task_parallel_links_task_parallel_links_task_b_idTotasks      task_parallel_links[]    @relation("task_parallel_links_task_b_idTotasks")
+  user_profiles_tasks_checklist_completed_byTouser_profiles     user_profiles?           @relation("tasks_checklist_completed_byTouser_profiles", fields: [checklist_completed_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user_profiles_tasks_checklist_verified_byTouser_profiles      user_profiles?           @relation("tasks_checklist_verified_byTouser_profiles", fields: [checklist_verified_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  milestones                                                    milestones?              @relation(fields: [milestone_id], references: [id], onUpdate: NoAction)
+  task_types                                                    task_types?              @relation(fields: [task_type_id], references: [id])
+  user_profiles_tasks_urgent_pushed_byTouser_profiles           user_profiles?           @relation("tasks_urgent_pushed_byTouser_profiles", fields: [urgent_pushed_by], references: [id], onUpdate: NoAction)
+  works                                                         works?                   @relation(fields: [work_id], references: [id])
+
+  @@index([deleted_at])
+  @@index([status])
+  @@index([task_type_id])
+  @@index([work_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model template_links {
+  id                                                                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  template_id                                                         String              @db.Uuid
+  from_template_task_id                                               String              @db.Uuid
+  to_template_task_id                                                 String              @db.Uuid
+  link_type                                                           TemplateLinkType
+  created_at                                                          DateTime            @default(now())
+  template_tasks_template_links_from_template_task_idTotemplate_tasks template_tasks      @relation("template_links_from_template_task_idTotemplate_tasks", fields: [from_template_task_id], references: [id], onDelete: Cascade)
+  flowchart_templates                                                 flowchart_templates @relation(fields: [template_id], references: [id], onDelete: Cascade)
+  template_tasks_template_links_to_template_task_idTotemplate_tasks   template_tasks      @relation("template_links_to_template_task_idTotemplate_tasks", fields: [to_template_task_id], references: [id], onDelete: Cascade)
+
+  @@unique([from_template_task_id, to_template_task_id])
+  @@index([template_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model template_tasks {
+  id                                                                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  template_id                                                         String              @db.Uuid
+  track_label                                                         String?
+  task_name                                                           String
+  work_name                                                           String
+  day_offset_start                                                    Int
+  day_offset_end                                                      Int
+  sort_order                                                          Int                 @default(0)
+  created_at                                                          DateTime            @default(now())
+  position_x                                                          Float?
+  position_y                                                          Float?
+  accountability_type                                                 AccountabilityType?
+  template_links_template_links_from_template_task_idTotemplate_tasks template_links[]    @relation("template_links_from_template_task_idTotemplate_tasks")
+  template_links_template_links_to_template_task_idTotemplate_tasks   template_links[]    @relation("template_links_to_template_task_idTotemplate_tasks")
+  flowchart_templates                                                 flowchart_templates @relation(fields: [template_id], references: [id], onDelete: Cascade)
+
+  @@index([template_id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model test_location_logs {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String        @db.Uuid
+  device_model  String?
+  occurred_at   DateTime      @db.Timestamptz(6)
+  latitude      Decimal       @db.Decimal(10, 7)
+  longitude     Decimal       @db.Decimal(10, 7)
+  battery_level Decimal?      @db.Decimal(4, 3)
+  app_state     String?
+  is_checked_in Boolean?
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  user_profiles user_profiles @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id, occurred_at], map: "test_location_logs_user_time_idx")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model tracking_debug_events {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String        @db.Uuid
+  event_type    String
+  detail        Json?
+  occurred_at   DateTime      @default(now()) @db.Timestamptz(6)
+  user_profiles user_profiles @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id, occurred_at(sort: Desc)], map: "tracking_debug_events_user_time_idx")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model user_devices {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id       String        @db.Uuid
+  device_id     String
+  platform      String?
+  os_version    String?
+  manufacturer  String?
+  model         String?
+  device_name   String?
+  app_version   String?
+  build_number  String?
+  push_enabled  Boolean       @default(false)
+  first_seen_at DateTime      @default(now()) @db.Timestamptz(6)
+  last_login_at DateTime?     @db.Timestamptz(6)
+  last_seen_at  DateTime      @default(now()) @db.Timestamptz(6)
+  user_profiles user_profiles @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([user_id, device_id])
+  @@index([last_seen_at(sort: Desc)], map: "user_devices_last_seen_idx")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model user_profiles {
+  id                                                                                String                        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email                                                                             String                        @unique
+  full_name                                                                         String
+  role                                                                              UserRole                      @default(site_engineer)
+  phone                                                                             String?
+  is_active                                                                         Boolean                       @default(true)
+  created_at                                                                        DateTime                      @default(now()) @db.Timestamptz(6)
+  updated_at                                                                        DateTime                      @db.Timestamptz(6)
+  last_login                                                                        DateTime?                     @db.Timestamptz(6)
+  status                                                                            UserStatus                    @default(invited)
+  client_project_id                                                                 String?                       @db.Uuid
+  expo_push_token                                                                   String?
+  locked_device_id                                                                  String?
+  locked_device_registered_at                                                       DateTime?                     @db.Timestamptz(6)
+  force_logout_at                                                                   DateTime?                     @db.Timestamptz(6)
+  must_change_password                                                              Boolean                       @default(false)
+  deleted_at                                                                        DateTime?                     @db.Timestamptz(6)
+  tracking_status                                                                   String?                       @default("off")
+  tracking_status_reason                                                            String?
+  tracking_status_at                                                                DateTime?                     @db.Timestamptz(6)
+  tracking_device_manufacturer                                                      String?
+  tracking_device_model                                                             String?
+  gps_locked_at                                                                     DateTime?                     @db.Timestamptz(6)
+  manufacturer_checklist_completed_at                                               DateTime?                     @db.Timestamptz(6)
+  account_lockouts_account_lockouts_reactivated_by_idTouser_profiles                account_lockouts[]            @relation("account_lockouts_reactivated_by_idTouser_profiles")
+  account_lockouts_account_lockouts_user_idTouser_profiles                          account_lockouts[]            @relation("account_lockouts_user_idTouser_profiles")
+  comments                                                                          comments[]
+  contacts                                                                          contacts[]
+  critical_alert_messages_critical_alert_messages_acknowledged_by_idTouser_profiles critical_alert_messages[]     @relation("critical_alert_messages_acknowledged_by_idTouser_profiles")
+  critical_alert_messages_critical_alert_messages_recipient_idTouser_profiles       critical_alert_messages[]     @relation("critical_alert_messages_recipient_idTouser_profiles")
+  critical_alert_messages_critical_alert_messages_sender_idTouser_profiles          critical_alert_messages[]     @relation("critical_alert_messages_sender_idTouser_profiles")
+  daily_progress_reports                                                            daily_progress_reports[]
+  daily_update_reminders_sent                                                       daily_update_reminders_sent[]
+  dependency_approvals                                                              dependency_approvals[]
+  dependency_status_history                                                         dependency_status_history[]
+  document_task_links                                                               document_task_links[]
+  documents                                                                         documents[]
+  dpr_edit_requests_dpr_edit_requests_requested_byTouser_profiles                   dpr_edit_requests[]           @relation("dpr_edit_requests_requested_byTouser_profiles")
+  dpr_edit_requests_dpr_edit_requests_reviewed_byTouser_profiles                    dpr_edit_requests[]           @relation("dpr_edit_requests_reviewed_byTouser_profiles")
+  dpr_entries                                                                       dpr_entries[]
+  dpr_entry_photos                                                                  dpr_entry_photos[]
+  drawing_revisions                                                                 drawing_revisions[]
+  field_login_events                                                                field_login_events[]
+  geofence_alerts_geofence_alerts_resolved_by_idTouser_profiles                     geofence_alerts[]             @relation("geofence_alerts_resolved_by_idTouser_profiles")
+  geofence_alerts_geofence_alerts_user_idTouser_profiles                            geofence_alerts[]             @relation("geofence_alerts_user_idTouser_profiles")
+  invoices_invoices_client_user_profile_idTouser_profiles                           invoices[]                    @relation("invoices_client_user_profile_idTouser_profiles")
+  invoices_invoices_created_by_user_profile_idTouser_profiles                       invoices[]                    @relation("invoices_created_by_user_profile_idTouser_profiles")
+  leave_events                                                                      leave_events[]
+  location_disabled_alerts_location_disabled_alerts_resolved_by_idTouser_profiles   location_disabled_alerts[]    @relation("location_disabled_alerts_resolved_by_idTouser_profiles")
+  location_disabled_alerts_location_disabled_alerts_user_idTouser_profiles          location_disabled_alerts[]    @relation("location_disabled_alerts_user_idTouser_profiles")
+  location_pings                                                                    location_pings[]
+  location_snapshots                                                                location_snapshots[]
+  milestones                                                                        milestones[]
+  project_contacts                                                                  project_contacts[]
+  project_users                                                                     project_users[]
+  projects_projects_location_set_by_idTouser_profiles                               projects[]                    @relation("projects_location_set_by_idTouser_profiles")
+  restricted_zone_alerts_restricted_zone_alerts_resolved_by_idTouser_profiles       restricted_zone_alerts[]      @relation("restricted_zone_alerts_resolved_by_idTouser_profiles")
+  restricted_zone_alerts_restricted_zone_alerts_user_idTouser_profiles              restricted_zone_alerts[]      @relation("restricted_zone_alerts_user_idTouser_profiles")
+  restricted_zones                                                                  restricted_zones[]
+  site_issues_site_issues_reported_by_idTouser_profiles                             site_issues[]                 @relation("site_issues_reported_by_idTouser_profiles")
+  site_issues_site_issues_resolved_by_idTouser_profiles                             site_issues[]                 @relation("site_issues_resolved_by_idTouser_profiles")
+  tasks_tasks_checklist_completed_byTouser_profiles                                 tasks[]                       @relation("tasks_checklist_completed_byTouser_profiles")
+  tasks_tasks_checklist_verified_byTouser_profiles                                  tasks[]                       @relation("tasks_checklist_verified_byTouser_profiles")
+  tasks_tasks_urgent_pushed_byTouser_profiles                                       tasks[]                       @relation("tasks_urgent_pushed_byTouser_profiles")
+  test_location_logs                                                                test_location_logs[]
+  tracking_debug_events                                                             tracking_debug_events[]
+  user_devices                                                                      user_devices[]
+  projects_user_profiles_client_project_idToprojects                                projects?                     @relation("user_profiles_client_project_idToprojects", fields: [client_project_id], references: [id])
+  zone_alert_recipients                                                             zone_alert_recipients[]
+
+  @@index([deleted_at])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model works {
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String                  @db.VarChar(100)
+  code                  String                  @unique @db.VarChar(10)
+  description           String?
+  color                 String                  @default("#6366F1") @db.VarChar(20)
+  created_at            DateTime                @default(now())
+  updated_at            DateTime
+  project_id            String?                 @db.Uuid
+  accountability_type   AccountabilityType?
+  accountability_trades accountability_trades[]
+  dpr_entries           dpr_entries[]
+  dpr_entry_subtasks    dpr_entry_subtasks[]
+  tasks                 tasks[]
+  projects              projects?               @relation(fields: [project_id], references: [id])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model zone_alert_recipients {
+  id            String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  project_id    String             @db.Uuid
+  user_id       String             @db.Uuid
+  channels      ZoneAlertChannel[] @default([])
+  created_at    DateTime           @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime           @default(now()) @db.Timestamptz(6)
+  projects      projects           @relation(fields: [project_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_profiles user_profiles      @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([project_id, user_id])
+  @@index([project_id])
+}
+
+enum AccountabilityType {
+  ACC
+  ACV
+}
+
+enum AttendanceType {
+  CHECK_IN
+  CHECK_OUT
+}
+
+enum CompletionStatus {
+  YES
+  NO
+  ON_HOLD
+  PENDING
+  REVISIONS
+  PROCEED
+}
+
+enum DependencyCategory {
+  architect
+  client
+  consultant
+  contractor
+  inspector
+  procurement
+  quantity
+}
+
+enum DependencyType {
+  FS
+  SS
+  FF
+  SF
+}
+
+enum HolidayType {
+  national_holiday
+  festival_holiday
+  regional_holiday
+  company_shutdown
+}
+
+enum InventoryTransactionType {
+  IN
+  OUT
+  ADJUSTMENT
+}
+
+enum InventoryUnit {
+  PCS
+  KG
+  TON
+  BAG
+  LITRE
+  SQFT
+  CUBIC_M
+  BOX
+  ROLL
+  OTHER
+}
+
+enum InvoiceStatus {
+  draft
+  sent
+}
+
+enum Permission {
+  READ
+  WRITE
+  DELETE
+  ALL
+}
+
+enum ProgressStatus {
+  not_started
+  in_progress
+  testing
+  done
+}
+
+enum QuantityUnit {
+  ROOM_AREA_WISE
+  RFT
+  SFT
+  CFT
+  SQM
+  NO
+  RMTS
+  TARGETED_QUANTITY_OF_WORK
+  MM
+  INCH
+}
+
+enum TaskStatus {
+  draft
+  ready
+  in_progress
+  on_hold
+  blocked
+  completed
+}
+
+enum TemplateLinkType {
+  FS
+  SS
+  FF
+  SF
+  PARALLEL
+}
+
+enum UserRole {
+  admin
+  senior_site_engineer
+  site_engineer
+  client
+  manager
+}
+
+enum UserStatus {
+  active
+  invited
+  disabled
+}
+
+enum WeatherCondition {
+  SUNNY
+  CLOUDY
+  RAINY
+  WINDY
+  OTHER
+}
+
+enum ZoneAlertChannel {
+  push
+  email
+}
+
+enum ZoneSeverity {
+  warning
+  critical
+}
+
+enum ZoneShapeType {
+  circle
+  polygon
+}
+
+enum ZoneType {
+  red
+  safe
+}
+
+enum contact_category {
+  architect
+  client
+  consultant
+  contractor
+  vendor
+  other
+}
+
+enum dpr_comment_preset {
+  awaiting_material_delivery
+  awaiting_client_approval
+  awaiting_drawing_clarification
+  awaiting_vendor_confirmation
+  awaiting_payment_clearance
+  awaiting_inspection_signoff
+  labour_shortage
+  equipment_unavailable
+  weather_delay
+  site_access_blocked
+  rework_required
+  coordination_pending
+  other
+}
+
+enum dpr_dependency_category {
+  architect
+  client
+  consultant
+  contractor
+  vendor
+  other
 }

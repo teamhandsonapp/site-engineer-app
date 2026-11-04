@@ -57,10 +57,8 @@ export default function AuthenticatedLayout() {
       {/* Project files organised into folders (Drawings, Transmittal, RA
           Bills, Quotes) — dummy data for now, see files.tsx. */}
       <Drawer.Screen name="files" options={{ title: 'Files', drawerLabel: 'Files' }} />
-      {/* Meeting / MoM (Minutes of Meeting) — placeholder tabs for now,
-          content still to be specified. MoM is a sub-item under Meeting in the
-          drawer (DrawerContent.tsx SUBMENUS), not its own top-level row. */}
-      <Drawer.Screen name="meetings" options={{ title: 'Meeting', drawerLabel: 'Meeting' }} />
+      {/* MoM — Meeting / Reports / Custom Alerts tabs (one screen); the
+          drawer shows the three as sub-items (DrawerContent.tsx SUBMENUS). */}
       <Drawer.Screen name="mom" options={{ title: 'MoM', drawerLabel: 'MoM' }} />
       <Drawer.Screen name="attendance" options={{ title: 'Attendance', drawerLabel: 'Attendance' }} />
       {/* Sections 1-2 — the map trail + checklist view of the field role's

@@ -5,7 +5,8 @@ import { useAuth } from '../../lib/AuthContext';
 import {
   CATEGORIES,
   CATEGORY_LABEL,
-  DUMMY_NOTIFICATIONS,
+  DUMMY_NOTIFICATIONS as ALL_DUMMY_NOTIFICATIONS,
+  isVisibleKind,
   KIND_COLOR,
   KIND_LABEL,
   type NotificationCategory,
@@ -13,6 +14,9 @@ import {
 } from '../../lib/notifications';
 import { formatTime12h } from '../../lib/formatTime';
 import { Card } from '../../components/ui/Card';
+
+// Location-only alert kinds are hidden while location features are off.
+const DUMMY_NOTIFICATIONS = ALL_DUMMY_NOTIFICATIONS.filter((i) => isVisibleKind(i.kind));
 
 // One row inside an expanded category box — no longer individually
 // pressable (dummy items all have target: null anyway for this pass; the

@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { fetchUnresolvedSiteIssues } from './siteIssues';
+import { LOCATION_FEATURES_ENABLED } from './featureFlags';
 import { fetchUnresolvedGeofenceAlerts } from './geofenceAlerts';
 import { fetchUnresolvedRestrictedZoneAlerts } from './restrictedZoneAlerts';
 import { fetchUnresolvedLocationDisabledAlerts } from './locationDisabledAlerts';
@@ -68,7 +69,17 @@ export const CATEGORY_LABEL: Record<NotificationCategory, string> = {
   messages: 'Messages',
 };
 
-export const CATEGORIES: NotificationCategory[] = ['critical_alerts', 'location', 'attendance', 'daily_updates', 'leave', 'tasks', 'messages'];
+const ALL_CATEGORIES: NotificationCategory[] = ['critical_alerts', 'location', 'attendance', 'daily_updates', 'leave', 'tasks', 'messages'];
+// The 'Location' category is hidden while location features are off.
+export const CATEGORIES: NotificationCategory[] = LOCATION_FEATURES_ENABLED ? ALL_CATEGORIES : ALL_CATEGORIES.filter((c) => c !== 'location');
+
+// Every alert kind that only exists because of location tracking (red zone,
+// boundary exit, location off, and GPS-based account lockouts).
+export const LOCATION_KINDS: ReadonlySet<NotificationKind> = new Set<NotificationKind>(['red_zone_entry', 'boundary_exit', 'location_disabled', 'account_lockout']);
+
+export function isVisibleKind(kind: NotificationKind): boolean {
+  return LOCATION_FEATURES_ENABLED || !LOCATION_KINDS.has(kind);
+}
 
 export function categoryForKind(kind: NotificationKind): NotificationCategory {
   switch (kind) {
@@ -147,10 +158,10 @@ function engineerTarget(userId: string, userName: string | null): NotificationTa
 export async function fetchAllNotifications(currentUserId: string, isAdminOrManager: boolean): Promise<NotificationItem[]> {
   const [siteIssues, geofenceAlerts, zoneAlerts, locationAlerts, lockouts, messages, projectsRes] = await Promise.all([
     fetchUnresolvedSiteIssues(),
-    fetchUnresolvedGeofenceAlerts(),
-    fetchUnresolvedRestrictedZoneAlerts(),
-    fetchUnresolvedLocationDisabledAlerts(),
-    fetchUnresolvedAccountLockouts(),
+    LOCATION_FEATURES_ENABLED ? fetchUnresolvedGeofenceAlerts() : Promise.resolve([]),
+    LOCATION_FEATURES_ENABLED ? fetchUnresolvedRestrictedZoneAlerts() : Promise.resolve([]),
+    LOCATION_FEATURES_ENABLED ? fetchUnresolvedLocationDisabledAlerts() : Promise.resolve([]),
+    LOCATION_FEATURES_ENABLED ? fetchUnresolvedAccountLockouts() : Promise.resolve([]),
     fetchCriticalAlertMessages(),
     supabase.from('projects').select('id, name'),
   ]);

@@ -11,6 +11,7 @@ import { useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
 import { fetchProjectSettings } from '../../lib/projectSettings';
 import { computeTrackingHealth, type TrackingHealthLevel } from '../../lib/trackingHealth';
+import { LOCATION_FEATURES_ENABLED } from '../../lib/featureFlags';
 
 function scoreColor(score: number): { bg: string; text: string } {
   if (score >= 85) return { bg: '#DCFCE7', text: '#166534' };
@@ -41,6 +42,8 @@ function LiveStatusChip({
   shiftStartMinutes: number | null;
   nowMs: number;
 }) {
+  // Tracking health is location-based — hidden while location features are off.
+  if (!LOCATION_FEATURES_ENABLED) return null;
   const health = computeTrackingHealth({
     userId: summary.userId,
     isLocked: summary.isLocked,

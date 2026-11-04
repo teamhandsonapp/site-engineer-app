@@ -75,3 +75,9 @@ keystore.properties
 
 # personal / reference documents
 scripts/*.pdf
+
+# Vercel link folder for the privacy policy site
+privacy-policy-page/.vercel
+
+# Separate git repo (deployed to Vercel on its own)
+/privacy-policy-page/

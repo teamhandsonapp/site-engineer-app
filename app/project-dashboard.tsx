@@ -169,8 +169,12 @@ export default function ProjectDashboardScreen() {
           {(isField || profile?.role === 'admin') && (
             <QuickLink icon="document-text-outline" label="DPR" color="#0F1F33" onPress={() => router.push('/daily-updates')} />
           )}
-          <QuickLink icon="people-circle-outline" label="Meeting" color="#2563EB" onPress={() => router.push('/meetings')} />
-          <QuickLink icon="clipboard-outline" label="MoM" color="#0D9488" onPress={() => router.push('/mom')} />
+          {isAdminOrManager && (
+            <>
+              <QuickLink icon="people-circle-outline" label="Meeting" color="#2563EB" onPress={() => router.push({ pathname: '/mom', params: { tab: 'meeting' } })} />
+              <QuickLink icon="clipboard-outline" label="MoM Reports" color="#0D9488" onPress={() => router.push({ pathname: '/mom', params: { tab: 'reports' } })} />
+            </>
+          )}
           {/* This project's own contact book (project-contacts, scoped to
               selectedProjectId — already set to this project). Staff-only,
               same as that screen's drawer gate. */}

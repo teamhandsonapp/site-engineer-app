@@ -9,6 +9,7 @@ import { fetchUnresolvedGeofenceAlerts } from '../lib/geofenceAlerts';
 import { fetchUnresolvedRestrictedZoneAlerts } from '../lib/restrictedZoneAlerts';
 import { fetchUnresolvedLocationDisabledAlerts } from '../lib/locationDisabledAlerts';
 import { fetchUnresolvedAccountLockouts } from '../lib/accountLockouts';
+import { LOCATION_FEATURES_ENABLED } from '../lib/featureFlags';
 
 // Re-scoped to ONLY the live Critical Alerts pipeline (site issues, geofence
 // exits, restricted-zone entries, location-disabled episodes) — by explicit
@@ -77,12 +78,13 @@ async function loadSharedCounts(): Promise<void> {
   try {
     const [s, g, z, l, k] = await Promise.all([
       fetchUnresolvedSiteIssues(),
-      fetchUnresolvedGeofenceAlerts(),
-      fetchUnresolvedRestrictedZoneAlerts(),
-      fetchUnresolvedLocationDisabledAlerts(),
+      // Location alert counts are hidden while location features are off.
+      LOCATION_FEATURES_ENABLED ? fetchUnresolvedGeofenceAlerts() : Promise.resolve([]),
+      LOCATION_FEATURES_ENABLED ? fetchUnresolvedRestrictedZoneAlerts() : Promise.resolve([]),
+      LOCATION_FEATURES_ENABLED ? fetchUnresolvedLocationDisabledAlerts() : Promise.resolve([]),
       // account_lockouts is admin/manager-only via RLS — always [] for a
       // field role, same "let RLS do the real narrowing" as elsewhere.
-      fetchUnresolvedAccountLockouts(),
+      LOCATION_FEATURES_ENABLED ? fetchUnresolvedAccountLockouts() : Promise.resolve([]),
     ]);
     publish({
       siteIssueCount: s.length,

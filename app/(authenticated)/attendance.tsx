@@ -96,7 +96,7 @@ function LeaveReasonSheet({
         <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 380 }}>
           <Card>
             <Text className="text-md font-bold text-neutral-900 mb-1">Why are you leaving?</Text>
-            <Text className="text-xs text-neutral-400 mb-3">Tracking continues as normal while you're out.</Text>
+            <Text className="text-xs text-neutral-400 mb-3">Your check-in stays open while you&apos;re out.</Text>
 
             <View className="gap-1.5 mb-3">
               {LEAVE_REASON_PRESETS.map((r) => {
