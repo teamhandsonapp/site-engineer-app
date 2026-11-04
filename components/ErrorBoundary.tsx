@@ -4,6 +4,11 @@ import { logError } from '../lib/sentryLog';
 
 interface Props {
   children: ReactNode;
+  // Optional per-screen wording + Sentry area tag. Omitted everywhere except
+  // screens that opt in (e.g. Flowchart), so the app-wide boundary is unchanged.
+  title?: string;
+  message?: string;
+  area?: string;
 }
 
 interface State {
@@ -32,7 +37,7 @@ export class ErrorBoundary extends Component<Props, State> {
     // an error caught here and only printed locally would never appear in
     // the dashboard at all.
     console.error('[ErrorBoundary] Uncaught render error:', error, info.componentStack);
-    logError(error, 'render_error_boundary', { componentStack: info.componentStack ?? undefined });
+    logError(error, this.props.area ?? 'render_error_boundary', { componentStack: info.componentStack ?? undefined });
   }
 
   handleReset = () => {
@@ -43,9 +48,9 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.error) {
       return (
         <View className="flex-1 items-center justify-center bg-brand-navy px-8">
-          <Text className="text-lg font-semibold text-white text-center mb-2">Something went wrong</Text>
+          <Text className="text-lg font-semibold text-white text-center mb-2">{this.props.title ?? 'Something went wrong'}</Text>
           <Text className="text-sm text-white/60 text-center leading-[19px] mb-6">
-            The app hit an unexpected error. Try again, or contact your admin if this keeps happening.
+            {this.props.message ?? 'The app hit an unexpected error. Try again, or contact your admin if this keeps happening.'}
           </Text>
           <Pressable
             onPress={this.handleReset}

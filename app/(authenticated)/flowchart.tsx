@@ -15,6 +15,7 @@ import { FlowchartFilterModal } from '../../components/flowchart/FlowchartFilter
 import { FilteredTaskList } from '../../components/flowchart/FilteredTaskList';
 import { PhaseCompletionBar } from '../../components/flowchart/PhaseCompletionBar';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { withTimeout } from '../../lib/withTimeout';
 
 const FETCH_TIMEOUT_MS = 12_000;
@@ -25,7 +26,22 @@ type FlowchartViewMode = 'flowchart' | 'list';
 // reads the single shared selection from ProjectContext (set on App Home /
 // Project Dashboard) instead of fetching its own project list and showing
 // its own picker chips, same re-plumbing as Gantt.
+// Flowchart-only error boundary: a render error anywhere in the canvas shows
+// a message with "Try Again" instead of the app-wide fallback, and is tagged
+// 'flowchart_render_error' in Sentry.
 export default function FlowchartScreen() {
+  return (
+    <ErrorBoundary
+      area="flowchart_render_error"
+      title="Flowchart couldn't load"
+      message="Something went wrong while drawing this project's flowchart. Tap Try Again, or go back and open it again."
+    >
+      <FlowchartScreenContent />
+    </ErrorBoundary>
+  );
+}
+
+function FlowchartScreenContent() {
   const { state } = useAuth();
   const profile = state.status === 'signed-in' ? state.profile : null;
   const isStaff = profile ? appRoleFor(profile.role) === 'staff' : false;
