@@ -29,6 +29,7 @@ import { computeTrackingHealth, type TrackingHealthLevel } from '../../lib/track
 import { isDemoEngineerId } from '../../lib/demoAttendance';
 import { DemoEngineerDetail } from '../../components/team/DemoEngineerDetail';
 import { LOCATION_FEATURES_ENABLED } from '../../lib/featureFlags';
+import { useLatestRequest } from '../../lib/useLatestRequest';
 
 function deviceLabel(manufacturer: string | null, model: string | null): string | null {
   if (!manufacturer && !model) return null;
@@ -456,8 +457,10 @@ function TeamAttendanceDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const timelineViewRef = useRef<DayTimelineViewHandle>(null);
 
+  const latest = useLatestRequest();
   const load = useCallback(async () => {
     if (!userId) return;
+    const isCurrent = latest.begin();
     try {
       setError(null);
       const [attendance, lockStatus, tracking, settings] = await Promise.all([
@@ -466,15 +469,16 @@ function TeamAttendanceDetailScreen() {
         fetchLiveTrackingStatus(userId),
         selectedProjectId ? fetchProjectSettings(selectedProjectId) : Promise.resolve(null),
       ]);
+      if (!isCurrent()) return; // project changed meanwhile — keep the newer data
       setDaily(attendance);
       setIsLocked(lockStatus.isLocked);
       setLatestLockout(lockStatus.latest);
       setLiveTracking(tracking);
       setShiftStartMinutes(settings?.shiftStartMinutes ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (isCurrent()) setError(err instanceof Error ? err.message : String(err));
     }
-  }, [userId, selectedProjectId]);
+  }, [userId, selectedProjectId, latest]);
 
   async function handleReactivate() {
     if (!latestLockout) return;

@@ -8,6 +8,7 @@ import { DateField } from '../../components/ui/DateField';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { fetchProjectTaskOptions, type ProjectTaskOption } from '../../lib/reports/taskList';
+import { useLatestRequest } from '../../lib/useLatestRequest';
 import {
   assignDocumentToTask,
   deleteDocument,
@@ -158,9 +159,14 @@ function AssignTaskPicker({
   const [assigningId, setAssigningId] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     fetchProjectTaskOptions(projectId)
-      .then(setOptions)
-      .finally(() => setLoading(false));
+      .then((o) => !cancelled && setOptions(o))
+      .catch(() => {})
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
   }, [projectId]);
 
   const q = query.trim().toLowerCase();
@@ -418,18 +424,21 @@ export default function DocumentsScreen() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<ProjectDocument | null>(null);
 
+  const latest = useLatestRequest();
   const load = useCallback(async () => {
+    const isCurrent = latest.begin();
     if (!selectedProjectId) {
       setDocuments([]);
       return;
     }
     try {
       setError(null);
-      setDocuments(await fetchDocuments(selectedProjectId));
+      const docs = await fetchDocuments(selectedProjectId);
+      if (isCurrent()) setDocuments(docs); // ignore a slower, older project's result
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (isCurrent()) setError(err instanceof Error ? err.message : String(err));
     }
-  }, [selectedProjectId]);
+  }, [selectedProjectId, latest]);
 
   useEffect(() => {
     load().finally(() => setLoading(false));

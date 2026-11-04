@@ -12,6 +12,7 @@ import { useProject } from '../../lib/ProjectContext';
 import { fetchProjectSettings } from '../../lib/projectSettings';
 import { computeTrackingHealth, type TrackingHealthLevel } from '../../lib/trackingHealth';
 import { LOCATION_FEATURES_ENABLED } from '../../lib/featureFlags';
+import { useLatestRequest } from '../../lib/useLatestRequest';
 
 function scoreColor(score: number): { bg: string; text: string } {
   if (score >= 85) return { bg: '#DCFCE7', text: '#166534' };
@@ -129,19 +130,22 @@ export default function EngineerAttendanceScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const latest = useLatestRequest();
   const load = useCallback(async () => {
+    const isCurrent = latest.begin();
     try {
       setError(null);
       const [summary, settings] = await Promise.all([
         fetchTeamAttendanceSummary(selectedProjectId),
         selectedProjectId ? fetchProjectSettings(selectedProjectId) : Promise.resolve(null),
       ]);
+      if (!isCurrent()) return; // project changed meanwhile — keep the newer data
       setSummaries(summary);
       setShiftStartMinutes(settings?.shiftStartMinutes ?? null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (isCurrent()) setError(err instanceof Error ? err.message : String(err));
     }
-  }, [selectedProjectId]);
+  }, [selectedProjectId, latest]);
 
   useEffect(() => {
     setLoading(true);

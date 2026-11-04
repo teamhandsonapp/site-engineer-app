@@ -5,6 +5,7 @@ import { useProject } from '../../lib/ProjectContext';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { addDaysToKey, fetchCompletedDprTasks, todayDateKey, type DprTask } from '../../lib/dprEntries';
+import { useLatestRequest } from '../../lib/useLatestRequest';
 
 // Point 6 — a separate, read-only tab from the DPR form itself, not a
 // section inside it. Default window is the last 7 days (real
@@ -34,7 +35,9 @@ export default function CompletedTasksScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const latest = useLatestRequest();
   const load = useCallback(async () => {
+    const isCurrent = latest.begin();
     if (!selectedProjectId) {
       setTasks([]);
       return;
@@ -42,11 +45,12 @@ export default function CompletedTasksScreen() {
     try {
       setError(null);
       const sinceKey = addDaysToKey(todayDateKey(), -COMPLETED_WINDOW_DAYS);
-      setTasks(await fetchCompletedDprTasks(selectedProjectId, sinceKey));
+      const result = await fetchCompletedDprTasks(selectedProjectId, sinceKey);
+      if (isCurrent()) setTasks(result); // ignore a slower, older project's result
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (isCurrent()) setError(err instanceof Error ? err.message : String(err));
     }
-  }, [selectedProjectId]);
+  }, [selectedProjectId, latest]);
 
   useEffect(() => {
     load().finally(() => setLoading(false));
