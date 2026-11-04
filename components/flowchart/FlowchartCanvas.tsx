@@ -704,20 +704,20 @@ export function FlowchartCanvas({
       afterReal = { x: inverseAxisMap(xMap, finalX), y: inverseAxisMap(yMap, finalY) };
     }
 
+    const previous = task;
     setTasks((prev) => prev.map((t) => (
       t.id === taskId ? { ...t, x: finalX, y: finalY, manualPositionX: afterReal.x, manualPositionY: afterReal.y } : t
     )));
-    updateTaskPosition(taskId, afterReal.x, afterReal.y).catch(() => {
-      // Reverting on failure would need the pre-drag position remembered
-      // separately; leaving the optimistic move in place and letting the
-      // next real fetch correct it is the simpler, still-honest failure
-      // mode here (matches how e.g. TaskDetailSheet's type-picker doesn't
-      // roll back on error either).
-    });
     // Stored as REAL coordinates — applyHistoryAction's own 'move' case
     // re-derives the compressed render position via layoutTasks(), same as
-    // every other position-affecting action in this file.
-    pushHistory({ type: 'move', taskId, before: beforeReal, after: afterReal });
+    // every other position-affecting action in this file. Only recorded once
+    // the move is really saved; a failed save snaps the task back and says so.
+    updateTaskPosition(taskId, afterReal.x, afterReal.y)
+      .then(() => pushHistory({ type: 'move', taskId, before: beforeReal, after: afterReal }))
+      .catch((err) => {
+        setTasks((prev) => prev.map((t) => (t.id === taskId ? previous : t)));
+        setLinkError(`Couldn't move the task — ${err instanceof Error ? err.message : 'check your connection'}. It was put back.`);
+      });
   }
 
   function handleTap(taskId: string) {
@@ -816,10 +816,16 @@ export function FlowchartCanvas({
       // Purely visual/non-blocking — immediate delete, no confirmation,
       // matching admin-web's requestEdgeDelete exactly.
       setParallelEdges((prev) => prev.filter((e) => e.id !== edgeId));
-      deleteParallelLink(edgeId).catch(() => {
-        // Optimistic, same no-rollback precedent as commitDrag above.
-      });
-      if (edge) pushHistory({ type: 'deleteParallelLink', taskAId: edge.taskAId, taskBId: edge.taskBId });
+      // Undo entry only once the delete is really saved; on failure the link
+      // comes back (so Undo can't later re-create a duplicate).
+      deleteParallelLink(edgeId)
+        .then(() => {
+          if (edge) pushHistory({ type: 'deleteParallelLink', taskAId: edge.taskAId, taskBId: edge.taskBId });
+        })
+        .catch((err) => {
+          if (edge) setParallelEdges((prev) => (prev.some((e) => e.id === edge.id) ? prev : [...prev, edge]));
+          setLinkError(`Couldn't delete the link — ${err instanceof Error ? err.message : 'check your connection'}. It was restored.`);
+        });
     } else {
       setEdgeDeleteConfirmId(edgeId);
     }
@@ -831,10 +837,14 @@ export function FlowchartCanvas({
     const edge = seriesEdges.find((e) => e.id === id);
     setEdgeDeleteConfirmId(null);
     setSeriesEdges((prev) => prev.filter((e) => e.id !== id));
-    deleteDependency(id).catch(() => {
-      // Optimistic, same no-rollback precedent as commitDrag above.
-    });
-    if (edge) pushHistory({ type: 'deleteSeriesLink', taskId: edge.taskId, dependsOnTaskId: edge.dependsOnTaskId, linkType: edge.type });
+    deleteDependency(id)
+      .then(() => {
+        if (edge) pushHistory({ type: 'deleteSeriesLink', taskId: edge.taskId, dependsOnTaskId: edge.dependsOnTaskId, linkType: edge.type });
+      })
+      .catch((err) => {
+        if (edge) setSeriesEdges((prev) => (prev.some((e) => e.id === edge.id) ? prev : [...prev, edge]));
+        setLinkError(`Couldn't delete the dependency — ${err instanceof Error ? err.message : 'check your connection'}. It was restored.`);
+      });
   }
 
   function handleOpenTask(taskId: string) {

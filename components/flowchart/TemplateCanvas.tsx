@@ -338,11 +338,17 @@ export function TemplateCanvas({
       afterReal = { x: inverseAxisMap(xMap, finalX), y: inverseAxisMap(yMap, finalY) };
     }
 
+    const previous = tasks.find((t) => t.id === taskId);
     setTasks((prev) => prev.map((t) => (
       t.id === taskId ? { ...t, x: finalX, y: finalY, manualPositionX: afterReal.x, manualPositionY: afterReal.y } : t
     )));
-    updateTemplateTaskPosition(taskId, afterReal.x, afterReal.y).catch(() => {});
-    pushHistory({ type: 'move', taskId, before: beforeReal, after: afterReal });
+    // Undo entry only once really saved; a failed save snaps the task back.
+    updateTemplateTaskPosition(taskId, afterReal.x, afterReal.y)
+      .then(() => pushHistory({ type: 'move', taskId, before: beforeReal, after: afterReal }))
+      .catch((err) => {
+        if (previous) setTasks((prev) => prev.map((t) => (t.id === taskId ? previous : t)));
+        setLinkError(`Couldn't move the task — ${err instanceof Error ? err.message : 'check your connection'}. It was put back.`);
+      });
   }
 
   function handleTap(taskId: string) {
@@ -406,8 +412,14 @@ export function TemplateCanvas({
     if (kind === 'parallel') {
       const edge = parallelEdges.find((e) => e.id === edgeId);
       setParallelEdges((prev) => prev.filter((e) => e.id !== edgeId));
-      deleteTemplateLink(edgeId).catch(() => {});
-      if (edge) pushHistory({ type: 'deleteParallelLink', taskAId: edge.taskAId, taskBId: edge.taskBId });
+      deleteTemplateLink(edgeId)
+        .then(() => {
+          if (edge) pushHistory({ type: 'deleteParallelLink', taskAId: edge.taskAId, taskBId: edge.taskBId });
+        })
+        .catch((err) => {
+          if (edge) setParallelEdges((prev) => (prev.some((e) => e.id === edge.id) ? prev : [...prev, edge]));
+          setLinkError(`Couldn't delete the link — ${err instanceof Error ? err.message : 'check your connection'}. It was restored.`);
+        });
     } else {
       setEdgeDeleteConfirmId(edgeId);
     }
@@ -419,8 +431,14 @@ export function TemplateCanvas({
     const edge = seriesEdges.find((e) => e.id === id);
     setEdgeDeleteConfirmId(null);
     setSeriesEdges((prev) => prev.filter((e) => e.id !== id));
-    deleteTemplateLink(id).catch(() => {});
-    if (edge) pushHistory({ type: 'deleteSeriesLink', taskId: edge.taskId, dependsOnTaskId: edge.dependsOnTaskId, linkType: edge.type });
+    deleteTemplateLink(id)
+      .then(() => {
+        if (edge) pushHistory({ type: 'deleteSeriesLink', taskId: edge.taskId, dependsOnTaskId: edge.dependsOnTaskId, linkType: edge.type });
+      })
+      .catch((err) => {
+        if (edge) setSeriesEdges((prev) => (prev.some((e) => e.id === edge.id) ? prev : [...prev, edge]));
+        setLinkError(`Couldn't delete the link — ${err instanceof Error ? err.message : 'check your connection'}. It was restored.`);
+      });
   }
 
   function handleEditTask(taskId: string) {
