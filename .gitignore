@@ -1,0 +1,77 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.mobileprovision
+GoogleService-Info.plist
+
+# EAS Submit service-account credentials — never committed
+/secrets/
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# env files
+.env
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+# generated native folders
+/ios
+/android
+scripts/.seed-demo-dprs.json
+
+# build artifacts / CLI caches
+*.aab
+*.apk
+supabase/.temp/
+
+# prisma client output
+/generated
+
+# Android / Gradle build output & signing (in case /android is ever generated or copied in)
+build/
+.gradle/
+local.properties
+key.properties
+keystore.properties
+*.hprof
+
+# all env files (covers .env, .env.local, .env.production, ...)
+.env*
+!.env.example
+
+# credential / token files
+*.secret
+*credentials*.json
+*service-account*.json
+.npmrc
+
+# personal / reference documents
+scripts/*.pdf
