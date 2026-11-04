@@ -99,9 +99,11 @@ function RootLayout() {
     }
   }, [fontsLoaded, fontError]);
 
-  if (!fontsLoaded && !fontError) {
-    return null;
-  }
+  // Providers (and so session restore in AuthProvider) start right away, in
+  // parallel with font loading — only the visible UI waits for the fonts
+  // (the native splash stays up until then), so cold start is no longer
+  // fonts-then-session one after the other.
+  const fontsReady = fontsLoaded || !!fontError;
 
   return (
     <ErrorBoundary>
@@ -124,7 +126,7 @@ function RootLayout() {
             <StatusBar style="light" />
             <NavigationLogger />
             <NotificationTapRouter />
-            <AuthGate>
+            <AuthGate fontsReady={fontsReady}>
               <ProjectProvider>
                   <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0F1F33' } }}>
                     {/* Pure black, not the shared navy default above — both
@@ -149,8 +151,11 @@ function RootLayout() {
 // the user has necessarily navigated anywhere (a cold start always lands
 // on /login first regardless of whether a session already exists), so a
 // restore failure needs to be visible here to ever be seen at all.
-function AuthGate({ children }: { children: ReactNode }) {
+function AuthGate({ children, fontsReady }: { children: ReactNode; fontsReady: boolean }) {
   const { state, retryRestore } = useAuth();
+
+  // Native splash is still showing until the fonts are in.
+  if (!fontsReady) return null;
 
   if (state.status === 'loading') {
     return <BrandSplash />;
