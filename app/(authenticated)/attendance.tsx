@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Modal, Platform, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   AttendanceSessionError,
   fetchTodaysAttendance,
   istStartOfToday,
-  LOCATION_ACCURACY_THRESHOLD_METERS,
-  OutsideSiteRadiusError,
   recordAttendance,
   type AttendanceRecord,
 } from '../../lib/attendance';
@@ -14,13 +12,6 @@ import { LEAVE_REASON_PRESETS, insertLeaveEvent, type LeaveReasonPresetValue } f
 import { Card } from '../../components/ui/Card';
 import { isFieldRole, useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
-import {
-  DONT_KILL_MY_APP_URL,
-  getDeviceManufacturer,
-  getManufacturerTip,
-  isKnownProblemManufacturer,
-} from '../../lib/locationTracking/deviceInfo';
-import { writeShiftState } from '../../lib/locationTracking/shiftState';
 import { WORK_HOURS_END_MINUTES } from '../../lib/locationTracking/constants';
 import { logAction, logError } from '../../lib/sentryLog';
 import { formatTime12h } from '../../lib/formatTime';
@@ -68,58 +59,6 @@ function LiveClock() {
       <Text className="text-xs font-semibold text-neutral-500">Current time (IST)</Text>
       <Text className="text-sm font-bold text-neutral-900 tabular-nums">{label}</Text>
     </View>
-  );
-}
-
-// Point 6 — self-serve "if tracking seems unreliable" help, kept on the
-// same screen an engineer already uses to manage their own shift/tracking
-// rather than a separate settings page nobody would think to look for.
-// There's no single API to detect or fix OEM battery/autostart
-// restrictions (MIUI Autostart, Samsung Sleeping apps, etc. — see
-// deviceInfo.ts's own comment), so this surfaces the specific tip for a
-// known-problem manufacturer proactively (auto-expanded) rather than
-// making everyone dig through a generic list to find their own device's
-// section.
-function TrackingHelpCard() {
-  const manufacturer = getDeviceManufacturer();
-  const isProblemDevice = isKnownProblemManufacturer(manufacturer);
-  const [expanded, setExpanded] = useState(isProblemDevice);
-
-  if (Platform.OS !== 'android') return null;
-
-  const tip = getManufacturerTip(manufacturer);
-
-  return (
-    <Card className="mb-4">
-      <Pressable onPress={() => setExpanded((e) => !e)} className="flex-row items-center justify-between">
-        <View className="flex-row items-center gap-2 flex-1">
-          <Ionicons name={isProblemDevice ? 'warning-outline' : 'help-circle-outline'} size={16} color={isProblemDevice ? '#B45309' : '#6B7280'} />
-          <Text className="text-sm font-bold text-neutral-900">If tracking seems unreliable</Text>
-        </View>
-        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color="#9CA3AF" />
-      </Pressable>
-      {expanded && (
-        <View className="mt-3">
-          {isProblemDevice && tip && (
-            <View className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 mb-2.5">
-              <Text className="text-2xs font-semibold text-amber-800 mb-1">
-                Your device ({manufacturer}) is known to restrict background apps aggressively:
-              </Text>
-              <Text className="text-2xs text-amber-800">{tip}</Text>
-            </View>
-          )}
-          <Text className="text-2xs text-neutral-500 leading-4">
-            Some phone makers stop background apps to save battery, which can delay or block zone
-            alerts while you&apos;re on shift. If check-ins or alerts seem to lag, make sure PMC
-            Portal has &quot;Allow all the time&quot; location access and is excluded from battery
-            optimization in your phone&apos;s Settings app.
-          </Text>
-          <Pressable onPress={() => Linking.openURL(DONT_KILL_MY_APP_URL)} className="mt-2">
-            <Text className="text-2xs font-bold text-brand-navy">Learn more for your device →</Text>
-          </Pressable>
-        </View>
-      )}
-    </Card>
   );
 }
 
@@ -209,10 +148,8 @@ function LeaveReasonSheet({
 // field role does about THEMSELVES, not something admin/manager have any
 // reason to use. Their view of everyone's attendance (with distance/flags/
 // review) is admin-web's existing /attendance page, not a mobile mirror of
-// this same button. A real GPS reading + distance-from-site + mock-
-// location check happens on every check-in/out now (see lib/attendance.ts's
-// captureAttendanceLocation) — this screen itself stays simple, it just
-// calls recordAttendance() and doesn't need to know any of that happened.
+// this same button. Location was removed from the app, so check-in/out is a
+// plain time-stamped record with no GPS capture.
 // The button toggles based on today's LAST record, so multiple check-in/
 // out cycles in one day (a 9-to-6 workday with breaks) are allowed rather
 // than a single session — lib/attendance.ts's own assertValidSessionTransition
@@ -228,11 +165,6 @@ export default function AttendanceScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Separate from `error` deliberately — a low-accuracy reading on an
-  // otherwise-successful check-in/out isn't a failure (the red error
-  // banner would misread as one); it's a "trust this location a bit less"
-  // caveat, styled and worded accordingly.
-  const [accuracyWarning, setAccuracyWarning] = useState<string | null>(null);
   // Shown once, right after a late check-out — cleared on the next
   // check-in/out action or Leave submission so it never lingers stale.
   const [lateCheckoutMessage, setLateCheckoutMessage] = useState<string | null>(null);
@@ -309,15 +241,9 @@ export default function AttendanceScreen() {
     const checkingOutRecord = lastRecord;
     try {
       setError(null);
-      setAccuracyWarning(null);
       setLateCheckoutMessage(null);
       logAction('shift', nextAction === 'CHECK_IN' ? 'Clock in' : 'Clock out', { projectId: selectedProjectId });
-      const result = await recordAttendance(state.profile.id, selectedProjectId, nextAction);
-      if (result.accuracyMeters != null && result.accuracyMeters > LOCATION_ACCURACY_THRESHOLD_METERS) {
-        setAccuracyWarning(
-          `Recorded, but GPS accuracy was low (±${Math.round(result.accuracyMeters)}m) — this location may not be precise.`
-        );
-      }
+      await recordAttendance(state.profile.id, selectedProjectId, nextAction);
       // Section 4 — only ever a "you were late" notice, never an "on time"
       // one (spec: show nothing if on-time/early). scheduledEndMinutes
       // comes from the CHECK_IN record itself (each check-in stamps the
@@ -331,27 +257,12 @@ export default function AttendanceScreen() {
           setLateCheckoutMessage(`You checked out ${lateMinutes} minute${lateMinutes === 1 ? '' : 's'} late 😔`);
         }
       }
-      // Background tracking no longer starts/stops on check-in/out at all
-      // (it runs purely on the scheduled shift window — see
-      // shiftWindow.ts). This write just keeps the local attendance-state
-      // mirror (shiftState.ts) fresh for its own Sentry tagging purpose.
-      // Written here, not inside lib/attendance.ts, purely to avoid
-      // attendance.ts <-> shiftState.ts becoming a circular import
-      // (shiftState.ts already imports fetchTodaysAttendance from
-      // attendance.ts for its own backend reconciliation). Best-effort: a
-      // failed local write shouldn't fail the check-in/out itself, since
-      // useShiftState's own reconciliation self-corrects on the next app
-      // resume regardless.
-      await writeShiftState(
-        nextAction === 'CHECK_IN' ? { isOn: true, sinceISO: new Date().toISOString() } : { isOn: false, sinceISO: null }
-      ).catch(() => {});
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-      // An expected, user-facing validation outcome (they're genuinely too
-      // far away) — not a bug worth a Sentry issue, unlike every other
-      // failure path here (network, DB, permission-flow errors).
-      if (!(err instanceof OutsideSiteRadiusError) && !(err instanceof AttendanceSessionError)) {
+      // An expected, user-facing validation outcome — not a bug worth a
+      // Sentry issue, unlike every other failure path here (network, DB).
+      if (!(err instanceof AttendanceSessionError)) {
         logError(err, 'attendance_record', { nextAction });
       }
     } finally {
@@ -409,13 +320,6 @@ export default function AttendanceScreen() {
             </View>
           )}
 
-          {accuracyWarning && (
-            <View className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 mb-4 flex-row items-start gap-2">
-              <Ionicons name="warning-outline" size={16} color="#B45309" style={{ marginTop: 1 }} />
-              <Text className="text-sm text-amber-800 flex-1">{accuracyWarning}</Text>
-            </View>
-          )}
-
           {lateCheckoutMessage && (
             <View className="rounded-xl border border-neutral-200 bg-neutral-100 px-3.5 py-3 mb-4">
               <Text className="text-sm font-semibold text-neutral-700">{lateCheckoutMessage}</Text>
@@ -453,7 +357,7 @@ export default function AttendanceScreen() {
 
             {!hasProjectSelected && (
               <Text className="text-xs text-neutral-400 mt-2 text-center">
-                Select a project first — your location can&apos;t be verified without one.
+                Select a project first.
               </Text>
             )}
 
@@ -491,9 +395,6 @@ export default function AttendanceScreen() {
             ))
           )}
 
-          <View className="mt-4">
-            <TrackingHelpCard />
-          </View>
         </ScrollView>
       )}
 

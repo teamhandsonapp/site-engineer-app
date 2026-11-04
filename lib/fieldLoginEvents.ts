@@ -1,5 +1,4 @@
 import * as Device from 'expo-device';
-import * as Location from 'expo-location';
 import { devWarn } from './devLog';
 import { supabase } from './supabase';
 
@@ -10,18 +9,9 @@ import { supabase } from './supabase';
 // a denied location permission or a device-info read failure just means
 // some fields come back null, not a thrown error.
 export async function insertFieldLoginEvent(userId: string): Promise<void> {
-  let latitude: number | null = null;
-  let longitude: number | null = null;
-  try {
-    const { status } = await Location.getForegroundPermissionsAsync();
-    if (status === 'granted') {
-      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      latitude = position.coords.latitude;
-      longitude = position.coords.longitude;
-    }
-  } catch (err) {
-    devWarn('[fieldLoginEvents] location read failed, logging without it:', err);
-  }
+  // Location removed from the app — login events no longer record coordinates.
+  const latitude = null;
+  const longitude = null;
 
   const { error } = await supabase.from('field_login_events').insert({
     user_id: userId,

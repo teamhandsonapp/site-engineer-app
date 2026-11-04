@@ -3,7 +3,6 @@ import { Platform } from 'react-native';
 import Constants, { AppOwnership } from 'expo-constants';
 import { router } from 'expo-router';
 import { devWarn } from './devLog';
-import { openTrackingFixSettings, type TrackingDegradedReason } from './locationTracking/trackingStatus';
 
 // expo-notifications has no real implementation on web — several of its
 // APIs (getLastNotificationResponseAsync in particular) throw outright
@@ -56,12 +55,6 @@ if (Notifications) {
 // OS Settings screen directly, same action as the in-app banner's own
 // button.
 function navigateToNotificationTarget(data: Record<string, unknown> | undefined) {
-  if (data?.kind === 'tracking-degraded') {
-    const reason = data.reason as TrackingDegradedReason;
-    openTrackingFixSettings(reason).catch((err) => devWarn('[notifications] openTrackingFixSettings failed:', err));
-    return;
-  }
-
   const itemId = typeof data?.itemId === 'string' ? data.itemId : undefined;
   // Client alerts live inline on Home (there's no separate per-item screen
   // in this app) — passing highlightItemId lets ClientHome scroll to and

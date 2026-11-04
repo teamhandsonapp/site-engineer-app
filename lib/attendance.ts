@@ -1,4 +1,3 @@
-import * as Location from 'expo-location';
 import { devWarn } from './devLog';
 import { formatTime12h } from './formatTime';
 import { getDeviceManufacturer, getDeviceModel } from './locationTracking/deviceInfo';
@@ -63,142 +62,13 @@ export async function fetchTodaysAttendance(userId: string): Promise<AttendanceR
   }));
 }
 
-// Standard haversine — the only place this app needs great-circle distance
-// (Part 4's geofencing lets the OS's native region-monitoring API handle
-// that internally instead), so it lives here rather than as a shared util.
-function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6_371_000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
-  const a =
-    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-// Matches PING_MAX_ACCEPTABLE_ACCURACY_METERS (lib/locationTracking/
-// constants.ts) — same 50m convention, kept as its own constant here rather
-// than importing that one directly since it's named/scoped for the
-// separate background-ping feature, not this one-shot foreground capture.
-// A reading noisier than this is common GPS drift, not a real "outside the
-// site" signal — see the blocking logic in recordAttendance below for why
-// this specifically gates whether a too-far reading is allowed to actually
-// reject the check-in/out or merely flag it for review. Exported so the UI
-// can surface the same "this reading was too noisy to trust fully" warning
-// it's used to compute, instead of duplicating the number.
-export const LOCATION_ACCURACY_THRESHOLD_METERS = 50;
-
-interface AttendanceCapture {
-  latitude: number | null;
-  longitude: number | null;
-  accuracyMeters: number | null;
-  distanceFromSiteMeters: number | null;
-  siteRadiusMeters: number | null;
-  isFlagged: boolean;
-  flagReason: string | null;
-  mockLocationSuspected: boolean | null;
-}
-
 // Thrown by the single-session-per-day guard in recordAttendance below —
-// distinct from OutsideSiteRadiusError for the same reason (an expected
+// an expected validation outcome, not a bug (an expected
 // validation outcome, not a bug, so callers can skip logging it as one).
 export class AttendanceSessionError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'AttendanceSessionError';
-  }
-}
-
-// Thrown specifically for the outside-radius hard block below — a distinct
-// class (not a plain Error) so callers that need to tell "you're too far
-// away" apart from a genuine network/DB failure can do so (e.g. to avoid
-// logging it as a real error), even though attendance.tsx's own catch
-// today just shows err.message either way.
-export class OutsideSiteRadiusError extends Error {
-  constructor(public readonly distanceMeters: number, public readonly radiusMeters: number) {
-    super(`You need to be at the site to check in — you're currently ${distanceMeters}m away (site radius: ${radiusMeters}m).`);
-    this.name = 'OutsideSiteRadiusError';
-  }
-}
-
-// One-shot foreground capture at the moment of check-in/out — distinct
-// from Parts 2-4's persistent tracking (lib/locationTracking/), which is
-// site_engineer/senior_site_engineer-only and requires background
-// permission; this is a plain foreground read available to every staff
-// role, matching this screen's own existing appRoleFor() === 'staff' gate.
-// A denied permission or a failed GPS read still falls back to the same
-// "no location data" shape this app already wrote before this pass, rather
-// than making attendance itself unusable when location isn't available at
-// all — but a SUCCESSFUL reading that's confidently outside the site's
-// radius is now a hard block (see recordAttendance below), not just a flag
-// — confirmed as the intended behavior despite the tradeoff that testing
-// this from off-site now requires a mock-location app.
-const LOCATION_DISABLED = true;
-
-async function captureAttendanceLocation(projectId: string | null): Promise<AttendanceCapture> {
-  const empty: AttendanceCapture = {
-    latitude: null,
-    longitude: null,
-    accuracyMeters: null,
-    distanceFromSiteMeters: null,
-    siteRadiusMeters: null,
-    isFlagged: false,
-    flagReason: null,
-    mockLocationSuspected: null,
-  };
-
-  // Location removed from the app entirely, by explicit request — check-in/
-  // out records no location and never asks for the permission.
-  if (LOCATION_DISABLED) return empty;
-
-  try {
-    const { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') return empty;
-
-    const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-    const { latitude, longitude, accuracy } = position.coords;
-    // Only ever a real signal on Android (isFromMockProvider under the
-    // hood) — iOS has no OS-level equivalent, so `mocked` stays
-    // undefined/false there regardless of the actual device. Stored as
-    // null (not false) when the platform doesn't report it at all, so
-    // "confirmed not mocked" and "unknown" don't look the same to admin.
-    const mockLocationSuspected = position.mocked ?? null;
-
-    let distanceFromSiteMeters: number | null = null;
-    let siteRadiusMeters: number | null = null;
-    let isFlagged = mockLocationSuspected === true;
-    const reasons: string[] = [];
-    if (mockLocationSuspected) reasons.push('Mock location suspected');
-
-    if (projectId) {
-      try {
-        const site = await fetchProjectSettings(projectId);
-        if (site.siteLatitude != null && site.siteLongitude != null) {
-          distanceFromSiteMeters = Math.round(haversineMeters(latitude, longitude, site.siteLatitude, site.siteLongitude));
-          siteRadiusMeters = site.siteRadiusMeters ?? null;
-          if (siteRadiusMeters != null && distanceFromSiteMeters > siteRadiusMeters) {
-            isFlagged = true;
-            reasons.push(`${distanceFromSiteMeters}m from site (radius ${siteRadiusMeters}m)`);
-          }
-        }
-      } catch (err) {
-        devWarn('[attendance] could not load project site location for distance check:', err);
-      }
-    }
-
-    return {
-      latitude,
-      longitude,
-      accuracyMeters: accuracy != null ? Math.round(accuracy * 10) / 10 : null,
-      distanceFromSiteMeters,
-      siteRadiusMeters,
-      isFlagged,
-      flagReason: reasons.length > 0 ? reasons.join('; ') : null,
-      mockLocationSuspected,
-    };
-  } catch (err) {
-    devWarn('[attendance] location capture failed, recording without it:', err);
-    return empty;
   }
 }
 
@@ -263,15 +133,6 @@ function assertValidSessionTransition(todaysRecords: AttendanceRecord[], type: A
   }
 }
 
-// Doesn't change the block/allow decision by itself — accuracyMeters is
-// exposed purely so the UI can warn "this reading was noisy, the recorded
-// location may not be precise" on an otherwise-successful check-in/out,
-// per the spec's own "surface uncertainty, don't silently trust a noisy
-// reading" requirement. A caller that doesn't care can ignore the field.
-export interface RecordAttendanceResult {
-  accuracyMeters: number | null;
-}
-
 // Confirmed live (real attendance_records data, 2026-08-14): a check-in
 // was recorded with project_id NULL and coordinates in a different city
 // entirely from the actual project site — not a geofencing bug, geofencing
@@ -286,36 +147,12 @@ export interface RecordAttendanceResult {
 // applied. Blocking here — not just relying on the UI to disable the
 // button — is the same "backend guard closes what a UI-only check can't"
 // reasoning assertValidSessionTransition's own comment already uses.
-export async function recordAttendance(userId: string, projectId: string | null, type: AttendanceType): Promise<RecordAttendanceResult> {
+export async function recordAttendance(userId: string, projectId: string | null, type: AttendanceType): Promise<void> {
   if (!projectId) {
-    throw new AttendanceSessionError('Select a project before you can check in or out — location can\'t be verified without one.');
+    throw new AttendanceSessionError('Select a project before you can check in or out.');
   }
 
   assertValidSessionTransition(await fetchTodaysAttendance(userId), type);
-
-  const capture = await captureAttendanceLocation(projectId);
-
-  // Hard block — applies to CHECK_IN and CHECK_OUT alike (the same gap
-  // existed on both). Only enforced when the GPS reading itself is
-  // reliable (LOCATION_ACCURACY_THRESHOLD_METERS) — a noisy reading from
-  // someone actually standing on site can easily read as 100m+ away on a
-  // bad fix, and confidently rejecting that would lock out a legitimate
-  // check-in over GPS drift, not an actual site-boundary violation. A poor-
-  // accuracy reading still outside the radius falls through to the
-  // existing isFlagged/flagReason path below (recorded, not rejected) —
-  // exactly the "warning, not confident block" the request called for.
-  // No location data at all (permission denied, GPS off, capture failed)
-  // also falls through un-blocked, same as before this change — this is a
-  // distance check, not a location-required check.
-  if (
-    capture.distanceFromSiteMeters != null &&
-    capture.siteRadiusMeters != null &&
-    capture.distanceFromSiteMeters > capture.siteRadiusMeters &&
-    capture.accuracyMeters != null &&
-    capture.accuracyMeters <= LOCATION_ACCURACY_THRESHOLD_METERS
-  ) {
-    throw new OutsideSiteRadiusError(capture.distanceFromSiteMeters, capture.siteRadiusMeters);
-  }
 
   const schedule = type === 'CHECK_IN'
     ? await captureScheduledShiftWindow(projectId)
@@ -326,13 +163,14 @@ export async function recordAttendance(userId: string, projectId: string | null,
     project_id: projectId,
     type,
     client_captured_at: new Date().toISOString(),
-    latitude: capture.latitude,
-    longitude: capture.longitude,
-    accuracy_meters: capture.accuracyMeters,
-    distance_from_site_meters: capture.distanceFromSiteMeters,
-    is_flagged: capture.isFlagged,
-    flag_reason: capture.flagReason,
-    mock_location_suspected: capture.mockLocationSuspected,
+    // Location removed from the app — no GPS capture on check-in/out.
+    latitude: null,
+    longitude: null,
+    accuracy_meters: null,
+    distance_from_site_meters: null,
+    is_flagged: false,
+    flag_reason: null,
+    mock_location_suspected: null,
     scheduled_start_minutes: schedule.scheduledStartMinutes,
     scheduled_end_minutes: schedule.scheduledEndMinutes,
     device_manufacturer: getDeviceManufacturer(),
@@ -340,5 +178,4 @@ export async function recordAttendance(userId: string, projectId: string | null,
   });
   if (error) throw new Error(error.message);
 
-  return { accuracyMeters: capture.accuracyMeters };
 }

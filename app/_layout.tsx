@@ -24,7 +24,6 @@ import { initSentry } from '../lib/sentryInit';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { RestoreErrorScreen } from '../components/RestoreErrorScreen';
 import { BrandSplash } from '../components/BrandSplash';
-import { FieldLocationGuard } from '../components/FieldLocationGuard';
 
 // Runs once at module load — this file is the app's true entry point, so
 // there's no earlier point to call this from. See sentryInit.ts's own
@@ -116,13 +115,6 @@ function RootLayout() {
             <NavigationLogger />
             <AuthGate>
               <ProjectProvider>
-                {/* Location permission gate + tracking for field roles
-                    (site_engineer / senior_site_engineer) — re-enabled
-                    2026-09-27 after being deliberately removed. Must sit
-                    inside ProjectProvider (it reads the selected project)
-                    and AuthGate (it reads the signed-in profile); for any
-                    other role it just renders children. */}
-                <FieldLocationGuard>
                   <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0F1F33' } }}>
                     {/* Pure black, not the shared navy default above — both
                         screens before authentication are a deliberately
@@ -131,7 +123,6 @@ function RootLayout() {
                     <Stack.Screen name="index" options={{ contentStyle: { backgroundColor: '#000000' } }} />
                     <Stack.Screen name="login" options={{ contentStyle: { backgroundColor: '#0F1F33' } }} />
                   </Stack>
-                </FieldLocationGuard>
               </ProjectProvider>
             </AuthGate>
           </AuthProvider>

@@ -208,9 +208,8 @@ function DepartmentRow({ department, onChanged }: { department: Department; onCh
 // ProjectInfoEditor + SiteLocationCard manage (see
 // admin-web/app/(app)/projects/[projectId]/settings/page.tsx), not a
 // mobile-only copy. Same draggable-pin + radius-circle map as admin-web
-// too (see components/SiteLocationMapPicker.tsx), plus a one-shot "Use my
-// current location" button as its own affordance since expo-location is
-// already a dependency for Parts 2-4 of this same feature.
+// too (see components/SiteLocationMapPicker.tsx). The pin is placed by hand —
+// the app no longer reads the device's own location.
 function DevicesLink() {
   return (
     <Pressable onPress={() => router.push('/(authenticated)/devices')}>
