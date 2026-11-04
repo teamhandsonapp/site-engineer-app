@@ -184,7 +184,7 @@ export async function fetchGeneralParameterReport(taskId: string, projectId: str
     plannedDaySplit = workingDates.map((date, i) => ({ date, cumulativePercent: Math.round(((i + 1) / n) * 100) }));
   }
 
-  const [{ data: projectRow }, { count: submittedDprCount }, { data: allEntries }] = await Promise.all([
+  const [projectRes, submittedRes, entriesRes] = await Promise.all([
     supabase.from('projects').select('show_workforce_on_report').eq('id', projectId).maybeSingle(),
     supabase.from('dpr_entries').select('id', { count: 'exact', head: true }).eq('task_id', taskId).not('submitted_at', 'is', null),
     supabase
@@ -193,6 +193,14 @@ export async function fetchGeneralParameterReport(taskId: string, projectId: str
       .eq('task_id', taskId)
       .order('report_date', { ascending: false }),
   ]);
+  // A failed query used to read as "no DPR submitted / no entries / 0 delay".
+  // Surface it instead, so the screens show their error + retry state.
+  if (projectRes.error) throw new Error(projectRes.error.message);
+  if (submittedRes.error) throw new Error(submittedRes.error.message);
+  if (entriesRes.error) throw new Error(entriesRes.error.message);
+  const projectRow = projectRes.data;
+  const submittedDprCount = submittedRes.count;
+  const allEntries = entriesRes.data;
 
   interface AllEntryRow {
     report_date: string;

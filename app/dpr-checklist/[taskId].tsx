@@ -23,6 +23,7 @@ import {
 import { exportQualityChecklistPdf } from '../../lib/reports/qualityChecklistPdf';
 import { fetchGeneralParameterReport, type GeneralParameterReportData } from '../../lib/reports/generalParameterReport';
 import { formatDateLabel } from '../../lib/formatTime';
+import { logError } from '../../lib/sentryLog';
 
 // Placeholder checklist — shown only when the admin hasn't defined any real
 // Pre/Construction/Post Construction items for this task yet ("No quality
@@ -93,7 +94,16 @@ export default function DprChecklistScreen() {
       // fetchQualityChecklist's result carries — fetched as a follow-up,
       // not in the Promise.all above, and skipped entirely for anyone who
       // won't see it.
-      setDelay(isAdminOrManager && c.task.projectId ? await fetchGeneralParameterReport(taskId, c.task.projectId) : null);
+      // A delay-calculation failure hides just the delay card (never shows
+      // misleading zeros) instead of failing the whole screen.
+      setDelay(
+        isAdminOrManager && c.task.projectId
+          ? await fetchGeneralParameterReport(taskId, c.task.projectId).catch((err) => {
+              logError(err, 'general_parameter_report');
+              return null;
+            })
+          : null
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }

@@ -33,6 +33,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { formatDateLabel, formatTime12h } from '../../lib/formatTime';
 import { fetchGeneralParameterReport, type GeneralParameterReportData } from '../../lib/reports/generalParameterReport';
+import { logError } from '../../lib/sentryLog';
 
 type VerifyAction = Exclude<ChecklistVerificationStatus, 'pending'>;
 
@@ -240,7 +241,16 @@ export default function TaskDetailScreen() {
       // Cumulative Pre + Construction delay — admin/manager oversight only
       // (see the Post Construction category's own card below), reusing the
       // existing General Parameter Report calculation for this one task.
-      setDelay(isAdminOrManager && detail.task.projectId ? await fetchGeneralParameterReport(taskId, detail.task.projectId) : null);
+      // A delay-calculation failure hides just the delay card (never shows
+      // misleading zeros) instead of failing the whole screen.
+      setDelay(
+        isAdminOrManager && detail.task.projectId
+          ? await fetchGeneralParameterReport(taskId, detail.task.projectId).catch((err) => {
+              logError(err, 'general_parameter_report');
+              return null;
+            })
+          : null
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
