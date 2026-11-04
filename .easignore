@@ -17,3 +17,6 @@
 
 # Store listing graphics (not part of the app build)
 /store-assets
+
+# Project notes (not part of app builds)
+/docs
