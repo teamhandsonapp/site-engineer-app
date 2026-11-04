@@ -53,6 +53,11 @@ export function ChecklistItemRow({
   const [isEditingLabel, setIsEditingLabel] = useState(false);
   const [labelText, setLabelText] = useState(item.itemLabel);
   const [savingLabel, setSavingLabel] = useState(false);
+  // Why the last change on this row didn't stick (the change itself is
+  // reverted so the row shows what's really saved).
+  const [rowError, setRowError] = useState<string | null>(null);
+  const fail = (what: string, err: unknown) =>
+    setRowError(`Couldn't ${what} — ${err instanceof Error ? err.message : 'check your connection'}. Try again.`);
 
   async function saveLabel() {
     const trimmed = labelText.trim();
@@ -62,11 +67,13 @@ export function ChecklistItemRow({
       return;
     }
     setSavingLabel(true);
+    setRowError(null);
     try {
       await updateItemLabel(item.id, taskId, trimmed, userId);
       onChanged(item.id, { itemLabel: trimmed });
-    } catch {
+    } catch (err) {
       setLabelText(item.itemLabel);
+      fail('rename this item', err);
     } finally {
       setSavingLabel(false);
       setIsEditingLabel(false);
@@ -77,21 +84,31 @@ export function ChecklistItemRow({
     const previous = item.hadCompletionRow ? item.status : null;
     const previousChangedAt = item.statusChangedAtISO;
     const previousIssueDate = item.issueDate;
+    setRowError(null);
+    if (!userId) {
+      // The status is stored against the signed-in user; without one the
+      // server would reject it (it used to send an empty id).
+      setRowError("Couldn't change the status — your session has expired. Sign in again.");
+      return;
+    }
     onChanged(item.id, { status: next, hadCompletionRow: true, statusChangedAtISO: new Date().toISOString(), issueDate }); // optimistic
     try {
-      const changedAtISO = await updateItemStatus(item.id, next, previous, userId ?? '', issueDate);
+      const changedAtISO = await updateItemStatus(item.id, next, previous, userId, issueDate);
       onChanged(item.id, { statusChangedAtISO: changedAtISO }); // reconcile with the real server timestamp
-    } catch {
+    } catch (err) {
       onChanged(item.id, { status: item.status, hadCompletionRow: item.hadCompletionRow, statusChangedAtISO: previousChangedAt, issueDate: previousIssueDate }); // revert
+      fail('change the status', err);
     }
   }
 
   async function handleQuantitySave(unit: QuantityUnit, value: number) {
     onChanged(item.id, { quantityUnit: unit, quantityValue: value }); // optimistic
+    setRowError(null);
     try {
       await updateItemQuantity(item.id, unit, value);
-    } catch {
+    } catch (err) {
       onChanged(item.id, { quantityUnit: item.quantityUnit, quantityValue: item.quantityValue }); // revert
+      fail('save the quantity', err);
     }
   }
 
@@ -102,12 +119,14 @@ export function ChecklistItemRow({
   async function handleQuickPost() {
     if (!quickComment.trim()) return;
     setPostingQuick(true);
+    setRowError(null);
     try {
       await createItemComment(item.id, quickComment, userId);
       setQuickComment('');
       onChanged(item.id, { commentCount: item.commentCount + 1 });
-    } catch {
+    } catch (err) {
       // Left in the input so the user can retry rather than losing what they typed.
+      fail('post the comment', err);
     } finally {
       setPostingQuick(false);
     }
@@ -115,12 +134,14 @@ export function ChecklistItemRow({
 
   async function handleDelete() {
     setDeleting(true);
+    setRowError(null);
     try {
       await deleteChecklistItem(item.id);
       onDeleted(item.id);
-    } catch {
+    } catch (err) {
       setDeleting(false);
       setDeleteConfirmOpen(false);
+      fail('delete this item', err);
     }
   }
 
@@ -136,6 +157,11 @@ export function ChecklistItemRow({
           the eye scan for red (Pending) without reading every pill. */}
       <View className="w-0.5 rounded-full mr-3" style={{ backgroundColor: statusColor }} />
       <View className="flex-1">
+        {rowError && (
+          <Pressable onPress={() => setRowError(null)} accessibilityRole="alert" className="mb-1.5 px-2 py-1.5 rounded-md bg-red-50 border border-red-200">
+            <Text className="text-xs text-red-700">{rowError} (tap to dismiss)</Text>
+          </Pressable>
+        )}
         <View className="flex-row items-center gap-2">
           <View className="flex-1">
             {isEditingLabel ? (
