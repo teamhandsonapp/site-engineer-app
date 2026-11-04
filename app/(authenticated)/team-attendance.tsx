@@ -1,6 +1,8 @@
-import { ScrollView, Text, View } from 'react-native';
 import { useAuth } from '../../lib/AuthContext';
 import { WorkforceAttendance } from '../../components/team/WorkforceAttendance';
+import { EmptyState } from '../../components/ui/EmptyState';
+import { Screen } from '../../components/ui/Screen';
+import { colors } from '../../lib/theme';
 
 // Site Attendance (drawer) / "Workforce Attendance" (project dashboard) —
 // workers' planned vs actual workforce by department and date. The site
@@ -12,16 +14,16 @@ export default function TeamAttendanceScreen() {
 
   if (!isAdminOrManager) {
     return (
-      <View className="flex-1 bg-neutral-50 items-center justify-center px-8">
-        <Text className="text-md font-semibold text-neutral-800 text-center">Not available for this account</Text>
-      </View>
+      <Screen>
+        <EmptyState icon="lock-closed-outline" iconColor={colors.textMuted} title="Not available for this account" subtitle="Site Attendance is for admin and manager accounts." />
+      </Screen>
     );
   }
 
   return (
-    <ScrollView className="flex-1 bg-neutral-50" contentContainerClassName="px-4 pt-4 pb-8">
+    <Screen>
       <WorkforceAttendance />
-    </ScrollView>
+    </Screen>
   );
 }
 

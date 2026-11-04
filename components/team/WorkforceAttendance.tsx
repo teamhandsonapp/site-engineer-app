@@ -1,8 +1,12 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { Card } from '../ui/Card';
+import { Pressable, View } from 'react-native';
 import { DateField } from '../ui/DateField';
+import { AppText } from '../ui/AppText';
+import { IconButton } from '../ui/Button';
+import { EmptyState } from '../ui/EmptyState';
+import { SectionHeader } from '../ui/List';
+import { colors, radius, shadow, space } from '../../lib/theme';
+import { haptic } from '../../lib/haptics';
 
 // Site Attendance — workers' (labour) attendance, planned vs actual
 // workforce per department for a chosen day. DEMO DATA for the client
@@ -51,16 +55,67 @@ function todayIso(): string {
 function Bar({ actual, planned, color }: { actual: number; planned: number; color: string }) {
   const pct = planned > 0 ? Math.min(100, Math.round((actual / planned) * 100)) : 0;
   return (
-    <View className="h-2 rounded-full bg-neutral-100 overflow-hidden mt-1.5">
-      <View className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color }} />
+    <View style={{ height: 8, borderRadius: 4, backgroundColor: colors.surfaceMuted, overflow: 'hidden', marginTop: space.sm }}>
+      <View style={{ height: '100%', width: `${pct}%`, borderRadius: 4, backgroundColor: color }} />
     </View>
   );
 }
 
 function turnoutColor(pct: number): { bg: string; text: string } {
-  if (pct >= 90) return { bg: '#DCFCE7', text: '#166534' };
-  if (pct >= 70) return { bg: '#FEF9C3', text: '#854D0E' };
-  return { bg: '#FEE2E2', text: '#991B1B' };
+  if (pct >= 90) return { bg: colors.successSoft, text: colors.success };
+  if (pct >= 70) return { bg: colors.warningSoft, text: colors.warning };
+  return { bg: colors.dangerSoft, text: colors.danger };
+}
+
+function shiftDay(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function StatTile({ value, label, color, bg }: { value: string | number; label: string; color: string; bg?: string }) {
+  return (
+    <View
+      accessibilityLabel={`${label}: ${value}`}
+      style={[
+        { flex: 1, alignItems: 'center', paddingVertical: space.md, borderRadius: radius.md, borderWidth: 1, borderColor: bg ? 'transparent' : colors.border, backgroundColor: bg ?? colors.surface },
+        shadow.card,
+      ]}
+    >
+      <AppText variant="stat" style={{ color, fontSize: 22, lineHeight: 28, fontVariant: ['tabular-nums'] }}>
+        {value}
+      </AppText>
+      <AppText variant="caption" style={{ color: bg ? color : colors.textMuted }}>
+        {label}
+      </AppText>
+    </View>
+  );
+}
+
+function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      onPress={() => {
+        haptic.select();
+        onPress();
+      }}
+      style={({ pressed }) => ({
+        minHeight: 36,
+        justifyContent: 'center',
+        paddingHorizontal: space.md,
+        borderRadius: radius.pill,
+        borderWidth: 1,
+        borderColor: active ? colors.navy : colors.border,
+        backgroundColor: active ? colors.navy : pressed ? colors.surfaceMuted : colors.surface,
+      })}
+    >
+      <AppText variant="label" style={{ color: active ? '#FFFFFF' : colors.textSecondary }}>
+        {label}
+      </AppText>
+    </Pressable>
+  );
 }
 
 export function WorkforceAttendance() {
@@ -82,96 +137,116 @@ export function WorkforceAttendance() {
   const shortfall = Math.max(0, planned - actual);
   const tc = turnoutColor(pct);
   const isSunday = new Date(`${date}T00:00:00`).getDay() === 0;
+  const today = todayIso();
+  const isToday = date === today;
+  const dateLabel = new Date(`${date}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
 
   return (
-    <View className="mb-5">
-      <Text className="text-xs font-bold uppercase tracking-wide text-neutral-400 mb-2">Workforce Attendance</Text>
+    <View>
+      <SectionHeader title="Workforce attendance" />
 
-      <Card className="mb-3">
-        <Text className="text-xs font-bold text-neutral-600 mb-1">Date</Text>
-        <DateField value={date} maxDate={todayIso()} onChange={setDate} />
-        <Text className="text-xs font-bold text-neutral-600 mt-3 mb-1.5">Department</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-          {[null, ...DEPARTMENTS.map((d) => d.name)].map((name) => {
-            const active = dept === name;
-            return (
-              <Pressable
-                key={name ?? '__all__'}
-                onPress={() => setDept(name)}
-                className={`px-3 py-1.5 rounded-full border ${active ? 'bg-brand-navy border-brand-navy' : 'bg-white border-neutral-200'}`}
-              >
-                <Text className={`text-xs font-semibold ${active ? 'text-white' : 'text-neutral-700'}`}>{name ?? 'All'}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      </Card>
+      {/* Date bar: step a day back / forward, or tap the date to pick one. */}
+      <View
+        style={[
+          { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: space.md, marginBottom: space.md, gap: space.md },
+          shadow.card,
+        ]}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <IconButton icon="chevron-back" accessibilityLabel="Previous day" onPress={() => setDate((d) => shiftDay(d, -1))} />
+          <View style={{ flex: 1, alignItems: 'center' }}>
+            <AppText variant="bodyStrong">{dateLabel}</AppText>
+            <AppText variant="caption">{isToday ? 'Today' : 'Tap below to pick another day'}</AppText>
+          </View>
+          <IconButton icon="chevron-forward" accessibilityLabel="Next day" disabled={isToday} onPress={() => setDate((d) => (d < today ? shiftDay(d, 1) : d))} />
+        </View>
+        <DateField value={date} maxDate={today} onChange={setDate} />
+
+        <View style={{ gap: space.sm }}>
+          <AppText variant="label">Department</AppText>
+          {/* Wraps onto two lines instead of scrolling off-screen. */}
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
+            {[null, ...DEPARTMENTS.map((d) => d.name)].map((name) => (
+              <Chip key={name ?? '__all__'} label={name ?? 'All'} active={dept === name} onPress={() => setDept(name)} />
+            ))}
+          </View>
+        </View>
+      </View>
 
       {isSunday ? (
-        <Card className="mb-3 items-center py-6">
-          <Ionicons name="moon-outline" size={24} color="#9CA3AF" />
-          <Text className="text-sm font-semibold text-neutral-600 mt-2">Site closed on Sunday</Text>
-        </Card>
+        <EmptyState icon="moon-outline" iconColor={colors.textMuted} title="Site closed on Sunday" subtitle="Pick another day to see attendance." />
       ) : (
         <>
           {/* Totals */}
-          <View className="flex-row gap-2 mb-3">
-            <Card className="flex-1 items-center py-3">
-              <Text className="text-xl font-bold text-brand-navy">{planned}</Text>
-              <Text className="text-2xs text-neutral-500">Planned</Text>
-            </Card>
-            <Card className="flex-1 items-center py-3">
-              <Text className="text-xl font-bold" style={{ color: '#16A34A' }}>{actual}</Text>
-              <Text className="text-2xs text-neutral-500">Actual</Text>
-            </Card>
-            <Card className="flex-1 items-center py-3">
-              <Text className="text-xl font-bold" style={{ color: shortfall > 0 ? '#DC2626' : '#16A34A' }}>{shortfall}</Text>
-              <Text className="text-2xs text-neutral-500">Short</Text>
-            </Card>
-            <Card className="flex-1 items-center py-3" style={{ backgroundColor: tc.bg }}>
-              <Text className="text-xl font-bold" style={{ color: tc.text }}>{pct}%</Text>
-              <Text className="text-2xs" style={{ color: tc.text }}>Turnout</Text>
-            </Card>
+          <View style={{ flexDirection: 'row', gap: space.sm, marginBottom: space.lg }}>
+            <StatTile value={planned} label="Planned" color={colors.navy} />
+            <StatTile value={actual} label="Actual" color={colors.success} />
+            <StatTile value={shortfall} label="Short" color={shortfall > 0 ? colors.danger : colors.success} />
+            <StatTile value={`${pct}%`} label="Turnout" color={tc.text} bg={tc.bg} />
           </View>
 
           {/* Per department (with trade breakdown) */}
+          <SectionHeader title={dept ? dept : 'By department'} />
           {rows.map((r) => {
             const rp = r.planned > 0 ? Math.round((r.actual / r.planned) * 100) : 0;
             const rc = turnoutColor(rp);
             return (
-              <Card key={r.name} className="mb-2.5">
-                <View className="flex-row items-center justify-between">
-                  <View className="flex-row items-center gap-2">
-                    <View className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: r.color }} />
-                    <Text className="text-sm font-bold text-neutral-900">{r.name}</Text>
-                  </View>
-                  <View className="flex-row items-center gap-2">
-                    <Text className="text-xs text-neutral-600">
-                      <Text className="font-bold text-neutral-900">{r.actual}</Text> / {r.planned} workers
-                    </Text>
-                    <View className="px-2 py-0.5 rounded-full" style={{ backgroundColor: rc.bg }}>
-                      <Text className="text-2xs font-bold" style={{ color: rc.text }}>{rp}%</Text>
-                    </View>
+              <View
+                key={r.name}
+                style={[
+                  { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: space.lg, marginBottom: space.md },
+                  shadow.card,
+                ]}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                  <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: r.color }} />
+                  <AppText variant="section" style={{ flex: 1 }} numberOfLines={1}>
+                    {r.name}
+                  </AppText>
+                  <AppText variant="label" tone="secondary">
+                    <AppText variant="label" tone="default" style={{ fontFamily: 'IBMPlexSans_700Bold' }}>
+                      {r.actual}
+                    </AppText>{' '}
+                    / {r.planned}
+                  </AppText>
+                  <View style={{ paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: rc.bg }}>
+                    <AppText variant="caption" style={{ color: rc.text, fontFamily: 'IBMPlexSans_700Bold' }}>
+                      {rp}%
+                    </AppText>
                   </View>
                 </View>
                 <Bar actual={r.actual} planned={r.planned} color={r.color} />
-                <View className="mt-2.5 rounded-lg border border-neutral-100 overflow-hidden">
-                  <View className="flex-row px-2.5 py-1.5" style={{ backgroundColor: '#F8FAFC' }}>
-                    <Text className="text-2xs font-bold text-neutral-600 flex-1">Trade</Text>
-                    <Text className="text-2xs font-bold text-neutral-600 text-right" style={{ width: 60 }}>Planned</Text>
-                    <Text className="text-2xs font-bold text-neutral-600 text-right" style={{ width: 60 }}>Actual</Text>
+
+                <View style={{ marginTop: space.md, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.divider, overflow: 'hidden' }}>
+                  <View style={{ flexDirection: 'row', paddingHorizontal: space.md, paddingVertical: space.sm, backgroundColor: colors.surfaceMuted }}>
+                    <AppText variant="caption" style={{ flex: 1, fontFamily: 'IBMPlexSans_600SemiBold', color: colors.textSecondary }}>
+                      Trade
+                    </AppText>
+                    <AppText variant="caption" style={{ width: 64, textAlign: 'right', fontFamily: 'IBMPlexSans_600SemiBold', color: colors.textSecondary }}>
+                      Planned
+                    </AppText>
+                    <AppText variant="caption" style={{ width: 64, textAlign: 'right', fontFamily: 'IBMPlexSans_600SemiBold', color: colors.textSecondary }}>
+                      Actual
+                    </AppText>
                   </View>
                   {r.trades.map((t) => (
-                    <View key={t.name} className="flex-row px-2.5 py-1.5 border-t border-neutral-50">
-                      <Text className="text-xs text-neutral-800 flex-1">{t.name}</Text>
-                      <Text className="text-xs text-neutral-600 text-right" style={{ width: 60 }}>{t.planned}</Text>
-                      <Text className="text-xs font-bold text-right" style={{ width: 60, color: t.actual < t.planned ? '#DC2626' : '#16A34A' }}>
+                    <View key={t.name} style={{ flexDirection: 'row', alignItems: 'center', minHeight: 40, paddingHorizontal: space.md, borderTopWidth: 1, borderTopColor: colors.divider }}>
+                      <AppText variant="body" style={{ flex: 1 }} numberOfLines={1}>
+                        {t.name}
+                      </AppText>
+                      <AppText variant="body" tone="secondary" style={{ width: 64, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+                        {t.planned}
+                      </AppText>
+                      <AppText
+                        variant="bodyStrong"
+                        style={{ width: 64, textAlign: 'right', fontVariant: ['tabular-nums'], color: t.actual < t.planned ? colors.danger : colors.success }}
+                      >
                         {t.actual}
-                      </Text>
+                      </AppText>
                     </View>
                   ))}
                 </View>
-              </Card>
+              </View>
             );
           })}
         </>
