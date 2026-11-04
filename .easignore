@@ -14,3 +14,6 @@
 
 # Privacy policy website — deployed separately, not part of app builds
 /privacy-policy-page
+
+# Store listing graphics (not part of the app build)
+/store-assets

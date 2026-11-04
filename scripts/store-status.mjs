@@ -126,7 +126,7 @@ function storeTime(b){
   return '';
 }
 const when=(d)=>new Date(d).toLocaleString([], {day:'numeric',month:'short',hour:'numeric',minute:'2-digit'});
-const name=(p)=>p==='IOS'?'📱 iPhone':'🤖 Android';
+const name=(p)=>p==='IOS'?'📱 iOS':'🤖 Android';
 function dl(b){
   if(!(b.downloadUrl&&b.buildStatus==='FINISHED'))return '';
   const tail=b.downloadUrl.split('?')[0].split('.').pop().toLowerCase();
