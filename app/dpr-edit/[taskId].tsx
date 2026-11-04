@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Redirect, Stack, router, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { preparePhotoForUpload } from '../../lib/preparePhoto';
@@ -8,6 +8,14 @@ import { useAuth } from '../../lib/AuthContext';
 import { Card } from '../../components/ui/Card';
 import { DateField } from '../../components/ui/DateField';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { AppText } from '../../components/ui/AppText';
+import { Button, IconButton } from '../../components/ui/Button';
+import { FormField, FormSection, TextField } from '../../components/ui/Form';
+import { Screen } from '../../components/ui/Screen';
+import { StickyFooter } from '../../components/ui/StickyFooter';
+import { ErrorState, InlineError, SkeletonBlock, SkeletonCard } from '../../components/ui/States';
+import { useToast } from '../../components/ui/Toast';
+import { colors, radius, shadow, space } from '../../lib/theme';
 import { CommentPicker } from '../../components/dpr/CommentPicker';
 import { DprDelayBreakdown } from '../../components/dpr/DprDelayBreakdown';
 import { SubtaskListEditor } from '../../components/dpr/SubtaskListEditor';
@@ -89,6 +97,7 @@ export default function DprEditScreen() {
   const { state } = useAuth();
   const profile = state.status === 'signed-in' ? state.profile : null;
   const userId = profile?.id ?? null;
+  const toast = useToast();
 
   const [task, setTask] = useState<DprTask | null>(null);
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -378,7 +387,10 @@ export default function DprEditScreen() {
 
   async function handleSaveDraft() {
     if (!validateQuantity()) return;
-    if (await saveDayFields()) reloadDelayData();
+    if (await saveDayFields()) {
+      toast.success('Draft saved');
+      reloadDelayData();
+    }
   }
 
   async function handleSubmit() {
@@ -406,6 +418,7 @@ export default function DprEditScreen() {
       const nowIso = new Date().toISOString();
       setEntries((prev) => prev.map((e, i) => (i === index ? { ...e, fields: { ...e.fields, dprSubmittedAtISO: nowIso } } : e)));
       setDraft((d) => ({ ...d, dprSubmittedAtISO: nowIso }));
+      toast.success('DPR submitted');
       reloadDelayData();
     } catch (err) {
       setSaveError(`Couldn't submit this DPR — ${err instanceof Error ? err.message : String(err)}. Nothing was marked submitted; try again.`);
@@ -482,94 +495,340 @@ export default function DprEditScreen() {
 
   const current = entries[index];
 
+  const isSubmitted = !!draft.dprSubmittedAtISO;
+  const canSubmit = !!task && task.status !== 'completed';
+
+  // Sticky bottom bar: Save Draft + Submit, with the validation / save error
+  // banners right above the buttons (always visible next to them).
+  const footer =
+    !loading && !error && task && entries.length > 0 ? (
+      <StickyFooter
+        above={
+          validationError || saveError ? (
+            <View style={{ gap: space.sm }}>
+              {validationError ? <InlineError message={validationError} onDismiss={() => setValidationError(null)} /> : null}
+              {saveError ? <InlineError message={saveError} onDismiss={() => setSaveError(null)} /> : null}
+            </View>
+          ) : undefined
+        }
+      >
+        <View style={{ flex: 1 }}>
+          <Button
+            label={dayFieldsSaved ? 'Saved' : 'Save Draft'}
+            icon={dayFieldsSaved ? 'checkmark' : 'save-outline'}
+            variant={dayFieldsSaved ? 'success' : 'secondary'}
+            size="lg"
+            fullWidth
+            onPress={handleSaveDraft}
+          />
+        </View>
+        {canSubmit && (
+          <View style={{ flex: 1 }}>
+            {isSubmitted ? (
+              <View
+                accessibilityLabel={`Submitted ${formatDateTimeLabel(new Date(draft.dprSubmittedAtISO!))}`}
+                style={{ minHeight: 52, borderRadius: radius.md, backgroundColor: colors.successSoft, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 6 }}
+              >
+                <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+                <AppText variant="bodyStrong" tone="success">
+                  Submitted
+                </AppText>
+              </View>
+            ) : (
+              <Button label="Submit DPR" icon="paper-plane-outline" size="lg" fullWidth busy={submitting} haptics="press" onPress={handleSubmit} />
+            )}
+          </View>
+        )}
+      </StickyFooter>
+    ) : null;
+
   return (
-    <View className="flex-1 bg-white">
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <Stack.Screen
         options={{
           headerShown: true,
-          title: task?.taskName ?? 'DPR',
-          headerStyle: { backgroundColor: '#0F1F33' },
+          // Short header title; the full task name is shown once in the body.
+          title: 'DPR',
+          headerStyle: { backgroundColor: colors.navy },
           headerTintColor: '#fff',
-          headerTitleStyle: { fontWeight: '600' },
+          headerTitleStyle: { fontFamily: 'IBMPlexSans_600SemiBold', fontSize: 17 },
+          headerShadowVisible: false,
         }}
       />
 
       {loading ? (
-        <View className="flex-1 items-center justify-center">
-          <ActivityIndicator color="#0F1F33" />
+        <View style={{ padding: space.lg }}>
+          <SkeletonBlock width="40%" height={12} />
+          <SkeletonBlock width="80%" height={22} style={{ marginTop: space.sm, marginBottom: space.lg }} />
+          <SkeletonCard lines={1} />
+          <SkeletonCard lines={3} />
+          <SkeletonCard lines={2} />
         </View>
       ) : error ? (
-        <View className="mx-4 mt-4 rounded-xl border border-red-200 bg-red-50 px-3.5 py-3">
-          <Text className="text-sm text-red-600 mb-2.5">{error}</Text>
-          <Pressable onPress={load} className="self-start px-3.5 py-1.5 rounded-lg bg-white border border-red-200">
-            <Text className="text-xs font-semibold text-red-600">Retry</Text>
-          </Pressable>
-        </View>
+        <ErrorState message={error} onRetry={load} />
       ) : !task ? (
-        <EmptyState icon="document-text-outline" iconColor="#9CA3AF" title="Task not found" subtitle="It may have been deleted." />
+        <EmptyState icon="document-text-outline" iconColor={colors.textMuted} title="Task not found" subtitle="It may have been deleted." />
       ) : (
-        <ScrollView className="flex-1 px-4 pt-3" contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator={false}>
-          <Text className="text-2xs text-neutral-400 mb-0.5">{task.workName}</Text>
-          <Text className="text-lg font-bold text-neutral-900 mb-3">{task.taskName}</Text>
+        <Screen footer={footer}>
+          <AppText variant="overline">{task.workName}</AppText>
+          <AppText variant="title" accessibilityRole="header" style={{ marginTop: 2, marginBottom: space.md }}>
+            {task.taskName}
+          </AppText>
 
           {entries.length === 0 ? (
-            <Text className="text-sm text-neutral-500 py-4 text-center">
-              No planned dates set for this task yet.
-            </Text>
+            <EmptyState icon="calendar-outline" iconColor={colors.textMuted} title="No planned dates yet" subtitle="Planned dates need to be set for this task before a DPR can be filled." />
           ) : (
             <>
               {/* The day pager — opens on Day 1 every time, by explicit
-                  request. "DPR History" here is a lightweight popup listing
-                  every day so you can jump straight to one, not a second
-                  full page — the actual editing always happens right here. */}
-              <View className="flex-row items-center justify-between mb-3 rounded-lg bg-neutral-50 border border-neutral-100 px-2.5 py-2">
-                <Pressable onPress={() => setIndex((i) => Math.max(0, i - 1))} disabled={index === 0} hitSlop={8} style={{ opacity: index === 0 ? 0.3 : 1 }}>
-                  <Ionicons name="chevron-back" size={18} color="#0F1F33" />
-                </Pressable>
-                <Pressable onPress={() => setHistoryOpen(true)} className="items-center">
-                  <Text className="text-xs font-bold text-neutral-900">DPR {index + 1} of {entries.length}</Text>
-                  <Text className="text-2xs text-neutral-400">{formatDateLabel(dprDayDate(index, current.reportDate))}</Text>
-                </Pressable>
+                  request. Tapping the middle opens "DPR History" to jump to
+                  any day; the editing always happens right here. */}
+              <View
+                style={[
+                  { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: space.sm },
+                  shadow.card,
+                ]}
+              >
+                <IconButton icon="chevron-back" accessibilityLabel="Previous day" disabled={index === 0} onPress={() => setIndex((i) => Math.max(0, i - 1))} />
                 <Pressable
-                  onPress={() => setIndex((i) => Math.min(entries.length - 1, i + 1))}
-                  disabled={index === entries.length - 1}
-                  hitSlop={8}
-                  style={{ opacity: index === entries.length - 1 ? 0.3 : 1 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`DPR ${index + 1} of ${entries.length}. Open DPR history`}
+                  onPress={() => setHistoryOpen(true)}
+                  style={({ pressed }) => ({ flex: 1, alignItems: 'center', paddingVertical: space.sm, opacity: pressed ? 0.6 : 1 })}
                 >
-                  <Ionicons name="chevron-forward" size={18} color="#0F1F33" />
+                  <AppText variant="bodyStrong">
+                    DPR {index + 1} of {entries.length}
+                  </AppText>
+                  <AppText variant="caption">{formatDateLabel(dprDayDate(index, current.reportDate))} · tap for history</AppText>
                 </Pressable>
+                <IconButton
+                  icon="chevron-forward"
+                  accessibilityLabel="Next day"
+                  disabled={index === entries.length - 1}
+                  onPress={() => setIndex((i) => Math.min(entries.length - 1, i + 1))}
+                />
               </View>
 
-              {draft.dprSubmittedAtISO ? (
-                <Text className="text-2xs text-neutral-400 mb-3">
-                  Submitted by {draft.submittedByName ?? 'Unknown user'} · {formatDateTimeLabel(new Date(draft.dprSubmittedAtISO))}
-                </Text>
-              ) : draft.submittedByName ? (
-                <Text className="text-2xs text-neutral-400 mb-3">
-                  Draft — last edited by {draft.submittedByName}
-                  {draft.submittedAtISO && ` · ${formatDateTimeLabel(new Date(draft.submittedAtISO))}`}
-                </Text>
-              ) : (
-                <Text className="text-2xs text-amber-600 mb-3">Not filled yet — add this day&apos;s update below.</Text>
-              )}
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: space.lg, paddingHorizontal: 2 }}>
+                <Ionicons
+                  name={draft.dprSubmittedAtISO ? 'checkmark-circle' : draft.submittedByName ? 'create-outline' : 'ellipse-outline'}
+                  size={15}
+                  color={draft.dprSubmittedAtISO ? colors.success : draft.submittedByName ? colors.textMuted : colors.warning}
+                />
+                <AppText variant="caption" tone={draft.dprSubmittedAtISO || draft.submittedByName ? 'muted' : 'warning'} style={{ flex: 1 }}>
+                  {draft.dprSubmittedAtISO
+                    ? `Submitted by ${draft.submittedByName ?? 'Unknown user'} · ${formatDateTimeLabel(new Date(draft.dprSubmittedAtISO))}`
+                    : draft.submittedByName
+                      ? `Draft — last edited by ${draft.submittedByName}${draft.submittedAtISO ? ` · ${formatDateTimeLabel(new Date(draft.submittedAtISO))}` : ''}`
+                      : "Not filled yet — add this day's update below."}
+                </AppText>
+              </View>
 
               {delayLoading && (
-                <View className="mb-3 items-center py-3">
-                  <ActivityIndicator color="#0F1F33" size="small" />
+                <View style={{ alignItems: 'center', paddingVertical: space.md }}>
+                  <ActivityIndicator color={colors.navy} size="small" />
                 </View>
               )}
               {delayError && (
-                <View className="mb-3 px-2.5 py-2 rounded-lg bg-red-50 border border-red-200">
-                  <Text className="text-2xs text-red-600">{delayError}</Text>
+                <View style={{ marginBottom: space.md }}>
+                  <InlineError message={delayError} />
                 </View>
               )}
               {delayData && <DprDelayBreakdown data={delayData} />}
 
-              <View className="mb-3">
-                <Text className="text-xs text-neutral-400 mb-0.5">Subtasks</Text>
-                <Text className="text-2xs text-neutral-400 mb-1.5">
-                  Add the subtasks for this day. Progress for the day is entered once in Quantity of Work below.
-                </Text>
+              {/* ── Progress ── */}
+              <FormSection title="Progress" icon="trending-up-outline" description="Today's share of the work, status and dates.">
+                <FormField label="Quantity of Work" hint={suggestedPerDay != null ? `This task spans ${plannedDurationDays} planned day${plannedDurationDays === 1 ? '' : 's'} — about ${suggestedPerDay}% per day.` : 'Percentage of THIS day’s planned work that was done.'} error={quantityError}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                    <TextField value={quantityText} onChangeText={setQuantityText} keyboardType="decimal-pad" placeholder="e.g. 80" invalid={!!quantityError} style={{ width: 110 }} accessibilityLabel="Quantity of work, percent" />
+                    <AppText variant="bodyStrong" tone="muted">
+                      %
+                    </AppText>
+                  </View>
+                </FormField>
+                {/* The "X% of this day's Y% share = Z% of total task" line
+                    stays hidden by explicit request — the same calculation
+                    (dayContribution) is what Save Draft / Submit store. */}
+                {dayContribution != null && dayShareExact != null && dayShortfall != null && (
+                  <View
+                    style={{
+                      borderRadius: radius.sm,
+                      padding: space.md,
+                      borderWidth: 1,
+                      backgroundColor: dayShortfall > 0 ? colors.dangerSoft : colors.successSoft,
+                      borderColor: dayShortfall > 0 ? '#F5C2C2' : '#BBF7D0',
+                    }}
+                  >
+                    <AppText variant="label" tone={dayShortfall > 0 ? 'danger' : 'success'}>
+                      {dayShortfall > 0
+                        ? `${formatPct(dayContribution)}% completed today out of ${formatPct(dayShareExact)}% — ${formatPct(dayShortfall)}% short, this is delaying the task (~${dayShortfallHours} hrs to cover it up).`
+                        : `${formatPct(dayContribution)}% completed today out of ${formatPct(dayShareExact)}% — on track.`}
+                    </AppText>
+                  </View>
+                )}
+                {totalCompletedPercent != null && totalPendingPercent != null && (
+                  <View style={{ borderRadius: radius.sm, backgroundColor: colors.surfaceMuted, padding: space.md, gap: 4 }}>
+                    <AppText variant="label">
+                      Total completed: {totalCompletedPercent}%  ·  Total pending: {totalPendingPercent}%
+                    </AppText>
+                    {actualPacePerDay != null && actualPaceDaysToFinish != null && (
+                      <AppText variant="caption" tone="secondary">
+                        Going at <AppText variant="caption" tone="default" style={{ fontFamily: 'IBMPlexSans_600SemiBold' }}>{actualPacePerDay}%/day</AppText>, this task will take{' '}
+                        <AppText variant="caption" tone="default" style={{ fontFamily: 'IBMPlexSans_600SemiBold' }}>
+                          {actualPaceDaysToFinish} more day{actualPaceDaysToFinish === 1 ? '' : 's'}
+                        </AppText>{' '}
+                        to finish.
+                      </AppText>
+                    )}
+                  </View>
+                )}
+
+                {/* Only ONE Actual Start field on screen, by explicit
+                    correction: with subtasks, each subtask's own date is it;
+                    this task-level picker only shows for a day with none. */}
+                {(subtasksByDate[current.reportDate] ?? []).length === 0 && (
+                  <FormField label="Actual Start Date">
+                    <DateField value={task.actualStartDate} onChange={handleSetActualStart} maxDate={new Date().toISOString().slice(0, 10)} />
+                  </FormField>
+                )}
+
+                <View style={{ zIndex: 10, gap: space.md }}>
+                  <FormField label="Status" error={statusError}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Status: ${STATUS_DISPLAY_LABEL[task.status]}${task.status !== 'completed' ? '. Change' : ''}`}
+                      onPress={() => task.status !== 'completed' && setStatusDropdownOpen((v) => !v)}
+                      disabled={changingStatus}
+                      style={({ pressed }) => ({
+                        minHeight: 48,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        borderWidth: 1,
+                        borderColor: colors.borderStrong,
+                        borderRadius: radius.sm,
+                        paddingHorizontal: space.md,
+                        backgroundColor: pressed ? colors.surfaceMuted : colors.surface,
+                        opacity: changingStatus ? 0.5 : 1,
+                      })}
+                    >
+                      <AppText variant="bodyStrong">{STATUS_DISPLAY_LABEL[task.status]}</AppText>
+                      {changingStatus ? (
+                        <ActivityIndicator size="small" color={colors.navy} />
+                      ) : task.status !== 'completed' ? (
+                        <Ionicons name={statusDropdownOpen ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />
+                      ) : null}
+                    </Pressable>
+                    {/* Expands in normal flow (pushes content down) rather than
+                        floating over it — by explicit correction. */}
+                    {statusDropdownOpen && (
+                      <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, overflow: 'hidden' }}>
+                        {STATUS_DROPDOWN_OPTIONS.map((opt, i) => {
+                          const active = task.status === opt.value;
+                          return (
+                            <Pressable
+                              key={opt.value}
+                              accessibilityRole="button"
+                              accessibilityState={{ selected: active }}
+                              onPress={() => {
+                                setStatusDropdownOpen(false);
+                                void handleStatusPress(opt.value);
+                              }}
+                              style={({ pressed }) => ({
+                                minHeight: 46,
+                                justifyContent: 'center',
+                                paddingHorizontal: space.md,
+                                borderTopWidth: i ? 1 : 0,
+                                borderTopColor: colors.divider,
+                                backgroundColor: active ? colors.navy : pressed ? colors.surfaceMuted : colors.surface,
+                              })}
+                            >
+                              <AppText variant="body" tone={active ? 'inverse' : 'default'}>
+                                {opt.label}
+                              </AppText>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </FormField>
+
+                  {isDprPending(task.status) && (
+                    <FormField
+                      label="Reason for Delay"
+                      required
+                      hint={task.status === 'on_hold' ? 'Pick one or more.' : 'Becomes selectable once the task is On Hold.'}
+                    >
+                      {/* Shown for Pending and On Hold, but only pickable once
+                          On Hold — by explicit request. */}
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityState={{ disabled: task.status !== 'on_hold' }}
+                        onPress={() => task.status === 'on_hold' && setDelayDropdownOpen((v) => !v)}
+                        style={({ pressed }) => ({
+                          minHeight: 48,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: space.sm,
+                          borderWidth: 1,
+                          borderColor: draft.dependencyCategories.length === 0 ? '#F5C2C2' : colors.borderStrong,
+                          borderRadius: radius.sm,
+                          paddingHorizontal: space.md,
+                          backgroundColor: pressed ? colors.surfaceMuted : colors.surface,
+                          opacity: task.status === 'on_hold' ? 1 : 0.55,
+                        })}
+                      >
+                        <AppText variant="body" tone={draft.dependencyCategories.length === 0 ? 'muted' : 'default'} style={{ flex: 1 }} numberOfLines={1}>
+                          {draft.dependencyCategories.length === 0
+                            ? 'Select reason(s)'
+                            : draft.dependencyCategories.map((c) => dependencyDisplayLabel(c, draft.dependencyOtherText)).join(', ')}
+                        </AppText>
+                        {task.status === 'on_hold' && <Ionicons name={delayDropdownOpen ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />}
+                      </Pressable>
+                      {task.status === 'on_hold' && delayDropdownOpen && (
+                        <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, overflow: 'hidden' }}>
+                          {DPR_DEPENDENCY_CATEGORIES.map((cat, i) => {
+                            const active = draft.dependencyCategories.includes(cat);
+                            return (
+                              <Pressable
+                                key={cat}
+                                accessibilityRole="checkbox"
+                                accessibilityState={{ checked: active }}
+                                onPress={() => toggleDependency(cat)}
+                                style={({ pressed }) => ({
+                                  minHeight: 46,
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  paddingHorizontal: space.md,
+                                  borderTopWidth: i ? 1 : 0,
+                                  borderTopColor: colors.divider,
+                                  backgroundColor: active ? colors.navy : pressed ? colors.surfaceMuted : colors.surface,
+                                })}
+                              >
+                                <AppText variant="body" tone={active ? 'inverse' : 'default'}>
+                                  {dependencyDisplayLabel(cat, draft.dependencyOtherText)}
+                                </AppText>
+                                {active && <Ionicons name="checkmark" size={16} color="#fff" />}
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      )}
+                      {task.status === 'on_hold' && draft.dependencyCategories.includes('other') && (
+                        <TextField value={otherText} onChangeText={setOtherText} onBlur={saveDayFields} placeholder="Describe the reason for the delay…" multiline accessibilityLabel="Other reason for delay" />
+                      )}
+                    </FormField>
+                  )}
+                </View>
+              </FormSection>
+
+              {/* ── Subtasks ── */}
+              <FormSection
+                title="Subtasks"
+                icon="list-outline"
+                description="What was worked on today. Progress is entered once above."
+              >
                 <SubtaskListEditor
                   taskId={task.id}
                   reportDate={current.reportDate}
@@ -594,343 +853,125 @@ export default function DprEditScreen() {
                       });
                   }}
                 />
-                {subtaskStartError && <Text className="text-2xs text-red-600 mt-1">{subtaskStartError}</Text>}
-              </View>
-
-              <View className="flex-row flex-wrap gap-2 mb-3">
+                {subtaskStartError && <InlineError message={subtaskStartError} onDismiss={() => setSubtaskStartError(null)} />}
                 <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Open quality checklist"
                   onPress={() => router.push(`/dpr-checklist/${task.id}`)}
-                  className="flex-row items-center gap-1.5 self-start px-2.5 py-1.5 rounded-lg bg-neutral-50 border border-neutral-200"
+                  style={({ pressed }) => ({
+                    minHeight: 48,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: space.sm,
+                    paddingHorizontal: space.md,
+                    borderRadius: radius.sm,
+                    backgroundColor: pressed ? colors.navySoft : colors.surfaceMuted,
+                  })}
                 >
-                  <Ionicons name="document-text-outline" size={14} color="#0F1F33" />
-                  <Text className="text-2xs font-bold text-brand-navy">Quality Checklist</Text>
+                  <Ionicons name="document-text-outline" size={18} color={colors.navy} />
+                  <AppText variant="bodyStrong" tone="brand" style={{ flex: 1 }}>
+                    Quality Checklist
+                  </AppText>
+                  <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
                 </Pressable>
-              </View>
+              </FormSection>
 
-              {/* Only ONE Actual Start field on screen, by explicit correction:
-                  when the day has subtasks, each subtask's own date (above) is
-                  it, and the task's date follows the earliest of them; this
-                  task-level picker only shows for a day with no subtasks. */}
-              {(subtasksByDate[current.reportDate] ?? []).length === 0 && (
-                <View className="mb-3">
-                  <Text className="text-xs text-neutral-400 mb-1">Actual Start Date</Text>
-                  <DateField value={task.actualStartDate} onChange={handleSetActualStart} maxDate={new Date().toISOString().slice(0, 10)} />
-                </View>
-              )}
-
-              <View className="mb-3">
-                <Text className="text-xs text-neutral-400 mb-1">Quantity of Work</Text>
-                <View className="flex-row items-center gap-2">
-                  <TextInput
-                    value={quantityText}
-                    onChangeText={setQuantityText}
-                    keyboardType="decimal-pad"
-                    placeholder="0"
-                    className="border border-neutral-200 rounded-lg px-2.5 py-1.5 text-sm text-neutral-900"
-                    style={{ width: 64 }}
-                  />
-                  <Text className="text-sm text-neutral-500">%</Text>
-                </View>
-                {/* The "X% of this day's Y% share = Z% of total task" line was
-                    removed from view by explicit request — the same
-                    calculation still runs (dayContribution) and is what
-                    Save Draft / Submit store as the day's percent_complete. */}
-                {dayContribution != null && dayShareExact != null && dayShortfall != null && (
-                  dayShortfall > 0 ? (
-                    <View className="mt-1.5 rounded-lg px-2.5 py-2 border" style={{ backgroundColor: '#FEF2F2', borderColor: '#FECACA' }}>
-                      <Text className="text-2xs font-bold" style={{ color: '#B91C1C' }}>
-                        {formatPct(dayContribution)}% completed today out of {formatPct(dayShareExact)}% — {formatPct(dayShortfall)}% short, this is delaying the task (~{dayShortfallHours} hrs to cover it up).
-                      </Text>
-                    </View>
-                  ) : (
-                    <View className="mt-1.5 rounded-lg px-2.5 py-2 border" style={{ backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }}>
-                      <Text className="text-2xs font-bold" style={{ color: '#15803D' }}>
-                        {formatPct(dayContribution)}% completed today out of {formatPct(dayShareExact)}% — on track.
-                      </Text>
-                    </View>
-                  )
-                )}
-                {quantityError && <Text className="text-2xs text-red-600 mt-1">{quantityError}</Text>}
-              </View>
-
-              <View className="mb-3">
-                {suggestedPerDay != null && (
-                  <Text className="text-2xs text-neutral-400 mt-1">
-                    This task spans {plannedDurationDays} planned day{plannedDurationDays === 1 ? '' : 's'} — ~{suggestedPerDay}%/day
-                  </Text>
-                )}
-                {totalCompletedPercent != null && totalPendingPercent != null && (
-                  <View className="rounded-lg bg-neutral-50 border border-neutral-100 px-2.5 py-2 mt-1.5">
-                    <Text className="text-2xs font-bold text-neutral-700">
-                      Total completed: {totalCompletedPercent}%  ·  Total pending: {totalPendingPercent}%
-                    </Text>
-                    {actualPacePerDay != null && actualPaceDaysToFinish != null && (
-                      <Text className="text-2xs text-neutral-600 mt-1 leading-4">
-                        Going at <Text className="font-bold text-neutral-900">{actualPacePerDay}%/day</Text>, this task will take{' '}
-                        <Text className="font-bold text-neutral-900">
-                          {actualPaceDaysToFinish} more day{actualPaceDaysToFinish === 1 ? '' : 's'}
-                        </Text>{' '}
-                        to finish.
-                      </Text>
-                    )}
-                  </View>
-                )}
-              </View>
-
-              <View className="mb-3 flex-row gap-4">
-                <View className="flex-1">
-                  <Text className="text-xs text-neutral-400 mb-1">Targeted Workforce / Day</Text>
-                  <View className="flex-row items-center gap-1.5">
-                    <TextInput
-                      value={targetedWorkforceText}
-                      onChangeText={setTargetedWorkforceText}
-                      onBlur={saveDayFields}
-                      onSubmitEditing={saveDayFields}
-                      keyboardType="number-pad"
-                      placeholder="0"
-                      className="border border-neutral-200 rounded-lg px-2.5 py-1.5 text-sm text-neutral-900"
-                      style={{ width: 64 }}
-                    />
-                    <Text className="text-2xs text-neutral-400">people</Text>
-                  </View>
-                </View>
-                <View className="flex-1">
-                  <Text className="text-xs text-neutral-400 mb-1">Actual Workforce / Day</Text>
-                  <View className="flex-row items-center gap-1.5">
-                    <TextInput
-                      value={actualWorkforceText}
-                      onChangeText={setActualWorkforceText}
-                      onBlur={saveDayFields}
-                      onSubmitEditing={saveDayFields}
-                      keyboardType="number-pad"
-                      placeholder="0"
-                      className="border border-neutral-200 rounded-lg px-2.5 py-1.5 text-sm text-neutral-900"
-                      style={{ width: 64 }}
-                    />
-                    <Text className="text-2xs text-neutral-400">people</Text>
-                  </View>
-                </View>
-              </View>
-
-              <View className="mb-3 flex-row gap-2" style={{ zIndex: 10 }}>
-                <View className="flex-1" style={{ zIndex: statusDropdownOpen ? 10 : undefined }}>
-                  <Text className="text-xs text-neutral-400 mb-1">Status</Text>
-                  <Pressable
-                    onPress={() => task.status !== 'completed' && setStatusDropdownOpen((v) => !v)}
-                    disabled={changingStatus}
-                    className="flex-row items-center justify-between border border-neutral-200 rounded-lg px-2.5 py-2"
-                    style={{ opacity: changingStatus ? 0.5 : 1 }}
-                  >
-                    <Text className="text-xs font-bold text-neutral-900">{STATUS_DISPLAY_LABEL[task.status]}</Text>
-                    {task.status !== 'completed' && <Text className="text-2xs text-neutral-400">{statusDropdownOpen ? '▲' : '▼'}</Text>}
-                  </Pressable>
-                  {/* Expands in normal flow (pushes everything below it down)
-                      rather than floating over it — by explicit correction,
-                      an absolutely-positioned list here covered the Save
-                      button underneath it. Same convention as every other
-                      collapsed-header dropdown in this app. */}
-                  {statusDropdownOpen && (
-                    <View className="mt-1 border border-neutral-100 rounded-lg overflow-hidden">
-                      {STATUS_DROPDOWN_OPTIONS.map((opt, i) => {
-                        const active = task.status === opt.value;
-                        return (
-                          <Pressable
-                            key={opt.value}
-                            onPress={() => {
-                              setStatusDropdownOpen(false);
-                              void handleStatusPress(opt.value);
-                            }}
-                            className={`px-2.5 py-2 ${i < STATUS_DROPDOWN_OPTIONS.length - 1 ? 'border-b border-neutral-50' : ''}`}
-                            style={{ backgroundColor: active ? '#0F1F33' : undefined }}
-                          >
-                            <Text className={`text-xs font-medium ${active ? 'text-white' : 'text-neutral-700'}`}>{opt.label}</Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                  )}
-                  {statusError && <Text className="text-2xs text-red-600 mt-1">{statusError}</Text>}
-                </View>
-
-                {isDprPending(task.status) && (
-                  <View className="flex-1">
-                    <Text className="text-xs text-neutral-400 mb-1">
-                      Reason for Delay<Text style={{ color: '#DC2626' }}> *</Text>
-                    </Text>
-                    {/* Visible for both Pending and On Hold, but only
-                        actually pickable once the task is On Hold — by
-                        explicit request, Pending shows the field (so it
-                        reads as "this will apply once paused") without
-                        letting you log a delay reason before there's an
-                        actual delay. */}
-                    <Pressable
-                      onPress={() => task.status === 'on_hold' && setDelayDropdownOpen((v) => !v)}
-                      className="flex-row items-center justify-between border rounded-lg px-2.5 py-2"
-                      style={{
-                        borderColor: draft.dependencyCategories.length === 0 ? '#FECACA' : '#E5E5E5',
-                        opacity: task.status === 'on_hold' ? 1 : 0.5,
-                      }}
-                    >
-                      <Text className="text-xs text-neutral-900 flex-1" numberOfLines={1}>
-                        {draft.dependencyCategories.length === 0
-                          ? 'Select reason(s)'
-                          : draft.dependencyCategories.map((c) => dependencyDisplayLabel(c, draft.dependencyOtherText)).join(', ')}
-                      </Text>
-                      {task.status === 'on_hold' && <Text className="text-2xs text-neutral-400">{delayDropdownOpen ? '▲' : '▼'}</Text>}
-                    </Pressable>
-                    {task.status === 'on_hold' && delayDropdownOpen && (
-                      <View className="mt-1 border border-neutral-100 rounded-lg overflow-hidden">
-                        {DPR_DEPENDENCY_CATEGORIES.map((cat, i) => {
-                          const active = draft.dependencyCategories.includes(cat);
-                          return (
-                            <Pressable
-                              key={cat}
-                              onPress={() => toggleDependency(cat)}
-                              className={`flex-row items-center justify-between px-2.5 py-2 ${i < DPR_DEPENDENCY_CATEGORIES.length - 1 ? 'border-b border-neutral-50' : ''}`}
-                              style={{ backgroundColor: active ? '#0F1F33' : undefined }}
-                            >
-                              <Text className={`text-xs font-medium ${active ? 'text-white' : 'text-neutral-700'}`}>
-                                {dependencyDisplayLabel(cat, draft.dependencyOtherText)}
-                              </Text>
-                              {active && <Ionicons name="checkmark" size={14} color="#fff" />}
-                            </Pressable>
-                          );
-                        })}
-                      </View>
-                    )}
-                    {task.status === 'on_hold' && draft.dependencyCategories.includes('other') && (
-                      <TextInput
-                        value={otherText}
-                        onChangeText={setOtherText}
+              {/* ── Workforce ── */}
+              <FormSection title="Workforce" icon="people-outline" description="Number of people on site for this task today.">
+                <View style={{ flexDirection: 'row', gap: space.md }}>
+                  <View style={{ flex: 1 }}>
+                    <FormField label="Targeted / day">
+                      <TextField
+                        value={targetedWorkforceText}
+                        onChangeText={setTargetedWorkforceText}
                         onBlur={saveDayFields}
-                        placeholder="Type the reason…"
-                        placeholderTextColor="#9CA3AF"
-                        multiline
-                        className="border border-neutral-200 rounded-lg px-2.5 py-2 text-xs text-neutral-900 mt-1.5"
-                        style={{ minHeight: 40, textAlignVertical: 'top' }}
+                        onSubmitEditing={saveDayFields}
+                        keyboardType="number-pad"
+                        placeholder="e.g. 12"
+                        accessibilityLabel="Targeted workforce per day"
                       />
-                    )}
+                    </FormField>
                   </View>
-                )}
-              </View>
-
-              <Pressable
-                onPress={handleSaveDraft}
-                className="flex-row items-center justify-center gap-1.5 mb-3 py-3 rounded-xl"
-                style={{ backgroundColor: dayFieldsSaved ? '#DCFCE7' : '#0F1F33' }}
-              >
-                <Ionicons name={dayFieldsSaved ? 'checkmark' : 'save-outline'} size={16} color={dayFieldsSaved ? '#15803D' : '#fff'} />
-                <Text className="text-sm font-bold" style={{ color: dayFieldsSaved ? '#15803D' : '#fff' }}>
-                  {dayFieldsSaved ? 'DPR Saved' : 'Save Draft DPR'}
-                </Text>
-              </Pressable>
-
-              {isDprPending(task.status) && (
-                <View className="mb-3">
-                  <Text className="text-xs text-neutral-400 mb-1.5">
-                    Comments<Text style={{ color: '#DC2626' }}> *</Text>
-                  </Text>
-                  <CommentPicker comment={draft.comment} required editable onChange={(next: DprComment | null) => void persistDraft({ ...draft, comment: next })} />
+                  <View style={{ flex: 1 }}>
+                    <FormField label="Actual / day">
+                      <TextField
+                        value={actualWorkforceText}
+                        onChangeText={setActualWorkforceText}
+                        onBlur={saveDayFields}
+                        onSubmitEditing={saveDayFields}
+                        keyboardType="number-pad"
+                        placeholder="e.g. 10"
+                        accessibilityLabel="Actual workforce per day"
+                      />
+                    </FormField>
+                  </View>
                 </View>
-              )}
+              </FormSection>
 
+              {/* ── Remarks (pending / on hold only, as before) ── */}
               {isDprPending(task.status) && (
-              <View className="mb-2">
-                <Text className="text-xs text-neutral-400 mb-1">Architect</Text>
-                <TextInput
-                  value={architectCommentText}
-                  onChangeText={setArchitectCommentText}
-                  onBlur={saveDayFields}
-                  placeholder="Comment box"
-                  placeholderTextColor="#9CA3AF"
-                  multiline
-                  className="border border-neutral-200 rounded-lg px-2.5 py-2 text-sm text-neutral-900"
-                  style={{ minHeight: 40, textAlignVertical: 'top' }}
-                />
-              </View>
+                <FormSection title="Remarks" icon="chatbubble-ellipses-outline" description="Required while the task is pending or on hold.">
+                  <FormField label="Comments" required>
+                    <CommentPicker comment={draft.comment} required editable onChange={(next: DprComment | null) => void persistDraft({ ...draft, comment: next })} />
+                  </FormField>
+                  <FormField label="Architect">
+                    <TextField value={architectCommentText} onChangeText={setArchitectCommentText} onBlur={saveDayFields} placeholder="Note for or from the architect…" multiline accessibilityLabel="Architect comment" />
+                  </FormField>
+                  <FormField label="Client">
+                    <TextField value={clientCommentText} onChangeText={setClientCommentText} onBlur={saveDayFields} placeholder="Note for or from the client…" multiline accessibilityLabel="Client comment" />
+                  </FormField>
+                </FormSection>
               )}
 
-              {isDprPending(task.status) && (
-              <View className="mb-3">
-                <Text className="text-xs text-neutral-400 mb-1">Client</Text>
-                <TextInput
-                  value={clientCommentText}
-                  onChangeText={setClientCommentText}
-                  onBlur={saveDayFields}
-                  placeholder="Comment box"
-                  placeholderTextColor="#9CA3AF"
-                  multiline
-                  className="border border-neutral-200 rounded-lg px-2.5 py-2 text-sm text-neutral-900"
-                  style={{ minHeight: 40, textAlignVertical: 'top' }}
-                />
-              </View>
-              )}
-
-              <View className="mb-1">
-                <Text className="text-xs text-neutral-400 mb-1.5">Photos</Text>
-                <View className="flex-row flex-wrap gap-2.5">
+              {/* ── Photos ── */}
+              <FormSection title="Photos" icon="camera-outline" description="Progress photos for this task.">
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
                   {photos.map((photo) => (
-                    <View key={photo.id} className="items-center" style={{ width: 92 }}>
+                    <View key={photo.id} style={{ width: 96 }}>
                       {photo.signedUrl ? (
-                        <Image source={{ uri: photo.signedUrl }} style={{ width: 92, height: 92, borderRadius: 10 }} />
+                        <Image source={{ uri: photo.signedUrl }} style={{ width: 96, height: 96, borderRadius: radius.sm, backgroundColor: colors.surfaceMuted }} accessibilityLabel="Progress photo" />
                       ) : (
-                        <View className="w-[92px] h-[92px] rounded-xl bg-neutral-200 items-center justify-center">
-                          <Text className="text-2xs text-neutral-400">Unavailable</Text>
+                        <View style={{ width: 96, height: 96, borderRadius: radius.sm, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' }}>
+                          <AppText variant="caption">Unavailable</AppText>
                         </View>
                       )}
                     </View>
                   ))}
                   <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Add photo"
                     onPress={handleUploadPhoto}
                     disabled={uploadingPhoto}
-                    className="items-center justify-center rounded-xl border border-dashed border-neutral-300"
-                    style={{ width: 92, height: 92, opacity: uploadingPhoto ? 0.5 : 1 }}
+                    style={({ pressed }) => ({
+                      width: 96,
+                      height: 96,
+                      borderRadius: radius.sm,
+                      borderWidth: 1.5,
+                      borderStyle: 'dashed',
+                      borderColor: colors.borderStrong,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: pressed ? colors.surfaceMuted : colors.surface,
+                      opacity: uploadingPhoto ? 0.5 : 1,
+                    })}
                   >
                     {uploadingPhoto ? (
-                      <ActivityIndicator size="small" color="#0F1F33" />
+                      <ActivityIndicator size="small" color={colors.navy} />
                     ) : (
                       <>
-                        <Ionicons name="camera-outline" size={20} color="#6B7280" />
-                        <Text className="text-2xs font-semibold text-neutral-500 mt-1">Add Photo</Text>
+                        <Ionicons name="camera-outline" size={22} color={colors.textMuted} />
+                        <AppText variant="caption" style={{ marginTop: 4, fontFamily: 'IBMPlexSans_600SemiBold' }}>
+                          Add Photo
+                        </AppText>
                       </>
                     )}
                   </Pressable>
                 </View>
-                {photoError && <Text className="text-2xs text-red-600 mt-1.5">{photoError}</Text>}
-              </View>
-
-              {task.status !== 'completed' && (
-                draft.dprSubmittedAtISO ? (
-                  <View className="mt-3 py-2.5 rounded-xl items-center bg-neutral-100">
-                    <Text className="text-sm font-bold text-neutral-500">
-                      Submitted · {formatDateTimeLabel(new Date(draft.dprSubmittedAtISO))}
-                    </Text>
-                  </View>
-                ) : (
-                  <Pressable
-                    onPress={handleSubmit}
-                    disabled={submitting}
-                    className="mt-3 py-2.5 rounded-xl items-center flex-row justify-center gap-1.5"
-                    style={{ backgroundColor: '#0F1F33', opacity: submitting ? 0.6 : 1 }}
-                  >
-                    {submitting && <ActivityIndicator size="small" color="#fff" />}
-                    <Text className="text-sm font-bold text-white">Submit DPR</Text>
-                  </Pressable>
-                )
-              )}
-              {validationError && (
-                <View className="mt-2.5 px-2.5 py-2 rounded-lg bg-red-50 border border-red-200">
-                  <Text className="text-2xs text-red-600">{validationError}</Text>
-                </View>
-              )}
-              {saveError && (
-                <View className="mt-2.5 px-2.5 py-2 rounded-lg bg-red-50 border border-red-200">
-                  <Text className="text-2xs text-red-600">{saveError}</Text>
-                </View>
-              )}
+                {photoError && <InlineError message={photoError} onDismiss={() => setPhotoError(null)} />}
+              </FormSection>
             </>
           )}
-        </ScrollView>
+        </Screen>
       )}
 
       {/* DPR History — a lightweight popup day-index, by explicit request,

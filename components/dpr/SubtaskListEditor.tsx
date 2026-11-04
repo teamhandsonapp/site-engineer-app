@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-nativ
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { SubtaskDepartmentPicker } from './SubtaskDepartmentPicker';
 import { DateField } from '../ui/DateField';
+import { ActionMenu } from '../ui/ActionMenu';
 import { createSubtask, deleteSubtask, updateSubtask, type DprSubtaskItem } from '../../lib/dprEntries';
 import type { WorkOption } from '../../lib/flowchart/data';
 
@@ -146,9 +147,11 @@ export function SubtaskListEditor({
               style={{ textAlignVertical: 'top' }}
             />
             {editable && (
-              <Pressable onPress={() => handleDelete(item)} hitSlop={8} className="pt-0.5">
-                <Ionicons name="trash-outline" size={16} color="#DC2626" />
-              </Pressable>
+              <ActionMenu
+                title={item.text || 'Subtask'}
+                accessibilityLabel="Subtask actions"
+                actions={[{ label: 'Delete subtask', icon: 'trash-outline', destructive: true, confirm: 'Delete this subtask?', onPress: () => handleDelete(item) }]}
+              />
             )}
           </View>
           <View className="flex-row items-center gap-2">
