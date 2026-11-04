@@ -3,6 +3,9 @@ import { Drawer } from 'expo-router/drawer';
 import { isFieldRole, useAuth } from '../../lib/AuthContext';
 import { AppDrawerContent } from '../../components/DrawerContent';
 import { ProjectGate } from '../../components/ProjectGate';
+import { BottomTabBar } from '../../components/BottomTabBar';
+import { colors } from '../../lib/theme';
+import { View } from 'react-native';
 import { NotificationBell } from '../../components/NotificationBell';
 import { CriticalAlertPopup } from '../../components/CriticalAlertPopup';
 import { useDeviceHeartbeat } from '../../lib/deviceActivity';
@@ -25,13 +28,27 @@ export default function AuthenticatedLayout() {
     <>
     <Drawer
       drawerContent={(props) => <AppDrawerContent {...props} />}
-      // Project-scoped screens show a project picker instead of a dead end
-      // when no project is selected yet (see components/ProjectGate.tsx).
-      screenLayout={({ children, route }) => <ProjectGate routeName={route.name}>{children}</ProjectGate>}
+      // Every drawer screen: project picker when needed (ProjectGate), then
+      // the per-role bottom tab bar (BottomTabBar).
+      screenLayout={({ children, route, navigation }) => (
+        <View style={{ flex: 1, backgroundColor: colors.bg }}>
+          <View style={{ flex: 1 }}>
+            <ProjectGate routeName={route.name}>{children}</ProjectGate>
+          </View>
+          <BottomTabBar
+            routeName={route.name}
+            navigate={(name) => navigation.navigate(name as never)}
+            openDrawer={() => (navigation as unknown as { openDrawer: () => void }).openDrawer()}
+          />
+        </View>
+      )}
       screenOptions={{
-        headerStyle: { backgroundColor: '#0F1F33' },
+        // Compact header: 17px semibold IBM Plex, long titles truncate.
+        headerStyle: { backgroundColor: colors.navy },
         headerTintColor: '#fff',
-        headerTitleStyle: { fontWeight: '500' },
+        headerTitleStyle: { fontFamily: 'IBMPlexSans_600SemiBold', fontSize: 17 },
+        headerTitleContainerStyle: { maxWidth: '62%' },
+        headerShadowVisible: false,
         drawerStyle: { backgroundColor: '#0F1F33', width: 264 },
         // Registered once here (not per-screen) so the bell — and its badge
         // count — stays visible and consistent across every drawer screen,

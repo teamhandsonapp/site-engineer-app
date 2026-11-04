@@ -24,6 +24,7 @@ import { initSentry } from '../lib/sentryInit';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { RestoreErrorScreen } from '../components/RestoreErrorScreen';
 import { BrandSplash } from '../components/BrandSplash';
+import { ToastProvider } from '../components/ui/Toast';
 
 // Runs once at module load — this file is the app's true entry point, so
 // there's no earlier point to call this from. See sentryInit.ts's own
@@ -118,6 +119,7 @@ function RootLayout() {
           doesn't have this content-based min-size quirk. */}
       <GestureHandlerRootView style={{ flex: 1, overflow: 'hidden' }}>
         <SafeAreaProvider>
+          <ToastProvider>
           <AuthProvider>
             <StatusBar style="light" />
             <NavigationLogger />
@@ -135,6 +137,7 @@ function RootLayout() {
               </ProjectProvider>
             </AuthGate>
           </AuthProvider>
+          </ToastProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </ErrorBoundary>

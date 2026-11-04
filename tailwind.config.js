@@ -18,6 +18,29 @@ module.exports = {
         // reads the same regardless of which persona is looking at it.
         // Distinct from brand.amber (that's the identity/primary-action
         // color; this is a separate semantic channel per the design brief).
+        // Design-system tokens (same values as lib/theme.ts).
+        ui: {
+          bg: '#F6F7F9',
+          surface: '#FFFFFF',
+          muted: '#F1F3F6',
+          text: '#111827',
+          secondary: '#374151',
+          caption: '#5B6472',
+          placeholder: '#6B7280',
+          border: '#E3E6EB',
+          'border-strong': '#CDD2D9',
+          divider: '#EDEFF2',
+          success: '#15803D',
+          'success-soft': '#E8F5EC',
+          warning: '#B45309',
+          'warning-soft': '#FEF3E2',
+          danger: '#DC2626',
+          'danger-soft': '#FDECEC',
+          info: '#1D4ED8',
+          'info-soft': '#EAF0FD',
+          'navy-soft': '#EEF2F7',
+          'amber-soft': '#FEF5E4',
+        },
         status: {
           calm: '#1C3358', // just became pending — same navy-light as everywhere else, not alarming
           calmBg: '#EEF2F7',
