@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { Redirect, router, Stack } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { isFieldRole, useAuth } from '../lib/AuthContext';
 import { useProject } from '../lib/ProjectContext';
 import { fetchAllProjectStats, findProjectStat, type ProjectStat } from '../lib/projectStats';
@@ -196,3 +196,6 @@ export default function ProjectDashboardScreen() {
     </View>
   );
 }
+
+// Per-screen crash fallback (keeps the rest of the app usable).
+export { RouteErrorBoundary as ErrorBoundary } from '../components/RouteErrorBoundary';

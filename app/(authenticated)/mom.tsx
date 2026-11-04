@@ -10,7 +10,7 @@
 
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Card } from '../../components/ui/Card';
 import { useAuth } from '../../lib/AuthContext';
@@ -110,3 +110,6 @@ export default function MomScreen() {
     </View>
   );
 }
+
+// Per-screen crash fallback (keeps the rest of the app usable).
+export { RouteErrorBoundary as ErrorBoundary } from '../../components/RouteErrorBoundary';

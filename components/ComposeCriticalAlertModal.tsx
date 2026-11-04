@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { fetchProjectEngineers, sendCriticalAlertMessage, type ProjectEngineer } from '../lib/criticalAlertMessages';
 
 // The compose half of the two-way Critical Alert feature — admin/manager

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
 import type { ProjectTaskOption } from '../../lib/reports/taskList';

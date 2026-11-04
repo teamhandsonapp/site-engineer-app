@@ -2,6 +2,7 @@ import { Redirect } from 'expo-router';
 import { Drawer } from 'expo-router/drawer';
 import { isFieldRole, useAuth } from '../../lib/AuthContext';
 import { AppDrawerContent } from '../../components/DrawerContent';
+import { ProjectGate } from '../../components/ProjectGate';
 import { NotificationBell } from '../../components/NotificationBell';
 import { CriticalAlertPopup } from '../../components/CriticalAlertPopup';
 import { useDeviceHeartbeat } from '../../lib/deviceActivity';
@@ -24,6 +25,9 @@ export default function AuthenticatedLayout() {
     <>
     <Drawer
       drawerContent={(props) => <AppDrawerContent {...props} />}
+      // Project-scoped screens show a project picker instead of a dead end
+      // when no project is selected yet (see components/ProjectGate.tsx).
+      screenLayout={({ children, route }) => <ProjectGate routeName={route.name}>{children}</ProjectGate>}
       screenOptions={{
         headerStyle: { backgroundColor: '#0F1F33' },
         headerTintColor: '#fff',

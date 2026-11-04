@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react';
 import { Image, Linking, Platform, Pressable, ScrollView, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
 // In-app mock document viewer for the Files screen's dummy data — renders a
 // realistic-looking drawing sheet / transmittal / RA bill / spreadsheet /

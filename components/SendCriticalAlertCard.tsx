@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from './ui/Card';
 import { fetchProjectEngineers, sendCriticalAlertMessage, type ProjectEngineer } from '../lib/criticalAlertMessages';
 import { ALARM_SOUNDS, DEFAULT_ALARM_ID, previewAlarm } from '../lib/alarmSounds';

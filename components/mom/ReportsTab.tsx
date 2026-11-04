@@ -9,7 +9,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, Switch, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 import { fetchProjectProgress } from '../../lib/projectProgress';
 import { previewPrintout, sharePrintout } from '../../lib/reports/projectPrintouts';
@@ -220,7 +220,7 @@ function AutomatedSection({
               </View>
               <Switch
                 value={s.active}
-                onValueChange={(v) => update((d) => ({ ...d, schedules: d.schedules.map((x) => (x.id === s.id ? { ...x, active: v } : x)) }))}
+                onValueChange={(v) => update((d) => ({ ...d, schedules: d.schedules.map((x) => (x.id === s.id ? { ...x, active: v } : x)) })).catch(() => setMsg("Couldn't save that change — try again."))}
               />
             </View>
             <View className="flex-row gap-2 mt-3">
@@ -333,12 +333,30 @@ function ScheduleForm({
           <Button
             label="Save"
             icon="checkmark"
-            onPress={() => (s.recipients.length === 0 ? setError('Choose at least one recipient.') : onSave(s))}
+            onPress={async () => {
+              if (s.recipients.length === 0) return setError('Choose at least one recipient.');
+              try {
+                await onSave(s);
+              } catch (err) {
+                setError(`Couldn't save — ${err instanceof Error ? err.message : 'storage error'}. Try again.`);
+              }
+            }}
           />
         </View>
         {canDelete && (
           <View style={{ flex: 1 }}>
-            <Button label="Delete" icon="trash-outline" variant="secondary" onPress={onDelete} />
+            <Button
+              label="Delete"
+              icon="trash-outline"
+              variant="secondary"
+              onPress={async () => {
+                try {
+                  await onDelete();
+                } catch (err) {
+                  setError(`Couldn't delete — ${err instanceof Error ? err.message : 'storage error'}.`);
+                }
+              }}
+            />
           </View>
         )}
       </Row>
@@ -464,7 +482,7 @@ function ManualSection({
                 title: `${REPORT_TYPE_LABEL[type]} (summary)`,
                 channel,
                 recipientNames: recipients.filter((r) => keys.includes(r.key)).map((r) => r.name),
-              })
+              }).catch(() => {})
             }
           />
         ) : (

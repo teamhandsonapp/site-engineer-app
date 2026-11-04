@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { fetchApprovalRounds, recordApprovalRound, type ApprovalRoundRow } from '../../lib/taskDetail/data';
 import type { ApprovalOutcome } from '../../lib/taskDetail/constants';
 

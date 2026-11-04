@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 import { DateField } from '../ui/DateField';
 import { newId } from '../../lib/mom/store';
@@ -58,6 +58,7 @@ export function MeetingTab({
 }) {
   const [view, setView] = useState<{ kind: 'list' } | { kind: 'form'; editing: Meeting | null } | { kind: 'detail'; id: string }>({ kind: 'list' });
   const [banner, setBanner] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   // Re-sorted into Upcoming / Past once a minute, not on every render.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -112,10 +113,24 @@ export function MeetingTab({
         }}
         onEdit={() => setView({ kind: 'form', editing: m })}
         onDelete={async () => {
-          await update((d) => ({ ...d, meetings: d.meetings.filter((x) => x.id !== m.id) }));
-          setView({ kind: 'list' });
+          try {
+            await update((d) => ({ ...d, meetings: d.meetings.filter((x) => x.id !== m.id) }));
+            setView({ kind: 'list' });
+          } catch (err) {
+            setSaveError(`Couldn't delete the meeting — ${err instanceof Error ? err.message : 'storage error'}.`);
+          }
         }}
-        onChange={(patch) => update((d) => ({ ...d, meetings: d.meetings.map((x) => (x.id === m.id ? { ...x, ...patch(x) } : x)) }))}
+        onChange={(patch) =>
+          update((d) => ({ ...d, meetings: d.meetings.map((x) => (x.id === m.id ? { ...x, ...patch(x) } : x)) }))
+            .then(() => true)
+            .catch((err) => {
+              setBanner(null);
+              setSaveError(`Couldn't save that change — ${err instanceof Error ? err.message : 'storage error'}. Try again.`);
+              return false;
+            })
+        }
+        saveError={saveError}
+        clearSaveError={() => setSaveError(null)}
       />
     );
   }
@@ -220,6 +235,7 @@ function MeetingForm({
     if (!venue.trim()) return setError('Enter where the meeting will be held.');
     if (invitees.length === 0) return setError('Invite at least one person.');
     setSaving(true);
+    try {
     const base: Meeting = initial ?? {
       id: newId(),
       projectId,
@@ -254,7 +270,11 @@ function MeetingForm({
       invitees,
       attendance: Object.fromEntries(Object.entries(base.attendance).filter(([k]) => keep.has(k))),
     });
-    setSaving(false);
+    } catch (err) {
+      setError(`Couldn't save the meeting — ${err instanceof Error ? err.message : 'storage error'}. Try again.`);
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -351,6 +371,8 @@ function MeetingDetail({
   onEdit,
   onDelete,
   onChange,
+  saveError,
+  clearSaveError,
 }: {
   meeting: Meeting;
   projectName: string;
@@ -360,7 +382,10 @@ function MeetingDetail({
   onBack: () => void;
   onEdit: () => void;
   onDelete: () => void;
-  onChange: (patch: (m: Meeting) => Partial<Meeting>) => Promise<void>;
+  // Resolves false (and shows saveError) if the change couldn't be stored.
+  onChange: (patch: (m: Meeting) => Partial<Meeting>) => Promise<boolean>;
+  saveError: string | null;
+  clearSaveError: () => void;
 }) {
   const [tab, setTab] = useState<DetailTab>(() => {
     const now = Date.now();
@@ -369,7 +394,7 @@ function MeetingDetail({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const s = statusOf(m);
 
-  function logSend(what: 'invite' | 'agenda-request' | 'final-agenda', channel: SendChannel, keys: string[]) {
+  function logSend(what: 'invite' | 'agenda-request' | 'final-agenda', channel: SendChannel, keys: string[]): Promise<boolean> {
     return onChange((x) => ({
       sendLog: [...x.sendLog, { what, channel, recipientKeys: keys, atISO: new Date().toISOString() }],
       ...(what === 'final-agenda' ? { finalAgendaSentAtISO: new Date().toISOString() } : {}),
@@ -387,6 +412,7 @@ function MeetingDetail({
         </Text>
       </Pressable>
       {banner && <Banner tone="ok" onClose={clearBanner}>{banner}</Banner>}
+      {saveError && <Banner tone="error" onClose={clearSaveError}>{saveError}</Banner>}
 
       <Card className="mb-3" accentColor={s.color}>
         <View className="flex-row items-start gap-2">
@@ -408,7 +434,11 @@ function MeetingDetail({
               icon="calendar-outline"
               variant="secondary"
               onPress={async () => {
-                await openLink(googleCalendarUrl(m, projectName));
+                try {
+                  await openLink(googleCalendarUrl(m, projectName));
+                } catch {
+                  return; // no browser / Calendar app — nothing was added
+                }
                 await onChange(() => ({ calendarAddedAtISO: new Date().toISOString() }));
               }}
             />
@@ -520,8 +550,8 @@ function AgendaSection({
   meeting: Meeting;
   projectName: string;
   me: { id: string; name: string };
-  onChange: (patch: (m: Meeting) => Partial<Meeting>) => Promise<void>;
-  logSend: (what: 'invite' | 'agenda-request' | 'final-agenda', channel: SendChannel, keys: string[]) => Promise<void>;
+  onChange: (patch: (m: Meeting) => Partial<Meeting>) => Promise<boolean>;
+  logSend: (what: 'invite' | 'agenda-request' | 'final-agenda', channel: SendChannel, keys: string[]) => Promise<boolean>;
   sentFor: (what: string) => Set<string>;
 }) {
   const [step, setStep] = useState<'collect' | 'final'>(m.finalAgenda.length ? 'final' : 'collect');
@@ -544,13 +574,13 @@ function AgendaSection({
       .split('\n')
       .map((p) => p.replace(/^\s*(\d+[.)]|[-•*])\s*/, '').trim())
       .filter(Boolean);
-    await onChange((x) => ({
+    const ok = await onChange((x) => ({
       agendaSubmissions: [
         ...x.agendaSubmissions.filter((s) => s.from !== key),
         ...(points.length ? [{ from: key, fromName: name, points, receivedAtISO: new Date().toISOString() }] : []),
       ],
     }));
-    setEditingFor(null);
+    if (ok) setEditingFor(null);
   }
 
   function buildFinal() {
@@ -711,7 +741,7 @@ function AgendaSection({
 
 // ---------------- attendance ----------------
 
-function AttendanceSection({ meeting: m, onChange }: { meeting: Meeting; onChange: (patch: (m: Meeting) => Partial<Meeting>) => Promise<void> }) {
+function AttendanceSection({ meeting: m, onChange }: { meeting: Meeting; onChange: (patch: (m: Meeting) => Partial<Meeting>) => Promise<boolean> }) {
   const [marks, setMarks] = useState<Record<string, AttendanceMark>>(m.attendance);
   const [saved, setSaved] = useState(false);
   const present = Object.values(marks).filter((v) => v === 'present').length;
@@ -751,8 +781,7 @@ function AttendanceSection({ meeting: m, onChange }: { meeting: Meeting; onChang
           label={saved ? 'Attendance saved ✓' : 'Save attendance'}
           icon="save-outline"
           onPress={async () => {
-            await onChange(() => ({ attendance: marks, attendanceSavedAtISO: new Date().toISOString() }));
-            setSaved(true);
+            if (await onChange(() => ({ attendance: marks, attendanceSavedAtISO: new Date().toISOString() }))) setSaved(true);
           }}
         />
       </View>

@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, FlatList, Modal, Platform, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { supabase } from '../../lib/supabase';
 import {
   fetchEngineersForFilter,
@@ -291,11 +291,12 @@ export default function LeaveLogScreen() {
   // channel (random suffix per mount, since a fixed topic name across two
   // concurrently-mounted instances of this screen crashes — see that
   // file's own comment on the exact failure mode this avoids).
-  const channelSuffixRef = useRef(Math.random().toString(36).slice(2));
+  // Random per-mount channel suffix, created once (useState initialiser keeps render pure).
+  const [channelSuffix] = useState(() => Math.random().toString(36).slice(2));
   useEffect(() => {
     if (!isAdminOrManager) return;
     const channel = supabase
-      .channel(`leave-log-live-${channelSuffixRef.current}`)
+      .channel(`leave-log-live-${channelSuffix}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'leave_events' }, () => {
         load();
       })
@@ -303,7 +304,7 @@ export default function LeaveLogScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [isAdminOrManager, load]);
+  }, [isAdminOrManager, load, channelSuffix]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -386,3 +387,6 @@ export default function LeaveLogScreen() {
     </View>
   );
 }
+
+// Per-screen crash fallback (keeps the rest of the app usable).
+export { RouteErrorBoundary as ErrorBoundary } from '../../components/RouteErrorBoundary';

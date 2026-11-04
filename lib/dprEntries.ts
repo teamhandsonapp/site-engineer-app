@@ -592,12 +592,16 @@ export async function upsertTodayDprEntry(
 // pressed; DprTaskRow.tsx's own isLockedForEngineer is what actually reads
 // this back to gate further edits for a non-admin.
 export async function markDprSubmitted(taskId: string, todayKey: string): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('dpr_entries')
     .update({ submitted_at: new Date().toISOString() })
     .eq('task_id', taskId)
-    .eq('report_date', todayKey);
+    .eq('report_date', todayKey)
+    .select('id');
   if (error) throw new Error(error.message);
+  // An UPDATE that matches no row is not an error in PostgREST — catch it, so
+  // a day whose draft never saved can't look submitted.
+  if (!data || data.length === 0) throw new Error("this day's DPR wasn't saved yet");
 }
 
 export { EMPTY_ENTRY as EMPTY_DPR_ENTRY };

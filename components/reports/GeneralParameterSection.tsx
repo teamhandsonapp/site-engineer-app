@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useProject } from '../../lib/ProjectContext';
 import { EmptyState } from '../ui/EmptyState';
 import { ReportSection } from './ReportSection';

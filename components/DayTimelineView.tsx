@@ -1,6 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { DayTrailMap, type DayTrailMapHandle } from './DayTrailMap';
 import { Card } from './ui/Card';
 import { gapLabel } from '../lib/trackingGaps';

@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { CONTACT_CATEGORIES, CONTACT_CATEGORY_LABEL, type ContactCategory } from '../../lib/contacts';
 import { fetchRecipients } from '../../lib/mom/share';
 import type { Recipient } from '../../lib/mom/types';

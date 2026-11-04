@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Redirect, Stack } from 'expo-router';
 import { roleLabel, useAuth, type UserRole } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
@@ -719,3 +719,6 @@ export default function SiteEngineerReportScreen() {
     </View>
   );
 }
+
+// Per-screen crash fallback (keeps the rest of the app usable).
+export { RouteErrorBoundary as ErrorBoundary } from '../../components/RouteErrorBoundary';

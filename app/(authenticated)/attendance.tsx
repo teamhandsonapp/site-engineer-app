@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   AttendanceSessionError,
   fetchTodaysAttendance,
@@ -190,9 +190,11 @@ export default function AttendanceScreen() {
   // time passes while this screen sits open; 1 minute is plenty (the
   // button only ever needs to flip once, at that one boundary, not track
   // time precisely the way LiveClock's own 1s ticker does).
-  const [, setMinuteTick] = useState(0);
+  // Holds "now" in state (updated each minute) so render stays pure — no
+  // Date.now() call during render.
+  const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    const id = setInterval(() => setMinuteTick((n) => n + 1), 60_000);
+    const id = setInterval(() => setNowMs(Date.now()), 60_000);
     return () => clearInterval(id);
   }, []);
 
@@ -221,7 +223,7 @@ export default function AttendanceScreen() {
   // now — this UI deliberately doesn't offer an early-checkout escape hatch.
   const scheduledEndMinutes = lastRecord?.scheduledEndMinutes ?? WORK_HOURS_END_MINUTES;
   const scheduledEndMs = istStartOfToday().getTime() + scheduledEndMinutes * 60_000;
-  const canCheckOutNow = !isCheckedIn || Date.now() >= scheduledEndMs;
+  const canCheckOutNow = !isCheckedIn || nowMs >= scheduledEndMs;
 
   // Confirmed live: a check-in was recorded with no project selected at
   // all, from a different city than the actual site — geofencing never
@@ -407,3 +409,6 @@ export default function AttendanceScreen() {
     </View>
   );
 }
+
+// Per-screen crash fallback (keeps the rest of the app usable).
+export { RouteErrorBoundary as ErrorBoundary } from '../../components/RouteErrorBoundary';

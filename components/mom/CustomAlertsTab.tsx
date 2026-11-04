@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 import { fetchDepartments, type Department } from '../../lib/departments';
 import { sendCriticalAlertMessage, type ProjectEngineer } from '../../lib/criticalAlertMessages';
@@ -119,13 +119,14 @@ function DepartmentAlert({ projectId, tasks, update, me }: { projectId: string; 
     }
     const ok = targets.length - failed;
     if (ok > 0) {
+      // History is a log only — a failed write mustn't hide that the alert went out.
       await addHistory(update, {
         projectId,
         kind: 'alert',
         title: `${dept.name}: ${message.trim().slice(0, 60)}`,
         channel: 'notification',
         recipientNames: targets.filter((_, i) => results[i].status === 'fulfilled').map((e) => e.fullName),
-      });
+      }).catch(() => {});
       setMessage('');
     }
     setResult(
@@ -279,7 +280,7 @@ function TaskListSender({ projectId, projectName, tasks, update }: { projectId: 
             subject={`${label} — ${projectName}`}
             message={taskListText(tasks, projectName, include)}
             onSent={(channel, keys) =>
-              addHistory(update, { projectId, kind: 'task-list', title: label, channel, recipientNames: recipients.filter((r) => keys.includes(r.key)).map((r) => r.name) })
+              addHistory(update, { projectId, kind: 'task-list', title: label, channel, recipientNames: recipients.filter((r) => keys.includes(r.key)).map((r) => r.name) }).catch(() => {})
             }
           />
         ) : (

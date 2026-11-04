@@ -1,6 +1,6 @@
 import { ScrollView, Text, View } from 'react-native';
 import { Stack } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 import { PulsingDot } from '../ui/PulsingDot';
 import { DEMO_ENGINEERS, type DemoActivityEvent } from '../../lib/demoAttendance';

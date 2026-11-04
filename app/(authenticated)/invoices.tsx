@@ -10,7 +10,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../../lib/AuthContext';
 import { fetchAllUsers, type ManagedUser } from '../../lib/accessRoles';
 import { fetchStaffProjects, type ProjectOption } from '../../lib/projects';
@@ -446,3 +446,6 @@ export default function InvoicesScreen() {
     </View>
   );
 }
+
+// Per-screen crash fallback (keeps the rest of the app usable).
+export { RouteErrorBoundary as ErrorBoundary } from '../../components/RouteErrorBoundary';

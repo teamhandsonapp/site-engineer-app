@@ -1,5 +1,5 @@
 import { Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
 // A resolved-alerts list hitting zero is good news, not an absence of
 // results — framed and colored that way (a calm green check, not the

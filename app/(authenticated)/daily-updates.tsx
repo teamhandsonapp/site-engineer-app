@@ -27,6 +27,7 @@ import {
 import { fetchApprovedGrantsForToday, requestDprEditAccess } from '../../lib/dprEditRequests';
 import { CATEGORY_LABEL } from '../../lib/taskDetail/constants';
 import type { DependencyCategory } from '../../lib/taskDetail/constants';
+import { fetchWorksForProject, type WorkOption } from '../../lib/flowchart/data';
 
 // Outside/above the status+department drill-down — Today (the full DPR
 // editing form), Upcoming (tomorrow, read-only preview), and Week (the
@@ -152,6 +153,20 @@ export default function DailyUpdatesLandingScreen() {
   // already filled in, not a separate admin-only copy.
   const isAdminUser = state.status === 'signed-in' && state.profile.role === 'admin';
   const { selectedProjectId } = useProject();
+
+  // The project's departments, fetched once for the whole list and passed to
+  // each DprTaskRow (it used to be one identical query per row).
+  const [projectWorks, setProjectWorks] = useState<WorkOption[]>([]);
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    let cancelled = false;
+    fetchWorksForProject(selectedProjectId)
+      .then((w) => !cancelled && setProjectWorks(w))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProjectId]);
 
   const todayKey = todayDateKey();
   const { weekStartKey, weekEndKey, label: weekLabel } = weekRangeAndLabel(todayKey);
@@ -411,6 +426,7 @@ export default function DailyUpdatesLandingScreen() {
                           key={task.id}
                           task={task}
                           projectId={selectedProjectId}
+                          works={projectWorks}
                           dependencies={(entries[task.id] ?? EMPTY_DPR_ENTRY).dependencyCategories}
                           dependencyOtherText={(entries[task.id] ?? EMPTY_DPR_ENTRY).dependencyOtherText}
                           comment={(entries[task.id] ?? EMPTY_DPR_ENTRY).comment}
@@ -457,3 +473,6 @@ export default function DailyUpdatesLandingScreen() {
     </View>
   );
 }
+
+// Per-screen crash fallback (keeps the rest of the app usable).
+export { RouteErrorBoundary as ErrorBoundary } from '../../components/RouteErrorBoundary';

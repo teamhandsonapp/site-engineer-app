@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { groupByDepartment, type RangeTaskRow } from '../../lib/reports/rangeTaskReport';
 import { computeRowParamCheck } from '../../lib/debug/rangeTaskReportParamCheck';
 import { RangeTaskDetailRows } from './RangeTaskDetailRows';

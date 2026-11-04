@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { appRoleFor, useAuth } from './AuthContext';
-import { fetchStaffProjects, type ProjectOption } from './projects';
+import { fetchMyAssignedProjectIds, fetchStaffProjects, type ProjectOption } from './projects';
 import { getPersistedSelectedProjectId, persistSelectedProjectId } from './locationTracking/currentFieldSession';
 
 // The single shared "which project am I looking at" source for the whole
@@ -70,29 +70,27 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
       // this account can actually see (list membership) — a stale id from
       // a project this account lost access to since should fall through to
       // Home's own picker instead of silently selecting something invalid.
-      const persisted = await getPersistedSelectedProjectId();
-      if (persisted && list.some((p) => p.id === persisted)) {
-        setSelectedProjectIdState((current) => current ?? persisted);
-      } else if (list.some((p) => p.name === 'ROAST @ Kokapet')) {
-        // TEMPORARY — by explicit request, while actively testing against
-        // this one project: always default to it instead of requiring a
-        // manual re-pick after every refresh. Remove this branch (revert to
-        // falling straight through to the list.length === 1 check below)
-        // once that testing is done.
-        setSelectedProjectIdState((current) => current ?? list.find((p) => p.name === 'ROAST @ Kokapet')!.id);
-      } else if (list.length === 1) {
-        // Confirmed live: a project-scoped screen (Gantt) reached directly
-        // via the sidebar — not via Home's own project card, which DOES
-        // call setSelectedProjectId first — showed a dead-end "no project
-        // selected" state even though there's only one project in the
-        // entire system to possibly mean. Nothing meaningful to "pick"
-        // when there's exactly one option, so auto-select it rather than
-        // requiring a visible choice step first. This naturally stops
-        // firing the moment a second project exists (list.length > 1 means
-        // a real choice actually exists then) — not a hardcoded
-        // single-project assumption, just the correct behavior for when
-        // there's nothing to choose between yet.
-        setSelectedProjectIdState((current) => current ?? list[0].id);
+      const [persisted, assignedIds] = await Promise.all([
+        getPersistedSelectedProjectId(),
+        fetchMyAssignedProjectIds(profile.id),
+      ]);
+      // Default project, in order:
+      //  1. the project this device last had selected (if still visible),
+      //  2. the first project this user is assigned to,
+      //  3. the only project, when there's exactly one,
+      //  4. otherwise none — every project-scoped screen then shows its own
+      //     "Select a Project" picker instead of guessing.
+      // (Replaces a temporary hard-coded "ROAST @ Kokapet" default.)
+      const visible = new Set(list.map((p) => p.id));
+      const firstAssigned = assignedIds.find((id) => visible.has(id)) ?? null;
+      const fallback =
+        (persisted && visible.has(persisted) ? persisted : null) ??
+        firstAssigned ??
+        (list.length === 1 ? list[0].id : null);
+      if (fallback) {
+        // Functional update: never overwrite a project the user picked while
+        // this was loading.
+        setSelectedProjectIdState((current) => current ?? fallback);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

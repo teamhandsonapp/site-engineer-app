@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../../components/ui/Card';
 import { FilePreview, type DrawingBox, type FilePreviewSpec } from '../../components/files/FilePreview';
 import { useProject } from '../../lib/ProjectContext';
@@ -758,3 +758,6 @@ export default function FilesScreen() {
     </ScrollView>
   );
 }
+
+// Per-screen crash fallback (keeps the rest of the app usable).
+export { RouteErrorBoundary as ErrorBoundary } from '../../components/RouteErrorBoundary';

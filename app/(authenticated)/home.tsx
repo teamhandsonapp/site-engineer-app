@@ -28,3 +28,6 @@ export default function HomeScreen() {
 
   return appRoleFor(state.profile.role) === 'client' ? <ClientHome /> : <AppHome />;
 }
+
+// Per-screen crash fallback (keeps the rest of the app usable).
+export { RouteErrorBoundary as ErrorBoundary } from '../../components/RouteErrorBoundary';

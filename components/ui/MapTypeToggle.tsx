@@ -1,5 +1,5 @@
 import { Pressable } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
 // Shared floating control for every react-native-maps view in this app
 // (SiteLocationMapPicker, DayTrailMap) — one toggle component so satellite

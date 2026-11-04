@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { fetchDrawingRevisions, uploadDrawingRevision, type DrawingRevisionRow } from '../../lib/taskDetail/data';
 import { MAX_DRAWING_REVISIONS } from '../../lib/taskDetail/constants';
 

@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
-import { fetchWorksForProject, type WorkOption } from '../../lib/flowchart/data';
+import type { WorkOption } from '../../lib/flowchart/data';
 import { formatDateTimeLabel } from '../../lib/formatTime';
 import {
   DPR_COMMENT_LABEL,
@@ -37,7 +37,6 @@ const STATUS_DISPLAY_LABEL: Record<string, string> = {
 // worked on is ever on screen from here.
 export function DprTaskRow({
   task,
-  projectId,
   dependencies,
   dependencyOtherText,
   comment,
@@ -51,7 +50,11 @@ export function DprTaskRow({
   dprSubmittedAtISO,
   hasApprovedEditGrant,
   onRequestEditAccess,
+  works,
 }: {
+  // The project's departments, fetched ONCE by the parent list (it used to be
+  // one identical query per row).
+  works: WorkOption[];
   task: DprTask;
   projectId: string;
   dependencies: DprDependencyCategory[];
@@ -95,12 +98,6 @@ export function DprTaskRow({
     }
   }
 
-  // Departments, just to resolve each subtask's own department id into a
-  // display name for this card's preview — fetched once per row on mount.
-  const [works, setWorks] = useState<WorkOption[]>([]);
-  useEffect(() => {
-    fetchWorksForProject(projectId).then(setWorks).catch(() => {});
-  }, [projectId]);
   function subtaskWorkName(workId: string | null): string | null {
     return works.find((w) => w.id === workId)?.name ?? null;
   }

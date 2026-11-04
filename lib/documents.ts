@@ -2,6 +2,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import * as Crypto from 'expo-crypto';
 import { supabase } from './supabase';
+import { devWarn } from './devLog';
 
 // Admin uploads a drawing/floor-plan file (revision label + date); any
 // staff role can view it and assign it to one or more tasks
@@ -106,10 +107,15 @@ export async function uploadDocument(
   if (error) throw new Error(error.message);
 }
 
+// Row first, file second: if the row delete fails (RLS, network) nothing is
+// lost and the document still opens. If only the file removal fails, the row
+// is already gone, so the user never sees a link to a missing file — at worst
+// an orphaned file stays in storage.
 export async function deleteDocument(documentId: string, storagePath: string): Promise<void> {
-  await supabase.storage.from(BUCKET).remove([storagePath]);
   const { error } = await supabase.from('documents').delete().eq('id', documentId);
   if (error) throw new Error(error.message);
+  const { error: storageError } = await supabase.storage.from(BUCKET).remove([storagePath]);
+  if (storageError) devWarn('[documents] row deleted but file removal failed:', storageError.message);
 }
 
 // ─── Assign to task(s) ──────────────────────────────────────────────────

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { appRoleFor, useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
@@ -152,11 +152,12 @@ export default function TaskListScreen() {
   // to just this project — the refetch itself is what's project-scoped.
   // Random channel-name suffix (not a fixed topic) — same anti-collision
   // reasoning as critical-alerts.tsx/leave-log.tsx's identical pattern.
-  const channelSuffixRef = useRef(Math.random().toString(36).slice(2));
+  // Random per-mount channel suffix, created once (useState initialiser keeps render pure).
+  const [channelSuffix] = useState(() => Math.random().toString(36).slice(2));
   useEffect(() => {
     if (!selectedProjectId || !isAdminOrManager) return;
     const channel = supabase
-      .channel(`task-list-pending-${channelSuffixRef.current}`)
+      .channel(`task-list-pending-${channelSuffix}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'tasks' }, () => {
         loadPending(selectedProjectId);
       })
@@ -164,7 +165,7 @@ export default function TaskListScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedProjectId, isAdminOrManager, loadPending]);
+  }, [selectedProjectId, isAdminOrManager, loadPending, channelSuffix]);
 
   function retry() {
     if (!selectedProjectId) return;
@@ -299,3 +300,6 @@ export default function TaskListScreen() {
     </View>
   );
 }
+
+// Per-screen crash fallback (keeps the rest of the app usable).
+export { RouteErrorBoundary as ErrorBoundary } from '../../components/RouteErrorBoundary';

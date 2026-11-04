@@ -1,5 +1,5 @@
 import { Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Redirect, Stack, router } from 'expo-router';
 import { useAuth } from '../lib/AuthContext';
 import { useProject } from '../lib/ProjectContext';
@@ -130,3 +130,6 @@ export default function ReportsHubScreen() {
     </View>
   );
 }
+
+// Per-screen crash fallback (keeps the rest of the app usable).
+export { RouteErrorBoundary as ErrorBoundary } from '../components/RouteErrorBoundary';

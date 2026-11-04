@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, Text, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
 // The name prompt at the end of FlowchartCanvas's milestoneMode (after
 // picking tasks individually or by From → To range) — suggests "Milestone N" but lets

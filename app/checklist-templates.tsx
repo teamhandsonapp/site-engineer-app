@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { router, Stack, useFocusEffect } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { appRoleFor, useAuth } from '../lib/AuthContext';
 import { countTasksForType } from '../lib/taskDetail/globalChecklist';
 import { Card } from '../components/ui/Card';
@@ -67,3 +67,6 @@ export default function ChecklistTemplatesScreen() {
     </View>
   );
 }
+
+// Per-screen crash fallback (keeps the rest of the app usable).
+export { RouteErrorBoundary as ErrorBoundary } from '../components/RouteErrorBoundary';

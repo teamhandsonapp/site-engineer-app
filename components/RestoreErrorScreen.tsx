@@ -1,5 +1,5 @@
 import { Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
 // Shown when AuthContext's restore() genuinely fails (dead network, an
 // unreachable Supabase project, or a hung request past its timeout) —

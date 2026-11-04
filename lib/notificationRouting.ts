@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import Constants, { AppOwnership } from 'expo-constants';
 import { router } from 'expo-router';
@@ -71,22 +71,47 @@ function navigateToNotificationTarget(data: Record<string, unknown> | undefined)
 // (addNotificationResponseReceivedListener) AND the case where the app was
 // launched fresh by tapping a notification from a killed state
 // (getLastNotificationResponseAsync, checked once on mount).
-export function useNotificationTapRouting() {
+// Taps are only acted on once the app can really navigate: the root
+// navigator is mounted AND the user is signed in. Before that (a tap that
+// cold-starts the app, or a tap while logged out), the tap is held and
+// applied as soon as both are true — previously it was pushed before the
+// navigator existed and silently dropped.
+export function useNotificationTapRouting(ready: boolean) {
+  const pending = useRef<Record<string, unknown> | null>(null);
+  const handledIds = useRef(new Set<string>());
+  const readyRef = useRef(ready);
+
   useEffect(() => {
     if (!Notifications) return;
 
+    function handle(response: import('expo-notifications').NotificationResponse) {
+      const id = response.notification.request.identifier;
+      if (handledIds.current.has(id)) return;
+      handledIds.current.add(id);
+      const data = response.notification.request.content.data;
+      if (readyRef.current) navigateToNotificationTarget(data);
+      else pending.current = data ?? {};
+    }
+
     Notifications.getLastNotificationResponseAsync()
       .then((response) => {
-        if (response) {
-          navigateToNotificationTarget(response.notification.request.content.data);
-        }
+        if (response) handle(response);
       })
       .catch((err) => devWarn('[notifications] getLastNotificationResponseAsync failed:', err));
 
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      navigateToNotificationTarget(response.notification.request.content.data);
-    });
-
+    const subscription = Notifications.addNotificationResponseReceivedListener(handle);
     return () => subscription.remove();
   }, []);
+
+  useEffect(() => {
+    readyRef.current = ready;
+    if (!ready || !pending.current) return;
+    const data = pending.current;
+    pending.current = null;
+    try {
+      navigateToNotificationTarget(data);
+    } catch (err) {
+      devWarn('[notifications] navigation after tap failed:', err);
+    }
+  }, [ready]);
 }

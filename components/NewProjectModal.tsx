@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { createProject, SUGGESTED_DEPARTMENTS, type NewProjectFields } from '../lib/projects';
 
 const EMPTY_FIELDS: NewProjectFields = { name: '', address: null, floorCount: null, roomCount: null, departments: [] };

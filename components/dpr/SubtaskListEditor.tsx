@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { SubtaskDepartmentPicker } from './SubtaskDepartmentPicker';
 import { DateField } from '../ui/DateField';
 import { createSubtask, deleteSubtask, updateSubtask, type DprSubtaskItem } from '../../lib/dprEntries';
@@ -54,6 +54,10 @@ export function SubtaskListEditor({
   const [newPercentText, setNewPercentText] = useState('');
   const [addSaving, setAddSaving] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  // Failed edit/delete on an existing subtask — shown under the list (the
+  // change is reverted so the screen matches what's really saved).
+  const [rowError, setRowError] = useState<string | null>(null);
+  const failMsg = (what: string, err: unknown) => `Couldn't ${what} — ${err instanceof Error ? err.message : 'check your connection'}. Try again.`;
 
   async function handleAdd() {
     const trimmed = newText.trim();
@@ -83,26 +87,44 @@ export function SubtaskListEditor({
   function handleTextBlur(item: DprSubtaskItem) {
     const current = subtasks.find((s) => s.id === item.id);
     if (!current) return;
-    updateSubtask(item.id, { text: current.text }).catch(() => {});
+    setRowError(null);
+    updateSubtask(item.id, { text: current.text }).catch((err) => setRowError(failMsg('save the subtask text', err)));
   }
 
   function handleWorkChange(item: DprSubtaskItem, workId: string | null) {
+    const before = subtasks;
     onChange(subtasks.map((s) => (s.id === item.id ? { ...s, workId } : s)));
-    updateSubtask(item.id, { workId }).catch(() => {});
+    setRowError(null);
+    updateSubtask(item.id, { workId }).catch((err) => {
+      onChange(before);
+      setRowError(failMsg('change the department', err));
+    });
   }
 
+  // Updates the box only — the % is saved once, on blur, so fast typing can't
+  // send several writes that land out of order. Non-numbers are ignored.
   function handlePercentChange(item: DprSubtaskItem, text: string) {
     const trimmed = text.trim();
+    if (trimmed !== '' && !Number.isFinite(Number(trimmed))) return;
     const percentComplete = trimmed === '' ? null : Math.max(0, Math.min(100, Math.round(Number(trimmed))));
     onChange(subtasks.map((s) => (s.id === item.id ? { ...s, percentComplete } : s)));
-    if (trimmed === '' || !Number.isNaN(Number(trimmed))) {
-      updateSubtask(item.id, { percentComplete }).catch(() => {});
-    }
+  }
+
+  function handlePercentBlur(item: DprSubtaskItem) {
+    const current = subtasks.find((s) => s.id === item.id);
+    if (!current) return;
+    setRowError(null);
+    updateSubtask(item.id, { percentComplete: current.percentComplete }).catch((err) => setRowError(failMsg('save the %', err)));
   }
 
   function handleDelete(item: DprSubtaskItem) {
+    const before = subtasks;
     onChange(subtasks.filter((s) => s.id !== item.id));
-    deleteSubtask(item.id).catch(() => {});
+    setRowError(null);
+    deleteSubtask(item.id).catch((err) => {
+      onChange(before);
+      setRowError(failMsg('delete the subtask', err));
+    });
   }
 
   // Text on its own row, department + % on the row below — by explicit
@@ -138,6 +160,7 @@ export function SubtaskListEditor({
                 <TextInput
                   value={item.percentComplete != null ? String(item.percentComplete) : ''}
                   onChangeText={(v) => handlePercentChange(item, v)}
+                  onBlur={() => handlePercentBlur(item)}
                   editable={editable}
                   keyboardType="number-pad"
                   className="border border-neutral-300 rounded-lg px-2.5 py-1.5 text-sm text-neutral-900 text-center"
@@ -163,6 +186,7 @@ export function SubtaskListEditor({
           )}
         </View>
       ))}
+      {rowError && <Text className="text-2xs text-red-600 mb-1.5">{rowError}</Text>}
 
       {!editable ? null : adding ? (
         <View className="mb-1.5 border border-neutral-200 rounded-lg p-2 gap-1.5">

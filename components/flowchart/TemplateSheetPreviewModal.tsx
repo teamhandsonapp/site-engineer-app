@@ -1,5 +1,5 @@
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 import type { TemplateSheetParseResult } from '../../lib/flowchart/templateSheetParser';
 

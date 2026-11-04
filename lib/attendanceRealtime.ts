@@ -1,7 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { supabase } from './supabase';
+import { LOCATION_FEATURES_ENABLED } from './featureFlags';
 
-const REALTIME_TABLES = ['attendance_records', 'location_disabled_alerts', 'restricted_zone_alerts', 'user_profiles'] as const;
+const ALL_REALTIME_TABLES = ['attendance_records', 'location_disabled_alerts', 'restricted_zone_alerts', 'user_profiles'] as const;
+// Location alert tables are irrelevant while location features are off.
+const REALTIME_TABLES = LOCATION_FEATURES_ENABLED
+  ? ALL_REALTIME_TABLES
+  : ALL_REALTIME_TABLES.filter((t) => t !== 'location_disabled_alerts' && t !== 'restricted_zone_alerts');
 
 // Subscribes to live changes across every table the admin Attendance
 // screens' derived state depends on, and calls onChange (debounced 500ms,
@@ -18,7 +23,9 @@ const REALTIME_TABLES = ['attendance_records', 'location_disabled_alerts', 'rest
 // them were before that migration, confirmed live, so a subscription
 // without it would silently receive nothing regardless of how correctly
 // this hook itself is written.
-export function useAttendanceRealtime(onChange: () => void, options: { projectId?: string | null; userId?: string } = {}): void {
+// `enabled: false` (e.g. the screen isn't focused) unsubscribes until it's
+// true again — a hidden drawer screen shouldn't keep refetching.
+export function useAttendanceRealtime(onChange: () => void, options: { projectId?: string | null; userId?: string; enabled?: boolean } = {}): void {
   const onChangeRef = useRef(onChange);
   // Kept current via an effect (not a plain render-time assignment, which
   // the React Compiler's lint rule flags — refs may only be written outside
@@ -27,9 +34,10 @@ export function useAttendanceRealtime(onChange: () => void, options: { projectId
   useEffect(() => {
     onChangeRef.current = onChange;
   });
-  const { projectId, userId } = options;
+  const { projectId, userId, enabled = true } = options;
 
   useEffect(() => {
+    if (!enabled) return;
     let debounceId: ReturnType<typeof setTimeout> | null = null;
     function scheduleRefresh() {
       if (debounceId) clearTimeout(debounceId);
@@ -42,6 +50,10 @@ export function useAttendanceRealtime(onChange: () => void, options: { projectId
     let channel = supabase.channel(channelName);
 
     for (const table of REALTIME_TABLES) {
+      // Team view (no userId): user_profiles can't be filtered to the
+      // project's engineers here, and it only carries live tracking status
+      // (a location feature) — so skip it unless location is on.
+      if (table === 'user_profiles' && !userId && !LOCATION_FEATURES_ENABLED) continue;
       let filter: string | undefined;
       if (userId) {
         // Detail screen — scoped to exactly this engineer.
@@ -64,5 +76,5 @@ export function useAttendanceRealtime(onChange: () => void, options: { projectId
       if (debounceId) clearTimeout(debounceId);
       supabase.removeChannel(channel);
     };
-  }, [projectId, userId]);
+  }, [projectId, userId, enabled]);
 }

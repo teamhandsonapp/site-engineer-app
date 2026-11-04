@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 
 // Placeholder — a consultant discipline (e.g. "HVAC Consultant") is its own
@@ -311,7 +311,7 @@ export function ConsultantTeamsContent() {
               </Pressable>
             </View>
           </View>
-          <Text className="text-2xs text-neutral-400 mb-2">Tap a day to mark Present/Absent — browse ahead through to the project's end date.</Text>
+          <Text className="text-2xs text-neutral-400 mb-2">Tap a day to mark Present/Absent — browse ahead through to the project&apos;s end date.</Text>
           <Card>
             {activeTeam.members.length === 0 ? (
               <Text className="text-xs text-neutral-400 py-2">No team members yet — add one above to see attendance.</Text>

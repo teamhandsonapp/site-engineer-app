@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { appRoleFor, useAuth } from '../../../lib/AuthContext';
 import { useProject } from '../../../lib/ProjectContext';
 import { fetchWorksForProject, type WorkOption } from '../../../lib/flowchart/data';
@@ -435,3 +435,6 @@ export default function ApplyFlowchartTemplateScreen() {
     </View>
   );
 }
+
+// Per-screen crash fallback (keeps the rest of the app usable).
+export { RouteErrorBoundary as ErrorBoundary } from '../../../components/RouteErrorBoundary';

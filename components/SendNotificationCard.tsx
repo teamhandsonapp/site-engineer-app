@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from './ui/Card';
 import { fetchPushAudienceSummary, sendBroadcastPush, type PushAudience } from '../lib/broadcastPush';
 

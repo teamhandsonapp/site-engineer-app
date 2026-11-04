@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useIsFocused } from 'expo-router';
 import { fetchTeamAttendanceSummary, type EngineerAttendanceSummary } from '../../lib/attendanceReview';
 import { useAttendanceRealtime } from '../../lib/attendanceRealtime';
 import { Card } from '../../components/ui/Card';
@@ -163,7 +163,16 @@ export default function EngineerAttendanceScreen() {
   // anywhere on this project (or anywhere at all, if no project is
   // selected) refetches this list so status/hours never sit stale until a
   // manual pull-to-refresh.
-  useAttendanceRealtime(load, { projectId: selectedProjectId });
+  // Only while this screen is visible — the drawer keeps it mounted otherwise.
+  const isFocused = useIsFocused();
+  useAttendanceRealtime(load, { projectId: selectedProjectId, enabled: isFocused });
+  // Catch up once on changes missed while hidden (not on the first focus —
+  // the effect above already loaded).
+  const wasFocused = useRef(isFocused);
+  useEffect(() => {
+    if (isFocused && !wasFocused.current) load();
+    wasFocused.current = isFocused;
+  }, [isFocused, load]);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -219,3 +228,6 @@ export default function EngineerAttendanceScreen() {
     </View>
   );
 }
+
+// Per-screen crash fallback (keeps the rest of the app usable).
+export { RouteErrorBoundary as ErrorBoundary } from '../../components/RouteErrorBoundary';

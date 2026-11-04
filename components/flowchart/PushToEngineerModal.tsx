@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { fetchProjectEngineers, type ProjectEngineer } from '../../lib/criticalAlertMessages';
 
 // The flowchart's multi-select "Push to Site Engineer" — same recipient

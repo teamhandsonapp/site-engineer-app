@@ -43,19 +43,28 @@ const listeners = new Map<string, Set<(d: MomProjectData) => void>>();
 export function useMomData(projectId: string | null) {
   const [data, setData] = useState<MomProjectData | null>(null);
   const latest = useRef<MomProjectData>(EMPTY);
+  // Which project `latest` really holds (null while it's still loading).
+  const loadedFor = useRef<string | null>(null);
+  // Saves run one after another, so two quick changes can't overwrite each other.
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
 
   useEffect(() => {
     if (!projectId) return;
     let cancelled = false;
+    // Until this project's data has loaded, update() reads it itself rather
+    // than building on the previous project's data.
+    loadedFor.current = null;
     setData(null);
     read(projectId).then((d) => {
       if (cancelled) return;
       latest.current = d;
+      loadedFor.current = projectId;
       setData(d);
     });
     const set = listeners.get(projectId) ?? new Set();
     const onChange = (d: MomProjectData) => {
       latest.current = d;
+      loadedFor.current = projectId;
       setData(d);
     };
     set.add(onChange);
@@ -67,12 +76,23 @@ export function useMomData(projectId: string | null) {
   }, [projectId]);
 
   const update = useCallback(
-    async (fn: (d: MomProjectData) => MomProjectData) => {
-      if (!projectId) return;
-      const next = fn(latest.current);
-      latest.current = next;
-      listeners.get(projectId)?.forEach((l) => l(next));
-      await write(projectId, next);
+    (fn: (d: MomProjectData) => MomProjectData): Promise<void> => {
+      if (!projectId) return Promise.resolve();
+      const run = async () => {
+        if (loadedFor.current !== projectId) {
+          latest.current = await read(projectId);
+          loadedFor.current = projectId;
+        }
+        const next = fn(latest.current);
+        // Save first, then show it — so the screen never displays a change
+        // that wasn't actually stored. A failed write throws to the caller.
+        await write(projectId, next);
+        latest.current = next;
+        listeners.get(projectId)?.forEach((l) => l(next));
+      };
+      const result = queue.current.then(run, run);
+      queue.current = result.catch(() => {});
+      return result;
     },
     [projectId]
   );

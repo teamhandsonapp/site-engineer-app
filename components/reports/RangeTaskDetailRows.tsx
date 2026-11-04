@@ -1,5 +1,5 @@
 import { Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import type { ParamCheckResult } from '../../lib/debug/taskReportParamCheck';
 
 // Shared between the real per-task expanded detail (showStatus=false —

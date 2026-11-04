@@ -3,7 +3,7 @@
 
 import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, Modal, Platform, Pressable, Text, TextInput, View, type TextInputProps } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 
 const NativeDateTimePicker = Platform.OS !== 'web' ? require('@react-native-community/datetimepicker').default : null;
 

@@ -6,16 +6,16 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Sentry from '@sentry/react-native';
 import * as SplashScreen from 'expo-splash-screen';
-import { Stack } from 'expo-router';
+import { Stack, useRootNavigationState } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import {
-  useFonts,
-  IBMPlexSans_400Regular,
-  IBMPlexSans_500Medium,
-  IBMPlexSans_600SemiBold,
-  IBMPlexSans_700Bold,
-} from '@expo-google-fonts/ibm-plex-sans';
-import { IBMPlexMono_400Regular } from '@expo-google-fonts/ibm-plex-mono';
+// Each weight imported from its own path: importing the package index
+// bundled all 28 IBM Plex files (~5 MB) even though only these 5 are used.
+import { useFonts } from 'expo-font';
+import { IBMPlexSans_400Regular } from '@expo-google-fonts/ibm-plex-sans/400Regular';
+import { IBMPlexSans_500Medium } from '@expo-google-fonts/ibm-plex-sans/500Medium';
+import { IBMPlexSans_600SemiBold } from '@expo-google-fonts/ibm-plex-sans/600SemiBold';
+import { IBMPlexSans_700Bold } from '@expo-google-fonts/ibm-plex-sans/700Bold';
+import { IBMPlexMono_400Regular } from '@expo-google-fonts/ibm-plex-mono/400Regular';
 import { AuthProvider, useAuth } from '../lib/AuthContext';
 import { ProjectProvider } from '../lib/ProjectContext';
 import { useNavigationLogging } from '../lib/navigationLogging';
@@ -63,13 +63,21 @@ enableFreeze(true);
 // subtree won't actually re-render while suspended — but this isolation
 // stays regardless, since NavigationLogger's own re-render is unrelated to
 // freeze state.
+// Notification taps — inside AuthProvider so it knows when the user is signed
+// in, and waits for the root navigator to be ready before navigating.
+function NotificationTapRouter() {
+  const { state } = useAuth();
+  const navReady = !!useRootNavigationState()?.key;
+  useNotificationTapRouting(navReady && state.status === 'signed-in');
+  return null;
+}
+
 function NavigationLogger() {
   useNavigationLogging();
   return null;
 }
 
 function RootLayout() {
-  useNotificationTapRouting();
 
   // Called unconditionally (Rules of Hooks) — the early `return null` below
   // happens AFTER every hook in this component has run, not before.
@@ -113,6 +121,7 @@ function RootLayout() {
           <AuthProvider>
             <StatusBar style="light" />
             <NavigationLogger />
+            <NotificationTapRouter />
             <AuthGate>
               <ProjectProvider>
                   <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0F1F33' } }}>

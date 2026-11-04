@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { mailtoUrl, openLink, whatsappUrl } from '../../lib/mom/share';
 import type { Recipient, SendChannel } from '../../lib/mom/types';
 import { Banner, Button, Chip, NAVY } from './ui';

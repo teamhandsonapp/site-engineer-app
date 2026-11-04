@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import { preparePhotoForUpload } from '../../lib/preparePhoto';
 import { useAuth } from '../../lib/AuthContext';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -118,12 +119,13 @@ export default function DprChecklistScreen() {
   }
 
   async function handlePickedAsset(asset: ImagePicker.ImagePickerAsset) {
-    if (!asset.base64 || !taskId) return;
+    if (!taskId) return;
     setUploading(true);
     setError(null);
     try {
-      const contentType = asset.mimeType === 'image/png' ? 'image/png' : 'image/jpeg';
-      await uploadSignedChecklistPhoto(taskId, asset.base64, contentType, profile?.id ?? null);
+      // Resized + compressed first (see lib/preparePhoto.ts).
+      const { base64, contentType } = await preparePhotoForUpload(asset);
+      await uploadSignedChecklistPhoto(taskId, base64, contentType, profile?.id ?? null);
       setPhotos(await fetchSignedChecklistPhotos(taskId));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -138,7 +140,7 @@ export default function DprChecklistScreen() {
       Alert.alert('Camera access needed', 'Allow camera access to photograph the signed checklist.');
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], base64: true, quality: 0.7 });
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
     if (!result.canceled && result.assets[0]) await handlePickedAsset(result.assets[0]);
   }
 
@@ -148,7 +150,7 @@ export default function DprChecklistScreen() {
       Alert.alert('Photo access needed', 'Allow photo library access to attach the signed checklist.');
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], base64: true, quality: 0.7 });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
     if (!result.canceled && result.assets[0]) await handlePickedAsset(result.assets[0]);
   }
 
@@ -296,3 +298,6 @@ export default function DprChecklistScreen() {
     </View>
   );
 }
+
+// Per-screen crash fallback (keeps the rest of the app usable).
+export { RouteErrorBoundary as ErrorBoundary } from '../../components/RouteErrorBoundary';

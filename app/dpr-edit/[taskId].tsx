@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Redirect, Stack, router, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import { Ionicons } from '@expo/vector-icons';
+import { preparePhotoForUpload } from '../../lib/preparePhoto';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../../lib/AuthContext';
 import { Card } from '../../components/ui/Card';
 import { DateField } from '../../components/ui/DateField';
@@ -216,6 +217,9 @@ export default function DprEditScreen() {
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [delayDropdownOpen, setDelayDropdownOpen] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  // Save/submit failures — shown as a banner under the buttons, NOT the
+  // full-screen `error` state (which would replace the form and lose typing).
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [dayFieldsSaved, setDayFieldsSaved] = useState(false);
 
@@ -249,19 +253,24 @@ export default function DprEditScreen() {
       ? Math.round((totalPendingPercent / actualPacePerDay) * 10) / 10
       : null;
 
-  async function persistDraft(next: DprEntryFields) {
+  // Returns whether the save really reached the server, so callers never show
+  // "Saved" / mark a day submitted after a failed write.
+  async function persistDraft(next: DprEntryFields): Promise<boolean> {
     setDraft(next);
     const current = entries[index];
-    if (!current || !taskId) return;
+    if (!current || !taskId) return false;
     try {
       await upsertTodayDprEntry(taskId, current.reportDate, next, userId);
       setEntries((prev) => prev.map((e, i) => (i === index ? { ...e, fields: next } : e)));
+      setSaveError(null);
+      return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setSaveError(`Couldn't save — ${err instanceof Error ? err.message : String(err)}. Your changes are still on screen; try again.`);
+      return false;
     }
   }
 
-  async function saveDayFields() {
+  async function saveDayFields(): Promise<boolean> {
     let next = draft;
     // The day's % of the whole task = Quantity of Work % x this day's share
     // (see dayContribution). percent_complete is a smallint column, so it's
@@ -275,9 +284,11 @@ export default function DprEditScreen() {
     const trimmedActual = actualWorkforceText.trim();
     next = { ...next, actualWorkforcePerDay: trimmedActual === '' ? null : Math.max(0, Math.round(Number(trimmedActual))) };
     next = { ...next, architectComment: architectCommentText.trim() || null, clientComment: clientCommentText.trim() || null };
-    await persistDraft(next);
+    const ok = await persistDraft(next);
+    if (!ok) return false;
     setDayFieldsSaved(true);
     setTimeout(() => setDayFieldsSaved(false), 1500);
+    return true;
   }
 
   function toggleDependency(cat: DprDependencyCategory) {
@@ -309,7 +320,13 @@ export default function DprEditScreen() {
 
   async function handleSetActualStart(isoDate: string) {
     if (!taskId) return;
-    await updateTaskActualDate(taskId, 'actual_start_date', isoDate);
+    setStatusError(null);
+    try {
+      await updateTaskActualDate(taskId, 'actual_start_date', isoDate);
+    } catch (err) {
+      setStatusError(`Couldn't save the Actual Start Date — ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
     // Setting Actual Start Date should read as "the work has begun" — by
     // explicit request, this auto-advances status the same way update_task_
     // status's own in_progress transition already does when it captures this
@@ -323,7 +340,7 @@ export default function DprEditScreen() {
         // Best-effort — the date itself is already saved either way.
       }
     }
-    await refreshTaskOnly();
+    await refreshTaskOnly().catch(() => {});
   }
 
   // Quantity of Work — by explicit request, entered per DPR day as a plain
@@ -361,8 +378,7 @@ export default function DprEditScreen() {
 
   async function handleSaveDraft() {
     if (!validateQuantity()) return;
-    await saveDayFields();
-    reloadDelayData();
+    if (await saveDayFields()) reloadDelayData();
   }
 
   async function handleSubmit() {
@@ -382,13 +398,17 @@ export default function DprEditScreen() {
     setValidationError(null);
     if (!validateQuantity()) return;
     setSubmitting(true);
+    setSaveError(null);
     try {
-      await saveDayFields();
+      // Never mark a day submitted unless its fields were really saved first.
+      if (!(await saveDayFields())) return;
       await markDprSubmitted(taskId, current.reportDate);
       const nowIso = new Date().toISOString();
       setEntries((prev) => prev.map((e, i) => (i === index ? { ...e, fields: { ...e.fields, dprSubmittedAtISO: nowIso } } : e)));
       setDraft((d) => ({ ...d, dprSubmittedAtISO: nowIso }));
       reloadDelayData();
+    } catch (err) {
+      setSaveError(`Couldn't submit this DPR — ${err instanceof Error ? err.message : String(err)}. Nothing was marked submitted; try again.`);
     } finally {
       setSubmitting(false);
     }
@@ -408,12 +428,13 @@ export default function DprEditScreen() {
     }
   }
 
-  async function handlePickedPhoto(base64: string, mimeType: string | undefined) {
+  async function handlePickedPhoto(asset: ImagePicker.ImagePickerAsset) {
     if (!taskId) return;
     setUploadingPhoto(true);
     setPhotoError(null);
     try {
-      const contentType = mimeType === 'image/png' ? 'image/png' : 'image/jpeg';
+      // Resized + compressed first (see lib/preparePhoto.ts).
+      const { base64, contentType } = await preparePhotoForUpload(asset);
       await uploadDailyProgressPhoto(taskId, base64, contentType, userId);
       await reloadPhotos();
     } catch (err) {
@@ -429,8 +450,8 @@ export default function DprEditScreen() {
       Alert.alert('Camera access needed', 'Allow camera access to attach a progress photo.');
       return;
     }
-    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], base64: true, quality: 0.7 });
-    if (!result.canceled && result.assets[0]?.base64) await handlePickedPhoto(result.assets[0].base64, result.assets[0].mimeType);
+    const result = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.8 });
+    if (!result.canceled && result.assets[0]) await handlePickedPhoto(result.assets[0]);
   }
 
   async function handleChooseFromLibrary() {
@@ -439,8 +460,8 @@ export default function DprEditScreen() {
       Alert.alert('Photo access needed', 'Allow photo library access to attach a progress photo.');
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], base64: true, quality: 0.7 });
-    if (!result.canceled && result.assets[0]?.base64) await handlePickedPhoto(result.assets[0].base64, result.assets[0].mimeType);
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+    if (!result.canceled && result.assets[0]) await handlePickedPhoto(result.assets[0]);
   }
 
   function handleUploadPhoto() {
@@ -902,6 +923,11 @@ export default function DprEditScreen() {
                   <Text className="text-2xs text-red-600">{validationError}</Text>
                 </View>
               )}
+              {saveError && (
+                <View className="mt-2.5 px-2.5 py-2 rounded-lg bg-red-50 border border-red-200">
+                  <Text className="text-2xs text-red-600">{saveError}</Text>
+                </View>
+              )}
             </>
           )}
         </ScrollView>
@@ -951,3 +977,6 @@ export default function DprEditScreen() {
     </View>
   );
 }
+
+// Per-screen crash fallback (keeps the rest of the app usable).
+export { RouteErrorBoundary as ErrorBoundary } from '../../components/RouteErrorBoundary';

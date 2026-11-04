@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { computeRangeParamCheck, type TaskParamCheck } from '../../lib/debug/rangeTaskReportParamCheck';
 import type { RangeTaskRow } from '../../lib/reports/rangeTaskReport';
 import { RangeTaskDetailRows } from './RangeTaskDetailRows';

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import type { ParamCheckResult } from '../../lib/debug/taskReportParamCheck';
 
 // TEMP DEBUG - REMOVE BEFORE CLIENT DELIVERY. See

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 import { formatDateTimeLabel, formatDateLabel } from '../../lib/formatTime';
 import { DPR_COMMENT_LABEL, DPR_DEPENDENCY_LABEL, type DprDependencyCategory } from '../../lib/dprEntries';

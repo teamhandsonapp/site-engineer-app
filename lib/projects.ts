@@ -15,6 +15,20 @@ export async function fetchStaffProjects(): Promise<ProjectOption[]> {
   return data ?? [];
 }
 
+// The projects this user is assigned to (project_users), earliest assignment
+// first — used to pick a sensible default project when nothing is selected
+// yet. Empty for someone with no assignments (e.g. an admin who manages every
+// project), and on any error (the caller then falls back to the picker).
+export async function fetchMyAssignedProjectIds(userId: string): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('project_users')
+    .select('project_id, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: true });
+  if (error) return [];
+  return (data ?? []).map((r) => r.project_id as string);
+}
+
 // Same 8-color rotation admin-web's ProjectForm/WorkForm offer as preset
 // swatches — mirrors app/actions/projects.ts's createProject on admin-web,
 // but as a direct RLS insert (add-projects-insert-by-admin.sql /

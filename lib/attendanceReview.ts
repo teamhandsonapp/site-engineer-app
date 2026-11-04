@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { fetchUnresolvedAccountLockouts } from './accountLockouts';
+import { LOCATION_FEATURES_ENABLED } from './featureFlags';
 
 // Admin/manager-facing "review the team's attendance" data layer — reads
 // the SAME underlying tables the field role's own lib/attendance.ts writes
@@ -220,7 +221,13 @@ interface RangeOptions {
   projectId?: string | null;
   days?: number;
   now?: Date;
+  // Set by fetchTeamAttendanceSummary, which loads every engineer's rows in
+  // one batched query instead of 2 queries per engineer. Same rows, same
+  // range — so the per-engineer result is identical either way.
+  prefetched?: { rangeStart: Date; attendance: RawAttendanceRow[] };
 }
+
+const ATTENDANCE_COLUMNS = 'type, client_captured_at, latitude, longitude, scheduled_start_minutes, scheduled_end_minutes, device_manufacturer, device_model';
 
 // One engineer's daily breakdown over the trailing N days — the same shape
 // admin-web's per-engineer scorecard detail page shows, just fetched via
@@ -244,25 +251,35 @@ export async function fetchEngineerDailyAttendance(userId: string, options: Rang
   // presentDays > 0 filter is what actually keeps such an account off the
   // team list; this fallback just avoids an unbounded query, not a second
   // filter.
-  let firstRecordQuery = supabase
-    .from('attendance_records')
-    .select('client_captured_at')
-    .eq('user_id', userId)
-    .order('client_captured_at', { ascending: true })
-    .limit(1);
-  if (options.projectId) firstRecordQuery = firstRecordQuery.eq('project_id', options.projectId);
-  const { data: firstRecordRow } = await firstRecordQuery.maybeSingle();
-  const firstAttendanceAt = firstRecordRow?.client_captured_at ? startOfLocalDay(new Date(firstRecordRow.client_captured_at)) : null;
-  const rangeStart = firstAttendanceAt && firstAttendanceAt > requestedStart ? firstAttendanceAt : requestedStart;
-  const rangeStartISO = rangeStart.toISOString();
+  let rangeStart: Date;
+  let attendanceQuery: PromiseLike<{ data: unknown; error: { message: string } | null }>;
+  if (options.prefetched) {
+    rangeStart = options.prefetched.rangeStart;
+    attendanceQuery = Promise.resolve({ data: options.prefetched.attendance, error: null });
+  } else {
+    let firstRecordQuery = supabase
+      .from('attendance_records')
+      .select('client_captured_at')
+      .eq('user_id', userId)
+      .order('client_captured_at', { ascending: true })
+      .limit(1);
+    if (options.projectId) firstRecordQuery = firstRecordQuery.eq('project_id', options.projectId);
+    const { data: firstRecordRow } = await firstRecordQuery.maybeSingle();
+    const firstAttendanceAt = firstRecordRow?.client_captured_at ? startOfLocalDay(new Date(firstRecordRow.client_captured_at)) : null;
+    rangeStart = firstAttendanceAt && firstAttendanceAt > requestedStart ? firstAttendanceAt : requestedStart;
+    const rangeStartISOForQuery = rangeStart.toISOString();
 
-  let attendanceQuery = supabase
-    .from('attendance_records')
-    .select('type, client_captured_at, latitude, longitude, scheduled_start_minutes, scheduled_end_minutes, device_manufacturer, device_model')
-    .eq('user_id', userId)
-    .gte('client_captured_at', rangeStartISO)
-    .order('client_captured_at', { ascending: true });
-  if (options.projectId) attendanceQuery = attendanceQuery.eq('project_id', options.projectId);
+    let q = supabase
+      .from('attendance_records')
+      .select(ATTENDANCE_COLUMNS)
+      .eq('user_id', userId)
+      .gte('client_captured_at', rangeStartISOForQuery)
+      .order('client_captured_at', { ascending: true });
+    if (options.projectId) q = q.eq('project_id', options.projectId);
+    attendanceQuery = q;
+  }
+
+  const rangeStartISO = rangeStart.toISOString();
 
   let geofenceQuery = supabase
     .from('geofence_alerts')
@@ -292,11 +309,14 @@ export async function fetchEngineerDailyAttendance(userId: string, options: Rang
     .lte('disabled_at', now.toISOString())
     .or(`enabled_at.is.null,enabled_at.gte.${rangeStartISO}`);
 
+  // Location alert history is hidden while location features are off — don't
+  // query it at all (3 of the old 5 queries per engineer).
+  const none = Promise.resolve({ data: [], error: null });
   const [attendanceRes, geofenceRes, zoneRes, disabledRes] = await Promise.all([
     attendanceQuery,
-    geofenceQuery,
-    zoneQuery,
-    disabledQuery,
+    LOCATION_FEATURES_ENABLED ? geofenceQuery : none,
+    LOCATION_FEATURES_ENABLED ? zoneQuery : none,
+    LOCATION_FEATURES_ENABLED ? disabledQuery : none,
   ]);
   if (attendanceRes.error) throw new Error(attendanceRes.error.message);
   if (geofenceRes.error) throw new Error(geofenceRes.error.message);
@@ -448,6 +468,62 @@ export interface EngineerAttendanceSummary {
   isLocked: boolean;
 }
 
+// Loads attendance for every engineer at once (paged, since PostgREST caps a
+// response at 1000 rows), instead of 2 queries per engineer. Reproduces
+// fetchEngineerDailyAttendance's own range rule: the window starts at the
+// later of (today - days) and the engineer's first-ever record. That
+// first-ever record only needs its own lookup for an engineer whose earliest
+// in-window row is after the window start (i.e. possibly new) — rare.
+async function prefetchTeamAttendance(
+  userIds: string[],
+  projectId: string | null,
+  days: number,
+  now: Date
+): Promise<Map<string, { rangeStart: Date; attendance: RawAttendanceRow[] }>> {
+  const today = startOfLocalDay(now);
+  const requestedStart = startOfLocalDay(addDays(today, -(days - 1)));
+  const rows: (RawAttendanceRow & { user_id: string })[] = [];
+  const PAGE = 1000;
+  for (let from = 0; ; from += PAGE) {
+    let q = supabase
+      .from('attendance_records')
+      .select(`user_id, ${ATTENDANCE_COLUMNS}`)
+      .in('user_id', userIds)
+      .gte('client_captured_at', requestedStart.toISOString())
+      .order('client_captured_at', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (projectId) q = q.eq('project_id', projectId);
+    const { data, error } = await q;
+    if (error) throw new Error(error.message);
+    rows.push(...((data ?? []) as unknown as (RawAttendanceRow & { user_id: string })[]));
+    if (!data || data.length < PAGE) break;
+  }
+  const byUser = new Map<string, RawAttendanceRow[]>();
+  for (const r of rows) {
+    const list = byUser.get(r.user_id) ?? [];
+    list.push(r);
+    byUser.set(r.user_id, list);
+  }
+  const result = new Map<string, { rangeStart: Date; attendance: RawAttendanceRow[] }>();
+  await Promise.all(
+    userIds.map(async (id) => {
+      const attendance = byUser.get(id) ?? [];
+      let rangeStart = requestedStart;
+      const firstInWindow = attendance[0] ? startOfLocalDay(new Date(attendance[0].client_captured_at)) : null;
+      if (firstInWindow && firstInWindow > requestedStart) {
+        // Started inside the window, unless there's an older record.
+        let older = supabase.from('attendance_records').select('id').eq('user_id', id).lt('client_captured_at', requestedStart.toISOString()).limit(1);
+        if (projectId) older = older.eq('project_id', projectId);
+        const { data } = await older;
+        if (!data || data.length === 0) rangeStart = firstInWindow;
+      }
+      const startMs = rangeStart.getTime();
+      result.set(id, { rangeStart, attendance: attendance.filter((r) => new Date(r.client_captured_at).getTime() >= startMs) });
+    })
+  );
+  return result;
+}
+
 // The team-wide list — scoped to the currently-selected project via
 // project_users (staff-readable, same as every table this reads). Runs
 // fetchEngineerDailyAttendance per engineer, same shared score function,
@@ -474,16 +550,17 @@ export async function fetchTeamAttendanceSummary(projectId: string | null, days 
 
   const [{ data: engineers, error }, unresolvedLockouts] = await Promise.all([
     engineerQuery,
-    fetchUnresolvedAccountLockouts(),
+    LOCATION_FEATURES_ENABLED ? fetchUnresolvedAccountLockouts() : Promise.resolve([]),
   ]);
   if (error) throw new Error(error.message);
   if (!engineers || engineers.length === 0) return [];
   const lockedUserIds = new Set(unresolvedLockouts.map((l) => l.userId));
 
   const now = new Date();
+  const prefetched = await prefetchTeamAttendance(engineers.map((e) => e.id as string), projectId, days, now);
   const summaries = await Promise.all(
     engineers.map(async (e) => {
-      const daily = await fetchEngineerDailyAttendance(e.id, { projectId, days, now });
+      const daily = await fetchEngineerDailyAttendance(e.id, { projectId, days, now, prefetched: prefetched.get(e.id as string) });
       const presentDays = daily.filter((d) => !d.isAbsent).length;
       const absentDays = daily.filter((d) => d.isAbsent).length;
       const lateDays = daily.filter((d) => d.wasLate).length;
