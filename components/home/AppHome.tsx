@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { Modal, Pressable, View } from 'react-native';
 import { router } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { isFieldRole, useAuth } from '../../lib/AuthContext';
@@ -7,10 +7,15 @@ import { useProject } from '../../lib/ProjectContext';
 import { fetchAllProjectStats, type ProjectStat } from '../../lib/projectStats';
 import { timeOfDayGreeting, firstName } from '../../lib/greeting';
 import { useDependencyCompletionsRealtime } from '../../lib/dependencyCompletionsRealtime';
-import { Card } from '../ui/Card';
+import { colors, radius, shadow, space } from '../../lib/theme';
+import { haptic } from '../../lib/haptics';
 import { ProgressRing } from '../ui/ProgressRing';
 import { EmptyState } from '../ui/EmptyState';
-import { QuickLink } from '../ui/QuickLink';
+import { AppText } from '../ui/AppText';
+import { Button } from '../ui/Button';
+import { ListRow, ListSection, SectionHeader } from '../ui/List';
+import { Screen } from '../ui/Screen';
+import { InlineError, SkeletonBlock, SkeletonList } from '../ui/States';
 
 // Placeholder headcount-style strip — one row per team/role category, an
 // icon chip + label on the left, count on the right. Each category gets its
@@ -41,132 +46,248 @@ const TEAM_COUNTS: { label: string; value: number }[] = [
 // that category actually cares about (attendance for Site Engineer, a
 // due-checklist list for Vendor/Contractor/Consultant/Architect, the real
 // Reports hub for Client). See app/team/[category].tsx.
-function CountStrip({ items }: { items: { label: string; value: number }[] }) {
+function OverviewList({ items }: { items: { label: string; value: number }[] }) {
   return (
-    <Card style={{ paddingVertical: 4 }}>
-      {items.map((item, i) => {
+    <ListSection title="Overview">
+      {items.map((item) => {
         const meta = CATEGORY_META[item.label];
         return (
-          <Pressable
+          <ListRow
             key={item.label}
+            title={item.label}
+            icon={meta.icon}
+            iconColor={meta.color}
+            iconBg={`${meta.color}1A`}
+            value={item.value}
             onPress={() => router.push(`/team/${meta.slug}`)}
-            className={`flex-row items-center justify-between py-3 ${i < items.length - 1 ? 'border-b border-neutral-100' : ''}`}
-          >
-            <View className="flex-row items-center gap-3">
-              <View className="w-8 h-8 rounded-lg items-center justify-center" style={{ backgroundColor: `${meta.color}1F` }}>
-                <Ionicons name={meta.icon} size={15} color={meta.color} />
-              </View>
-              <Text className="text-sm font-semibold text-neutral-800">{item.label}</Text>
-            </View>
-            <View className="flex-row items-center gap-1.5">
-              {/* tabular-nums — this is a column of numbers stacked
-                  vertically that should line up, unlike a lone hero figure. */}
-              <Text className="text-md font-extrabold text-neutral-900" style={{ fontVariant: ['tabular-nums'] }}>
-                {item.value}
-              </Text>
-              <Ionicons name="chevron-forward" size={15} color="#D4D4D4" />
-            </View>
-          </Pressable>
+            accessibilityLabel={`${item.label}: ${item.value}`}
+          />
         );
       })}
-    </Card>
+    </ListSection>
   );
 }
 
-// A progress RING (not a thin linear bar) anchors each row — enough visual
-// weight to read as the row's hero element at a glance — plus a real task
-// count and, when relevant, the same overdue/pending semantics already
-// established for alert cards elsewhere (status.urgent/warn — see
-// tailwind.config.js's own comment on why that vocabulary exists), not new
-// ad-hoc colors invented just for this row.
-function ProjectRow({ project, onPress }: { project: ProjectStat; onPress: () => void }) {
-  const hasFlags = project.overdueTasks > 0 || project.pendingClientResponses > 0;
+// 2x2 quick-action tiles — bigger targets and far less empty space than the
+// old full-width rows.
+function QuickTile({ icon, label, color, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; color: string; onPress: () => void }) {
   return (
-    <Pressable onPress={onPress}>
-      <Card className="mb-2.5 flex-row items-center">
-        <ProgressRing percent={project.progressPct} />
-        <View className="flex-1 ml-3.5 pr-2">
-          <Text className="text-md font-bold text-neutral-900" numberOfLines={1}>{project.projectName}</Text>
-          <Text className="text-xs text-neutral-400 mt-0.5" numberOfLines={1}>
-            {project.completedTasks} of {project.totalTasks} tasks done
-          </Text>
-          {hasFlags && (
-            <View className="flex-row items-center gap-1.5 mt-2">
-              {project.overdueTasks > 0 && (
-                <View className="flex-row items-center gap-1 px-1.5 py-0.5 rounded-full bg-status-urgentBg">
-                  <View className="w-1.5 h-1.5 rounded-full bg-status-urgent" />
-                  <Text className="text-2xs font-bold text-status-urgent">{project.overdueTasks} overdue</Text>
-                </View>
-              )}
-              {project.pendingClientResponses > 0 && (
-                <View className="flex-row items-center gap-1 px-1.5 py-0.5 rounded-full bg-status-warnBg">
-                  <View className="w-1.5 h-1.5 rounded-full bg-status-warn" />
-                  <Text className="text-2xs font-bold text-status-warn">{project.pendingClientResponses} pending</Text>
-                </View>
-              )}
-            </View>
-          )}
-        </View>
-        <Ionicons name="chevron-forward" size={18} color="#D4D4D4" />
-      </Card>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={() => {
+        haptic.tap();
+        onPress();
+      }}
+      style={({ pressed }) => [
+        {
+          flexBasis: '47%',
+          flexGrow: 1,
+          minHeight: 92,
+          backgroundColor: pressed ? colors.surfaceMuted : colors.surface,
+          borderRadius: radius.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          padding: space.md,
+          justifyContent: 'space-between',
+        },
+        shadow.card,
+      ]}
+    >
+      <View style={{ width: 38, height: 38, borderRadius: radius.sm, backgroundColor: `${color}1A`, alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name={icon} size={20} color={color} />
+      </View>
+      <AppText variant="bodyStrong" numberOfLines={1}>
+        {label}
+      </AppText>
     </Pressable>
   );
 }
 
-// Collapsed by default — a folder, not a permanently-open list, per
-// explicit request. Same "Pressable header with count + chevron, tap to
-// reveal" convention as NotificationsScreen's own CategorySection, rather
-// than inventing a new expand/collapse pattern for this one spot.
-function ProjectsFolder({
-  projects,
-  onOpenProject,
-}: {
-  projects: ProjectStat[];
-  onOpenProject: (projectId: string) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
+// A progress RING anchors each row, plus a real task count and, when
+// relevant, overdue / pending pills (same status colours as alert cards).
+function ProjectRow({ project, onPress }: { project: ProjectStat; onPress: () => void }) {
+  const hasFlags = project.overdueTasks > 0 || project.pendingClientResponses > 0;
   return (
-    <View>
-      <Card style={{ paddingVertical: 4 }}>
-        <Pressable onPress={() => setExpanded((v) => !v)} className="flex-row items-center justify-between py-3">
-          <View className="flex-row items-center gap-3">
-            <View className="w-8 h-8 rounded-lg items-center justify-center bg-neutral-100">
-              <Ionicons name="folder-outline" size={16} color="#57534E" />
-            </View>
-            <Text className="text-sm font-semibold text-neutral-800">Your Projects</Text>
+    <ListRow
+      title={project.projectName}
+      subtitle={`${project.completedTasks} of ${project.totalTasks} tasks done`}
+      leading={<ProgressRing percent={project.progressPct} />}
+      onPress={onPress}
+      trailing={
+        hasFlags ? (
+          <View style={{ alignItems: 'flex-end', gap: 4 }}>
+            {project.overdueTasks > 0 && <Pill tone="danger" label={`${project.overdueTasks} overdue`} />}
+            {project.pendingClientResponses > 0 && <Pill tone="warning" label={`${project.pendingClientResponses} pending`} />}
           </View>
-          <View className="flex-row items-center gap-2">
-            <Text className="text-xs font-bold text-neutral-400" style={{ fontVariant: ['tabular-nums'] }}>{projects.length}</Text>
-            <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={15} color="#D4D4D4" />
-          </View>
-        </Pressable>
-      </Card>
-      {expanded && (
-        <View className="mt-2.5">
-          {projects.length === 0 ? (
-            <EmptyState icon="briefcase-outline" iconColor="#9CA3AF" title="No projects yet" subtitle="Nothing to show here yet." />
-          ) : (
-            projects.map((p) => <ProjectRow key={p.projectId} project={p} onPress={() => onOpenProject(p.projectId)} />)
-          )}
-        </View>
-      )}
+        ) : undefined
+      }
+    />
+  );
+}
+
+function Pill({ tone, label }: { tone: 'danger' | 'warning'; label: string }) {
+  const fg = tone === 'danger' ? colors.danger : colors.warning;
+  const bg = tone === 'danger' ? colors.dangerSoft : colors.warningSoft;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: radius.pill, backgroundColor: bg }}>
+      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: fg }} />
+      <AppText variant="caption" style={{ color: fg, fontFamily: 'IBMPlexSans_600SemiBold' }}>
+        {label}
+      </AppText>
     </View>
   );
 }
 
-// The App Home landing screen for staff — global, cross-project stats plus
-// a project picker, replacing the previous project-agnostic "pending
-// client responses" feed (that exact feed still exists, just one tap away
-// now, at /critical-alerts — this screen summarizes it as a stat card
-// instead of duplicating the full list inline).
+// Collapsed by default — a folder, not a permanently-open list, per
+// explicit request.
+function ProjectsFolder({ projects, onOpenProject }: { projects: ProjectStat[]; onOpenProject: (projectId: string) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <ListSection title="Projects">
+      <ListRow
+        title="Your Projects"
+        icon="folder-outline"
+        iconColor={colors.textSecondary}
+        iconBg={colors.surfaceMuted}
+        chevron={false}
+        accessibilityLabel={`Your projects, ${projects.length}. ${expanded ? 'Collapse' : 'Expand'}`}
+        trailing={
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+            <AppText variant="bodyStrong" tone="muted" style={{ fontVariant: ['tabular-nums'] }}>
+              {projects.length}
+            </AppText>
+            <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textMuted} />
+          </View>
+        }
+        onPress={() => setExpanded((v) => !v)}
+      />
+      {expanded &&
+        (projects.length === 0 ? (
+          <EmptyState icon="briefcase-outline" iconColor={colors.textMuted} title="No projects yet" subtitle="Projects you're added to will show here." />
+        ) : (
+          projects.map((p) => <ProjectRow key={p.projectId} project={p} onPress={() => onOpenProject(p.projectId)} />)
+        ))}
+    </ListSection>
+  );
+}
+
+// Current project, shown under the greeting; tap to switch.
+function ProjectChip({ name, onPress }: { name: string | null; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={name ? `Current project ${name}. Change project` : 'Choose a project'}
+      onPress={() => {
+        haptic.tap();
+        onPress();
+      }}
+      style={({ pressed }) => ({
+        alignSelf: 'flex-start',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        minHeight: 36,
+        paddingHorizontal: space.md,
+        borderRadius: radius.pill,
+        backgroundColor: pressed ? colors.navySoft : colors.surface,
+        borderWidth: 1,
+        borderColor: colors.border,
+        maxWidth: '100%',
+      })}
+    >
+      <Ionicons name="business-outline" size={15} color={colors.navy} />
+      <AppText variant="label" tone="brand" numberOfLines={1} style={{ flexShrink: 1 }}>
+        {name ?? 'Choose a project'}
+      </AppText>
+      <Ionicons name="chevron-down" size={14} color={colors.navy} />
+    </Pressable>
+  );
+}
+
+function ProjectPickerSheet({
+  visible,
+  projects,
+  selectedId,
+  onPick,
+  onClose,
+}: {
+  visible: boolean;
+  projects: { id: string; name: string }[];
+  selectedId: string | null;
+  onPick: (id: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={{ flex: 1, backgroundColor: 'rgba(15,31,51,0.35)', justifyContent: 'flex-end' }} onPress={onClose} accessibilityLabel="Close">
+        <Pressable onPress={() => {}} style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: space.lg, paddingBottom: space.xxxl }}>
+          <AppText variant="section" style={{ marginBottom: space.md }}>
+            Switch project
+          </AppText>
+          {projects.map((p) => {
+            const active = p.id === selectedId;
+            return (
+              <Pressable
+                key={p.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                onPress={() => {
+                  haptic.select();
+                  onPick(p.id);
+                }}
+                style={({ pressed }) => ({
+                  minHeight: 52,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: space.md,
+                  paddingHorizontal: space.md,
+                  borderRadius: radius.sm,
+                  backgroundColor: active ? colors.navySoft : pressed ? colors.surfaceMuted : 'transparent',
+                })}
+              >
+                <Ionicons name="business" size={18} color={colors.navy} />
+                <AppText variant="bodyStrong" style={{ flex: 1 }} numberOfLines={1}>
+                  {p.name}
+                </AppText>
+                {active && <Ionicons name="checkmark" size={18} color={colors.navy} />}
+              </Pressable>
+            );
+          })}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function HomeSkeleton() {
+  return (
+    <View style={{ padding: space.lg }}>
+      <SkeletonBlock width="60%" height={24} />
+      <SkeletonBlock width="35%" height={14} style={{ marginTop: space.sm, marginBottom: space.xl }} />
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.md, marginBottom: space.xl }}>
+        {[0, 1, 2, 3].map((i) => (
+          <SkeletonBlock key={i} width="47%" height={92} style={{ flexGrow: 1, borderRadius: radius.md }} />
+        ))}
+      </View>
+      <SkeletonList rows={5} />
+    </View>
+  );
+}
+
+// The App Home landing screen for staff — greeting, quick actions, team
+// overview and the projects folder. Data and navigation are unchanged from
+// before; only the layout was redesigned.
 export function AppHome() {
   const { state } = useAuth();
   const profile = state.status === 'signed-in' ? state.profile : null;
-  const { setSelectedProjectId } = useProject();
+  const { projects: projectOptions, selectedProjectId, setSelectedProjectId } = useProject();
 
   const [projects, setProjects] = useState<ProjectStat[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -182,12 +303,20 @@ export function AppHome() {
     load().finally(() => setLoading(false));
   }, [load]);
 
-  // Same live-refresh convention as the previous StaffHome feed — a status
-  // change anywhere immediately updates the stat cards, not just whichever
-  // screen someone happens to be on.
+  // Same live-refresh convention as before — a status change anywhere
+  // immediately updates the stats.
   useDependencyCompletionsRealtime(load);
 
+  async function onRefresh() {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }
+
   const greeting = `${timeOfDayGreeting()}, ${profile ? firstName(profile.fullName) : ''}`;
+  const today = new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' });
+  const selectedName = projectOptions.find((p) => p.id === selectedProjectId)?.name ?? null;
+  const showDpr = profile != null && (isFieldRole(profile.role) || profile.role === 'admin');
 
   function openProject(projectId: string) {
     setSelectedProjectId(projectId);
@@ -196,53 +325,58 @@ export function AppHome() {
 
   if (loading) {
     return (
-      <View className="flex-1 items-center justify-center bg-neutral-50">
-        <ActivityIndicator color="#0F1F33" />
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <HomeSkeleton />
       </View>
     );
   }
 
   return (
-    <ScrollView className="flex-1 bg-neutral-50" contentContainerClassName="px-4 pt-5 pb-10">
-      <Text className="text-xl font-extrabold text-neutral-900 mb-5">{greeting}</Text>
-
-      {error && (
-        <Card className="mb-3 border-red-200 bg-red-50">
-          <Text className="text-sm text-red-600 mb-2.5">{error}</Text>
-          <Pressable onPress={load} className="self-start px-3.5 py-1.5 rounded-lg bg-white border border-red-200">
-            <Text className="text-xs font-semibold text-red-600">Retry</Text>
-          </Pressable>
-        </Card>
-      )}
-
-      {/* Right here on Home itself, not one tap away behind a project card
-          — the explicit point of this section. Notifications, Gantt Chart,
-          and Flowchart were removed from here by explicit request (still
-          reachable from the sidebar) — everything left already handles an
-          unselected project on its own, so no project-picker prompt is
-          needed here anymore. First section on the page, per explicit
-          reorder request (was last). */}
-      <Text className="text-xs font-bold uppercase tracking-wide text-neutral-400 mb-2.5">Quick Links</Text>
-      <QuickLink icon="warning-outline" label="Critical Alerts" color="#DC2626" onPress={() => router.push('/critical-alerts')} />
-      <QuickLink icon="checkbox-outline" label="Checklist" color="#0284C7" onPress={() => router.push('/checklist-templates')} />
-      {/* Home isn't project-scoped, so this lands on Files' project picker. */}
-      <QuickLink icon="folder-open-outline" label="Files" color="#2563EB" onPress={() => router.push({ pathname: '/files', params: { projectId: '' } })} />
-      {/* Same access rule as daily-updates.tsx's own gate (field role or
-          admin specifically, not manager) — no point linking someone
-          straight to its "Not available for this account". */}
-      {(profile != null && (isFieldRole(profile.role) || profile.role === 'admin')) && (
-        <QuickLink icon="document-text-outline" label="DPR" color="#0F1F33" onPress={() => router.push('/daily-updates')} />
-      )}
-
-      <Text className="text-xs font-bold uppercase tracking-wide text-neutral-400 mb-2.5 mt-6">Overview</Text>
-      <View className="mb-6">
-        <CountStrip items={TEAM_COUNTS} />
+    <Screen refreshing={refreshing} onRefresh={onRefresh}>
+      <View style={{ marginBottom: space.xl, gap: space.sm }}>
+        <View>
+          <AppText variant="title" accessibilityRole="header">
+            {greeting}
+          </AppText>
+          <AppText variant="caption" style={{ marginTop: 2 }}>
+            {today}
+          </AppText>
+        </View>
+        {projectOptions.length > 0 && <ProjectChip name={selectedName} onPress={() => setPickerOpen(true)} />}
       </View>
 
-      {/* Collapsed folder, not a permanently-open list — per explicit
-          request. Last section on the page (was first). */}
-      <Text className="text-xs font-bold uppercase tracking-wide text-neutral-400 mb-2.5">Projects</Text>
+      {error && (
+        <View style={{ marginBottom: space.lg, gap: space.sm }}>
+          <InlineError message={`Couldn't load project stats — ${error}`} />
+          <Button label="Try again" icon="refresh" variant="secondary" size="sm" onPress={load} style={{ alignSelf: 'flex-start' }} />
+        </View>
+      )}
+
+      {/* Quick links — first section on the page, per explicit request. */}
+      <SectionHeader title="Quick links" />
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.md, marginBottom: space.xl }}>
+        <QuickTile icon="warning-outline" label="Critical Alerts" color={colors.danger} onPress={() => router.push('/critical-alerts')} />
+        <QuickTile icon="checkbox-outline" label="Checklist" color="#0284C7" onPress={() => router.push('/checklist-templates')} />
+        {/* Home isn't project-scoped, so this lands on Files' project picker. */}
+        <QuickTile icon="folder-open-outline" label="Files" color="#2563EB" onPress={() => router.push({ pathname: '/files', params: { projectId: '' } })} />
+        {/* Same access rule as daily-updates.tsx (field role or admin). */}
+        {showDpr && <QuickTile icon="document-text-outline" label="DPR" color={colors.navy} onPress={() => router.push('/daily-updates')} />}
+      </View>
+
+      <OverviewList items={TEAM_COUNTS} />
+
       <ProjectsFolder projects={projects} onOpenProject={openProject} />
-    </ScrollView>
+
+      <ProjectPickerSheet
+        visible={pickerOpen}
+        projects={projectOptions}
+        selectedId={selectedProjectId}
+        onClose={() => setPickerOpen(false)}
+        onPick={(id) => {
+          setSelectedProjectId(id);
+          setPickerOpen(false);
+        }}
+      />
+    </Screen>
   );
 }
