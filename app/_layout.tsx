@@ -21,6 +21,7 @@ import { ProjectProvider } from '../lib/ProjectContext';
 import { useNavigationLogging } from '../lib/navigationLogging';
 import { useNotificationTapRouting } from '../lib/notificationRouting';
 import { initSentry } from '../lib/sentryInit';
+import { useSiteGroupsAccessSync } from '../lib/groupChats/access';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { RestoreErrorScreen } from '../components/RestoreErrorScreen';
 import { BrandSplash } from '../components/BrandSplash';
@@ -70,6 +71,14 @@ function NotificationTapRouter() {
   const { state } = useAuth();
   const navReady = !!useRootNavigationState()?.key;
   useNotificationTapRouting(navReady && state.status === 'signed-in');
+  return null;
+}
+
+// Site Groups access (my_whatsapp_access): loaded after login / on start,
+// refreshed on foreground, wiped with the chat caches on logout. Renders
+// nothing; does nothing unless WHATSAPP_ENABLED.
+function SiteGroupsAccessSync() {
+  useSiteGroupsAccessSync();
   return null;
 }
 
@@ -126,6 +135,7 @@ function RootLayout() {
             <StatusBar style="light" />
             <NavigationLogger />
             <NotificationTapRouter />
+            <SiteGroupsAccessSync />
             <AuthGate fontsReady={fontsReady}>
               <ProjectProvider>
                   <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0F1F33' } }}>

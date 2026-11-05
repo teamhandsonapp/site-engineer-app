@@ -81,5 +81,16 @@ export const shadow = {
   },
 } as const;
 
-export const theme = { colors, type, space, radius, shadow, HIT };
+// Site Groups: sender-name colours (picked by a stable hash of the sender's
+// WhatsApp id) and bubble tints. Brand navy/amber family — deliberately no
+// WhatsApp green. All sender colours are >= 4.5:1 on white.
+export const chat = {
+  senderPalette: ['#1D4ED8', '#B45309', '#7C3AED', '#0F766E', '#BE185D', '#4D7C0F', '#C2410C', '#1C3358'],
+  incomingBg: '#FFFFFF',
+  outgoingBg: '#FEF5E4', // amberSoft
+  outgoingBorder: '#F6D9A6',
+  readTick: '#B45309',
+} as const;
+
+export const theme = { colors, type, space, radius, shadow, HIT, chat };
 export type Theme = typeof theme;
