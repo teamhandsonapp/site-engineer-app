@@ -7,6 +7,8 @@ import { Card } from '../../components/ui/Card';
 import { FilePreview, type DrawingBox, type FilePreviewSpec } from '../../components/files/FilePreview';
 import { useProject } from '../../lib/ProjectContext';
 import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
+import { SitePhotosBrowser } from '../../components/files/SitePhotosBrowser';
+import { useSitePhotos } from '../../lib/sitePhotos';
 
 // Files — project documents organised into folders (Drawings, Transmittal,
 // RA Bills, Quotes -> Comparative/Finalised). DUMMY DATA ONLY for now, by
@@ -522,6 +524,8 @@ export default function FilesScreen() {
   const current = path[path.length - 1] ?? null;
   const folders = current ? (current.subfolders ?? []) : FOLDERS;
   const [openFile, setOpenFile] = useState<DummyFile | null>(null);
+  // Files › Site Photos (Floor › Room › Wall), its own browser.
+  const [sitePhotosOpen, setSitePhotosOpen] = useState(false);
   const params = useLocalSearchParams<{ projectId?: string }>();
   const { projects, selectedProjectId: contextProjectId, isClient } = useProject();
   // A client only ever has their one project, so they skip the picker.
@@ -532,6 +536,7 @@ export default function FilesScreen() {
     setProjectId(params.projectId || (isClient ? contextProjectId : null));
     setPath([]);
     setOpenFile(null);
+    setSitePhotosOpen(false);
   }, [params.projectId, isClient, contextProjectId]);
   const projectName = projects.find((p) => p.id === projectId)?.name ?? (isClient ? 'Your Project' : 'Project');
   // Uploaded files, per folder id — in memory for this session only (dummy
@@ -541,6 +546,7 @@ export default function FilesScreen() {
   const [chooseFolderOpen, setChooseFolderOpen] = useState(false);
   const [uploadBanner, setUploadBanner] = useState<string | null>(null);
   const projectUploads = uploads[projectId ?? ''] ?? {};
+  const { photos: sitePhotos } = useSitePhotos(projectId);
   const allFiles = current ? [...(projectUploads[current.id] ?? []), ...(current.files ?? [])] : [];
   // Department / Floor filters — Drawings folder only; reset on folder change.
   const [deptFilter, setDeptFilter] = useState<string | null>(null);
@@ -599,6 +605,10 @@ export default function FilesScreen() {
     );
   }
 
+  if (projectId && sitePhotosOpen) {
+    return <SitePhotosBrowser projectId={projectId} projectName={projectName} onExit={() => setSitePhotosOpen(false)} />;
+  }
+
   if (!projectId) {
     return (
       <ScrollView className="flex-1 bg-neutral-50" contentContainerStyle={{ padding: 16, paddingBottom: bottomPadding }}>
@@ -615,7 +625,7 @@ export default function FilesScreen() {
                 <Text className="text-sm font-bold text-neutral-900" numberOfLines={1}>
                   {p.name}
                 </Text>
-                <Text className="text-2xs text-neutral-500 mt-0.5">{LEAF_FOLDERS.length + 1} folders · Drawings, Transmittal, RA Bills, Quotes</Text>
+                <Text className="text-2xs text-neutral-500 mt-0.5">{LEAF_FOLDERS.length + 2} folders · Site Photos, Drawings, Transmittal, RA Bills, Quotes</Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
             </Card>
@@ -710,7 +720,7 @@ export default function FilesScreen() {
       {!current && (
         <View className="flex-row gap-2 mb-3">
           {[
-            { label: 'Folders', value: String(LEAF_FOLDERS.length + 1) },
+            { label: 'Folders', value: String(LEAF_FOLDERS.length + 2) },
             { label: 'Documents', value: String(LEAF_FOLDERS.reduce((n, f) => n + (f.files?.length ?? 0) + (projectUploads[f.id]?.length ?? 0), 0)) },
             { label: 'Updated', value: Object.keys(projectUploads).length > 0 ? 'Today' : '23 Sep' },
           ].map((stat) => (
@@ -722,6 +732,14 @@ export default function FilesScreen() {
         </View>
       )}
 
+      {/* Site Photos — DPR photos organised by Floor › Room › Wall. */}
+      {!current && (
+        <FolderRow
+          folder={{ id: 'site-photos', name: 'Site Photos', description: 'DPR photos by floor, room and wall', icon: 'camera-outline', color: '#B7791F' }}
+          count={`${sitePhotos.length} photo${sitePhotos.length === 1 ? '' : 's'}`}
+          onPress={() => setSitePhotosOpen(true)}
+        />
+      )}
       {folders.map((f) => (
         <FolderRow key={f.id} folder={f} count={itemCount(f, projectUploads)} onPress={() => setPath([...path, f])} />
       ))}

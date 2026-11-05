@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Redirect, Stack, router, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { preparePhotoForUpload } from '../../lib/preparePhoto';
+import { addSitePhoto, locationLabel, type PhotoLocation } from '../../lib/sitePhotos';
+import { LocationPicker } from '../../components/files/LocationPicker';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../../lib/AuthContext';
 import { Card } from '../../components/ui/Card';
@@ -449,6 +451,16 @@ export default function DprEditScreen() {
       // Resized + compressed first (see lib/preparePhoto.ts).
       const { base64, contentType } = await preparePhotoForUpload(asset);
       await uploadDailyProgressPhoto(taskId, base64, contentType, userId);
+      // File it under the chosen Floor › Room › Wall in Files › Site Photos
+      // (on this phone for now — see lib/sitePhotos.ts).
+      const loc = pendingLocation.current;
+      if (loc && projectId) {
+        await addSitePhoto(projectId, { location: loc, uri: asset.uri, by: profile?.fullName || 'You', taskName: task?.taskName ?? null }).catch(() => {});
+        setLastPhotoLocation(loc);
+        toast.success(`Photo saved to ${locationLabel(loc)}`);
+      } else {
+        toast.success('Photo uploaded');
+      }
       await reloadPhotos();
     } catch (err) {
       setPhotoError(err instanceof Error ? err.message : String(err));
@@ -475,6 +487,23 @@ export default function DprEditScreen() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
     if (!result.canceled && result.assets[0]) await handlePickedPhoto(result.assets[0]);
+  }
+
+  // Add Photo: pick Floor › Room › Wall first, then camera / gallery.
+  const pendingLocation = useRef<PhotoLocation | null>(null);
+  const [locationPickerOpen, setLocationPickerOpen] = useState(false);
+  const [lastPhotoLocation, setLastPhotoLocation] = useState<PhotoLocation | null>(null);
+
+  function handleAddPhotoPress() {
+    setPhotoError(null);
+    setLocationPickerOpen(true);
+  }
+
+  function handleLocationChosen(loc: PhotoLocation) {
+    pendingLocation.current = loc;
+    setLocationPickerOpen(false);
+    // Let the sheet close before the system camera / gallery opens.
+    setTimeout(() => handleUploadPhoto(), 250);
   }
 
   function handleUploadPhoto() {
@@ -924,7 +953,7 @@ export default function DprEditScreen() {
               )}
 
               {/* ── Photos ── */}
-              <FormSection title="Photos" icon="camera-outline" description="Progress photos for this task.">
+              <FormSection title="Photos" icon="camera-outline" description="Choose the floor, room and wall, then take or pick the photo.">
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: space.sm }}>
                   {photos.map((photo) => (
                     <View key={photo.id} style={{ width: 96 }}>
@@ -940,7 +969,7 @@ export default function DprEditScreen() {
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Add photo"
-                    onPress={handleUploadPhoto}
+                    onPress={handleAddPhotoPress}
                     disabled={uploadingPhoto}
                     style={({ pressed }) => ({
                       width: 96,
@@ -967,12 +996,22 @@ export default function DprEditScreen() {
                     )}
                   </Pressable>
                 </View>
+                {lastPhotoLocation && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="folder-open-outline" size={15} color={colors.textMuted} />
+                    <AppText variant="caption" style={{ flex: 1 }}>
+                      Last photo filed in Files › Site Photos › {locationLabel(lastPhotoLocation)}
+                    </AppText>
+                  </View>
+                )}
                 {photoError && <InlineError message={photoError} onDismiss={() => setPhotoError(null)} />}
               </FormSection>
             </>
           )}
         </Screen>
       )}
+
+      <LocationPicker visible={locationPickerOpen} onClose={() => setLocationPickerOpen(false)} onConfirm={handleLocationChosen} />
 
       {/* DPR History — a lightweight popup day-index, by explicit request,
           not a second full page. Just jumps the pager above to whichever
