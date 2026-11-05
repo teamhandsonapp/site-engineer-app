@@ -24,6 +24,7 @@ const PROJECT_SCOPED_ROUTES = new Set([
   'gantt',
   'project-contacts',
   'settings',
+  'site-groups',
   'task-list',
 ]);
 

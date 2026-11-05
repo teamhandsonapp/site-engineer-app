@@ -6,6 +6,7 @@ import { router } from 'expo-router';
 import { Logo } from './Logo';
 import { NewProjectModal } from './NewProjectModal';
 import { appRoleFor, isFieldRole, roleLabel, useAuth } from '../lib/AuthContext';
+import { useSiteGroupsEnabled } from '../lib/groupChats/access';
 import { useProject } from '../lib/ProjectContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSafeBottomOffset } from '../lib/useSafeBottomOffset';
@@ -112,6 +113,7 @@ const REPORT_SUBMENU: { label: string; href: string; params?: Record<string, str
 const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   home: 'home-outline',
   notifications: 'notifications-outline',
+  'site-groups': 'chatbubbles-outline',
   'critical-alerts': 'warning-outline',
   'daily-updates': 'document-text-outline',
   'completed-tasks': 'checkmark-done-outline',
@@ -139,6 +141,8 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
   const isAdminOrManager = profile != null && (profile.role === 'admin' || profile.role === 'manager');
   const isAdmin = profile != null && profile.role === 'admin';
   const isField = profile != null && isFieldRole(profile.role);
+  // Site Groups: whatsapp_access row + WHATSAPP_ENABLED; role is irrelevant.
+  const siteGroupsEnabled = useSiteGroupsEnabled();
   const { projects, selectedProjectId, setSelectedProjectId, reload: reloadProjects } = useProject();
   const [newProjectModalVisible, setNewProjectModalVisible] = useState(false);
 
@@ -276,6 +280,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
   );
 
   function isRouteVisible(name: string): boolean {
+    if (name === 'site-groups') return siteGroupsEnabled;
     if (isClient && STAFF_ONLY_ROUTES.has(name)) return false;
     if (!isField && !(isAdmin && name === 'daily-updates') && FIELD_ROLE_ONLY_ROUTES.has(name)) return false;
     if (!isAdminOrManager && ADMIN_MANAGER_ONLY_ROUTES.has(name)) return false;

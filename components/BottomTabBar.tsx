@@ -18,6 +18,9 @@ import { appRoleFor, isFieldRole, useAuth } from '../lib/AuthContext';
 import { colors, space } from '../lib/theme';
 import { haptic } from '../lib/haptics';
 import { AppText } from './ui/AppText';
+import { useSiteGroupsEnabled } from '../lib/groupChats/access';
+import { useSiteGroupsUnreadTotal } from '../lib/groupChats/chatsStore';
+import { unreadLabel } from '../lib/groupChats/format';
 
 interface Tab {
   key: string;
@@ -30,8 +33,14 @@ interface Tab {
 
 const HOME: Tab = { key: 'home', label: 'Home', icon: 'home-outline', iconActive: 'home', route: 'home' };
 const MORE: Tab = { key: 'more', label: 'More', icon: 'menu-outline', iconActive: 'menu' };
+const SITE_GROUPS: Tab = { key: 'site-groups', label: 'Site Groups', icon: 'chatbubbles-outline', iconActive: 'chatbubbles', route: 'site-groups' };
 
-function tabsFor(role: string): Tab[] {
+// siteGroups: user is in whatsapp_access AND WHATSAPP_ENABLED. Only the
+// admin/manager set changes (Site Groups takes the Alerts/Notifications
+// slot; Notifications stays in the header bell and the More menu). Field
+// roles and clients keep today's tabs even with access, until their tab set
+// is agreed — they reach Site Groups from the More menu.
+function tabsFor(role: string, siteGroups: boolean): Tab[] {
   if (appRoleFor(role as never) === 'client') {
     return [HOME, { key: 'status', label: 'Status', icon: 'stats-chart-outline', iconActive: 'stats-chart', href: '/reports' }, MORE];
   }
@@ -52,7 +61,7 @@ function tabsFor(role: string): Tab[] {
     HOME,
     { key: 'site-attendance', label: 'Attendance', icon: 'people-outline', iconActive: 'people', route: 'team-attendance' },
     third,
-    { key: 'notifications', label: 'Alerts', icon: 'notifications-outline', iconActive: 'notifications', route: 'notifications' },
+    siteGroups ? SITE_GROUPS : { key: 'notifications', label: 'Alerts', icon: 'notifications-outline', iconActive: 'notifications', route: 'notifications' },
     MORE,
   ];
 }
@@ -69,6 +78,8 @@ export function BottomTabBar({
   openDrawer: () => void;
 }) {
   const { state } = useAuth();
+  const siteGroups = useSiteGroupsEnabled();
+  const unread = useSiteGroupsUnreadTotal();
   const insets = useSafeAreaInsets();
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
@@ -82,7 +93,7 @@ export function BottomTabBar({
   }, []);
 
   if (state.status !== 'signed-in' || keyboardOpen) return null;
-  const tabs = tabsFor(state.profile.role);
+  const tabs = tabsFor(state.profile.role, siteGroups);
 
   return (
     <View
@@ -121,6 +132,13 @@ export function BottomTabBar({
           >
             <View style={{ paddingHorizontal: 14, paddingVertical: 3, borderRadius: 999, backgroundColor: active ? colors.amberSoft : 'transparent' }}>
               <Ionicons name={active ? tab.iconActive : tab.icon} size={22} color={active ? colors.navy : colors.textMuted} />
+              {tab.key === 'site-groups' && unread > 0 ? (
+                <View style={badgeStyle} accessibilityLabel={`${unread} unread`}>
+                  <AppText variant="caption" style={badgeTextStyle}>
+                    {unreadLabel(unread)}
+                  </AppText>
+                </View>
+              ) : null}
             </View>
             <AppText variant="caption" numberOfLines={1} style={{ color: active ? colors.navy : colors.textMuted, fontFamily: active ? 'IBMPlexSans_600SemiBold' : 'IBMPlexSans_500Medium', fontSize: 12 }}>
               {tab.label}
@@ -131,3 +149,17 @@ export function BottomTabBar({
     </View>
   );
 }
+
+const badgeStyle = {
+  position: 'absolute' as const,
+  top: -2,
+  right: 2,
+  minWidth: 18,
+  height: 18,
+  paddingHorizontal: 4,
+  borderRadius: 9,
+  backgroundColor: colors.amber,
+  alignItems: 'center' as const,
+  justifyContent: 'center' as const,
+};
+const badgeTextStyle = { color: colors.amberDeep, fontSize: 11, lineHeight: 14, fontFamily: 'IBMPlexSans_600SemiBold' };
