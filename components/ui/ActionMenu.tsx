@@ -22,12 +22,33 @@ export interface MenuAction {
 
 export function ActionMenu({ actions, title, accessibilityLabel = 'More actions' }: { actions: MenuAction[]; title?: string; accessibilityLabel?: string }) {
   const [open, setOpen] = useState(false);
+  return (
+    <>
+      <IconButton icon="ellipsis-horizontal" color={colors.textMuted} accessibilityLabel={accessibilityLabel} onPress={() => setOpen(true)} />
+      <ActionSheet visible={open} onClose={() => setOpen(false)} actions={actions} title={title} />
+    </>
+  );
+}
+
+// The sheet on its own, for menus opened by something other than the "⋯"
+// button (e.g. long-press on a chat bubble). Same look and behaviour.
+export function ActionSheet({
+  visible,
+  onClose,
+  actions,
+  title,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  actions: MenuAction[];
+  title?: string;
+}) {
   const [confirming, setConfirming] = useState<MenuAction | null>(null);
   const insets = useSafeAreaInsets();
 
   function close() {
-    setOpen(false);
     setConfirming(null);
+    onClose();
   }
 
   function choose(a: MenuAction) {
@@ -41,64 +62,61 @@ export function ActionMenu({ actions, title, accessibilityLabel = 'More actions'
   }
 
   return (
-    <>
-      <IconButton icon="ellipsis-horizontal" color={colors.textMuted} accessibilityLabel={accessibilityLabel} onPress={() => setOpen(true)} />
-      <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
-        <Pressable style={{ flex: 1, backgroundColor: 'rgba(15,31,51,0.35)', justifyContent: 'flex-end' }} onPress={close} accessibilityLabel="Close menu">
-          <Pressable
-            onPress={() => {}}
-            style={{
-              backgroundColor: colors.surface,
-              borderTopLeftRadius: radius.lg,
-              borderTopRightRadius: radius.lg,
-              paddingTop: space.sm,
-              paddingBottom: Math.max(insets.bottom, space.lg) + space.sm,
-              paddingHorizontal: space.sm,
-            }}
-          >
-            <View style={{ alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, marginBottom: space.sm }} />
-            {confirming ? (
-              <View style={{ padding: space.md, gap: space.md }}>
-                <AppText variant="section">{confirming.confirm}</AppText>
-                <View style={{ flexDirection: 'row', gap: space.sm }}>
-                  <MenuButton label="Cancel" onPress={() => setConfirming(null)} />
-                  <MenuButton label={confirming.label} destructive onPress={() => choose(confirming)} />
-                </View>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
+      <Pressable style={{ flex: 1, backgroundColor: 'rgba(15,31,51,0.35)', justifyContent: 'flex-end' }} onPress={close} accessibilityLabel="Close menu">
+        <Pressable
+          onPress={() => {}}
+          style={{
+            backgroundColor: colors.surface,
+            borderTopLeftRadius: radius.lg,
+            borderTopRightRadius: radius.lg,
+            paddingTop: space.sm,
+            paddingBottom: Math.max(insets.bottom, space.lg) + space.sm,
+            paddingHorizontal: space.sm,
+          }}
+        >
+          <View style={{ alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, marginBottom: space.sm }} />
+          {confirming ? (
+            <View style={{ padding: space.md, gap: space.md }}>
+              <AppText variant="section">{confirming.confirm}</AppText>
+              <View style={{ flexDirection: 'row', gap: space.sm }}>
+                <MenuButton label="Cancel" onPress={() => setConfirming(null)} />
+                <MenuButton label={confirming.label} destructive onPress={() => choose(confirming)} />
               </View>
-            ) : (
-              <>
-                {title ? (
-                  <AppText variant="caption" numberOfLines={1} style={{ paddingHorizontal: space.md, paddingBottom: space.sm }}>
-                    {title}
+            </View>
+          ) : (
+            <>
+              {title ? (
+                <AppText variant="caption" numberOfLines={1} style={{ paddingHorizontal: space.md, paddingBottom: space.sm }}>
+                  {title}
+                </AppText>
+              ) : null}
+              {actions.map((a) => (
+                <Pressable
+                  key={a.label}
+                  accessibilityRole="button"
+                  onPress={() => choose(a)}
+                  style={({ pressed }) => ({
+                    minHeight: HIT + 8,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: space.md,
+                    paddingHorizontal: space.md,
+                    borderRadius: radius.sm,
+                    backgroundColor: pressed ? colors.surfaceMuted : 'transparent',
+                  })}
+                >
+                  {a.icon ? <Ionicons name={a.icon} size={20} color={a.destructive ? colors.danger : colors.navy} /> : null}
+                  <AppText variant="bodyStrong" tone={a.destructive ? 'danger' : 'default'}>
+                    {a.label}
                   </AppText>
-                ) : null}
-                {actions.map((a) => (
-                  <Pressable
-                    key={a.label}
-                    accessibilityRole="button"
-                    onPress={() => choose(a)}
-                    style={({ pressed }) => ({
-                      minHeight: HIT + 8,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: space.md,
-                      paddingHorizontal: space.md,
-                      borderRadius: radius.sm,
-                      backgroundColor: pressed ? colors.surfaceMuted : 'transparent',
-                    })}
-                  >
-                    {a.icon ? <Ionicons name={a.icon} size={20} color={a.destructive ? colors.danger : colors.navy} /> : null}
-                    <AppText variant="bodyStrong" tone={a.destructive ? 'danger' : 'default'}>
-                      {a.label}
-                    </AppText>
-                  </Pressable>
-                ))}
-              </>
-            )}
-          </Pressable>
+                </Pressable>
+              ))}
+            </>
+          )}
         </Pressable>
-      </Modal>
-    </>
+      </Pressable>
+    </Modal>
   );
 }
 

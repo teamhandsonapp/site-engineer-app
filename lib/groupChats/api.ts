@@ -90,3 +90,11 @@ export async function deleteFailedMessage(messageId: string): Promise<'deleted' 
   if (error.code === 'PGRST202' || /could not find the function/i.test(error.message)) return 'unsupported';
   throw new Error(error.message);
 }
+
+// Name of one group, or null if it doesn't exist / RLS hides it (no access,
+// or disabled and the caller isn't a manager).
+export async function fetchGroupInfo(groupId: string): Promise<{ name: string; is_enabled: boolean } | null> {
+  const { data, error } = await supabase.from('whatsapp_groups').select('name, is_enabled').eq('id', groupId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ?? null;
+}
