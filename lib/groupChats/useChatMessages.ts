@@ -273,16 +273,31 @@ export function useChatMessages(groupId: string, myName: string | null) {
     [deliver]
   );
 
-  const remove = useCallback(async (m: ChatMessage) => {
-    if (!isLocal(m)) {
-      try {
-        await deleteFailedMessage(m.id); // 'unsupported' until the server RPC exists
-      } catch (e) {
-        logError(e, 'site_groups_delete_failed');
+  const remove = useCallback(
+    async (m: ChatMessage) => {
+      let deleted = isLocal(m); // a never-saved local bubble just goes away
+      if (!deleted) {
+        try {
+          deleted = (await deleteFailedMessage(m.id)) === 'deleted';
+        } catch (e) {
+          logError(e, 'site_groups_delete_failed');
+        }
       }
-    }
-    setHidden((prev) => new Set(prev).add(m.id));
-  }, []);
+      if (deleted) {
+        // Gone on the server too: drop it from the list AND the cache, so it
+        // can't come back from AsyncStorage on the next open.
+        setMessages((prev) => {
+          const next = prev.filter((x) => x.id !== m.id);
+          listRef.current = next;
+          saveMessages(groupId, next);
+          return next;
+        });
+      } else {
+        setHidden((prev) => new Set(prev).add(m.id)); // older backend: hide on this phone
+      }
+    },
+    [groupId]
+  );
 
   const visible = hidden.size ? messages.filter((m) => !hidden.has(m.id)) : messages;
 

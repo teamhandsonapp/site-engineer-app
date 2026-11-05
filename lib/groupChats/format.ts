@@ -18,12 +18,21 @@ export function messageText(m: Pick<ChatMessage, 'type' | 'body'>): { placeholde
   return { placeholder: PLACEHOLDER[m.type] ?? PLACEHOLDER.unsupported, text: m.body };
 }
 
-// Chat list preview: "You: …", "Ravi: …". The groups table only keeps the
-// last message's TEXT (not its type), so a caption-less photo has empty text;
-// shown as a generic attachment until the type is stored server-side.
-export function previewText(c: Pick<GroupChat, 'last_message_text' | 'last_message_sender' | 'last_message_from_me' | 'last_message_at'>): string {
+// Chat list preview: "You: …", "Ravi: …"; media shows "📷 Photo" (or the
+// emoji + caption) using last_message_type from Group Chats migration 3.
+export function previewText(
+  c: Pick<GroupChat, 'last_message_text' | 'last_message_type' | 'last_message_sender' | 'last_message_from_me' | 'last_message_at'>
+): string {
   if (!c.last_message_at) return 'No messages yet';
-  const text = (c.last_message_text ?? '').replace(/\s+/g, ' ').trim() || '📎 Attachment';
+  const caption = (c.last_message_text ?? '').replace(/\s+/g, ' ').trim();
+  const type = c.last_message_type;
+  let text: string;
+  if (type && type !== 'text') {
+    const label = PLACEHOLDER[type] ?? PLACEHOLDER.unsupported; // "📷 Photo"
+    text = caption ? `${label.split(' ')[0]} ${caption}` : label; // "📷 caption" or "📷 Photo"
+  } else {
+    text = caption || '📎 Attachment'; // older rows without a stored type
+  }
   if (c.last_message_from_me) return `You: ${text}`;
   const who = (c.last_message_sender ?? '').trim();
   return who ? `${who}: ${text}` : text;

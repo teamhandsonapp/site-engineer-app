@@ -20,6 +20,7 @@ export async function fetchChats(projectId: string): Promise<GroupChat[]> {
       name: g.name,
       project_id: g.project_id,
       last_message_text: g.last_message_text,
+      last_message_type: g.last_message_type ?? null,
       last_message_sender: g.last_message_sender,
       last_message_at: g.last_message_at,
       last_message_from_me: g.last_message_from_me,
@@ -81,12 +82,12 @@ export async function sendMessage(groupId: string, body: string, clientMessageId
   return { ok: false, status: null, message: null, error: 'No connection — message not sent' };
 }
 
-// Removing a failed message needs a server RPC that doesn't exist yet
-// (proposed for Group Chats migration 3). Until then: 'unsupported', and
-// the caller hides it on this phone only.
+// Deletes the caller's own FAILED message (Group Chats migration 3).
+// 'unsupported' if the RPC isn't there (older backend): the caller then
+// hides it on this phone only.
 export async function deleteFailedMessage(messageId: string): Promise<'deleted' | 'unsupported'> {
-  const { error } = await supabase.rpc('delete_my_failed_message', { p_message_id: messageId });
-  if (!error) return 'deleted';
+  const { data, error } = await supabase.rpc('delete_my_failed_message', { p_message_id: messageId });
+  if (!error) return data === false ? 'unsupported' : 'deleted';
   if (error.code === 'PGRST202' || /could not find the function/i.test(error.message)) return 'unsupported';
   throw new Error(error.message);
 }
