@@ -18,8 +18,6 @@ export function messageText(m: Pick<ChatMessage, 'type' | 'body'>): { placeholde
   return { placeholder: PLACEHOLDER[m.type] ?? PLACEHOLDER.unsupported, text: m.body };
 }
 
-const firstName = (name: string | null) => (name ?? '').trim().split(/\s+/)[0] || null;
-
 // Chat list preview: "You: …", "Ravi: …". The groups table only keeps the
 // last message's TEXT (not its type), so a caption-less photo has empty text;
 // shown as a generic attachment until the type is stored server-side.
@@ -27,7 +25,7 @@ export function previewText(c: Pick<GroupChat, 'last_message_text' | 'last_messa
   if (!c.last_message_at) return 'No messages yet';
   const text = (c.last_message_text ?? '').replace(/\s+/g, ' ').trim() || '📎 Attachment';
   if (c.last_message_from_me) return `You: ${text}`;
-  const who = firstName(c.last_message_sender);
+  const who = (c.last_message_sender ?? '').trim();
   return who ? `${who}: ${text}` : text;
 }
 

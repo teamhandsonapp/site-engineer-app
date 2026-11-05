@@ -11,7 +11,11 @@ import { messageText, senderColorIndex, timeHHmm } from '../../lib/groupChats/fo
 import type { ChatMessage, MessageStatus } from '../../lib/groupChats/types';
 import { AppText } from '../ui/AppText';
 
-export const bubbleRenderCount = { current: 0 }; // dev-only profiling aid (see checks)
+// Dev-only profiling aid: counts bubble renders so a test can check that
+// one incoming message doesn't re-render every bubble. Exposed on
+// globalThis in development only; release builds never touch it.
+export const bubbleRenderCount = { current: 0 };
+if (__DEV__) (globalThis as { __siteGroupsBubbleRenders?: { current: number } }).__siteGroupsBubbleRenders = bubbleRenderCount;
 
 const TICK: Partial<Record<MessageStatus, { icon: keyof typeof Ionicons.glyphMap; color: string; label: string }>> = {
   sending: { icon: 'time-outline', color: colors.textMuted, label: 'Sending' },

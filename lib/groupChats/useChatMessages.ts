@@ -61,6 +61,8 @@ export function useChatMessages(groupId: string, myName: string | null) {
         const next = replace ? mergeMessages(prev.filter(isLocal), incoming) : mergeMessages(prev, incoming);
         listRef.current = next;
         saveMessages(groupId, next);
+        // Dev-only: lets an automated test verify no duplicates / ordering.
+        if (__DEV__) (globalThis as { __siteGroupsMessages?: ChatMessage[] }).__siteGroupsMessages = next;
         return next;
       });
     },
