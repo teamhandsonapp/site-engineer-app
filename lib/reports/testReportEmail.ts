@@ -7,22 +7,35 @@
 import { Platform } from 'react-native';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
-import { FunctionsHttpError } from '@supabase/supabase-js';
 import { supabase } from '../supabase';
 
 export type TestReportType = 'weekly' | 'monthly';
 
 export async function sendTestReport(type: TestReportType, to: string): Promise<{ ok: true; resendId: string } | { ok: false; error: string }> {
-  const { data, error } = await supabase.functions.invoke('send-test-report', { body: { type, to: to.trim() } });
+  let data: unknown;
+  let error: unknown;
+  try {
+    ({ data, error } = await supabase.functions.invoke('send-test-report', { body: { type, to: to.trim() } }));
+  } catch (e) {
+    return { ok: false, error: `Request failed: ${e instanceof Error ? e.message : String(e)}` };
+  }
   if (!error) {
     const d = data as { ok?: boolean; resend_id?: string; error?: string };
     return d?.ok && d.resend_id ? { ok: true, resendId: d.resend_id } : { ok: false, error: d?.error ?? 'Email could not be sent.' };
   }
-  if (error instanceof FunctionsHttpError) {
-    const body = (await (error.context as Response).json().catch(() => ({}))) as { error?: string };
-    return { ok: false, error: body.error ?? 'Email could not be sent.' };
+  // Any error that carries the server's reply (duck-typed: don't depend on
+  // instanceof, which can break across module copies/bundles).
+  const ctx = (error as { context?: unknown }).context;
+  if (ctx && typeof (ctx as Response).status === 'number' && typeof (ctx as Response).json === 'function') {
+    const res = ctx as Response;
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    return { ok: false, error: `${body.error ?? 'Email could not be sent.'} (HTTP ${res.status})` };
   }
-  return { ok: false, error: 'No connection — try again.' };
+  // No reply at all: say which kind of failure it was.
+  const err = error as { name?: string; message?: string };
+  if (err.name === 'FunctionsRelayError') return { ok: false, error: `The report service failed to run (${err.message ?? 'relay error'}).` };
+  if (err.name === 'FunctionsFetchError') return { ok: false, error: `Could not reach the report service (${err.message ?? 'network error'}).` };
+  return { ok: false, error: `${err.name ?? 'Error'}: ${err.message ?? 'unknown'}` };
 }
 
 function toBase64(buf: ArrayBuffer): string {
