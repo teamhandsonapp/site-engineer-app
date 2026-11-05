@@ -62,7 +62,7 @@ const HIDDEN_ROUTES = new Set(['gantt', 'flowchart', 'task-list', 'critical-aler
   ...(LOCATION_FEATURES_ENABLED ? [] : ['day-timeline'])]);
 
 // Top-level rows that carry collapsible sub-items (parent route -> children).
-const SUBMENUS: Record<string, { route: string; label: string; params?: { tab: string } }[]> = {
+const SUBMENUS: Record<string, { route: string; label: string; params?: { tab: string }; adminOnly?: boolean }[]> = {
   'daily-updates': [{ route: 'dpr-edit-requests', label: 'Edit Requests' }],
   settings: [{ route: 'devices', label: 'Devices & Logins' }],
   // MoM's three tabs (one screen, opened on the matching tab).
@@ -70,6 +70,7 @@ const SUBMENUS: Record<string, { route: string; label: string; params?: { tab: s
     { route: 'mom', label: 'Meeting', params: { tab: 'meeting' } },
     { route: 'mom', label: 'Reports', params: { tab: 'reports' } },
     { route: 'mom', label: 'Custom Alerts', params: { tab: 'alerts' } },
+    { route: 'mom', label: 'Email Reports', params: { tab: 'email' }, adminOnly: true },
   ],
   'team-attendance': [
     { route: 'engineer-attendance', label: 'Site Engineer Attendance' },
@@ -348,7 +349,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
                 </Pressable>
 
                 {submenuOpen &&
-                  submenu?.map((child) => {
+                  submenu?.filter((child) => !child.adminOnly || isAdmin).map((child) => {
                     const focusedTab = (state.routes[state.index]?.params as { tab?: string } | undefined)?.tab ?? 'meeting';
                     const active = focusedRouteName === child.route && (!child.params || child.params.tab === focusedTab);
                     return (

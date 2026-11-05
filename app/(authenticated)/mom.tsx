@@ -20,14 +20,17 @@ import { useMomData } from '../../lib/mom/store';
 import { MeetingTab } from '../../components/mom/MeetingTab';
 import { ReportsTab } from '../../components/mom/ReportsTab';
 import { CustomAlertsTab } from '../../components/mom/CustomAlertsTab';
+import { EmailReportsTab } from '../../components/mom/EmailReportsTab';
 import { NAVY } from '../../components/mom/ui';
 
-export type MomTab = 'meeting' | 'reports' | 'alerts';
+export type MomTab = 'meeting' | 'reports' | 'alerts' | 'email';
 
 const TABS: { key: MomTab; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'meeting', label: 'Meeting', icon: 'people-circle-outline' },
   { key: 'reports', label: 'Reports', icon: 'stats-chart-outline' },
   { key: 'alerts', label: 'Custom Alerts', icon: 'megaphone-outline' },
+  // Admin only (TEST email reports with sample data).
+  { key: 'email', label: 'Email Reports', icon: 'mail-outline' },
 ];
 
 export default function MomScreen() {
@@ -41,7 +44,7 @@ export default function MomScreen() {
   // The drawer's sub-items (Meeting / Reports / Custom Alerts) open this
   // screen with ?tab=…
   useEffect(() => {
-    if (params.tab === 'meeting' || params.tab === 'reports' || params.tab === 'alerts') setTab(params.tab);
+    if (params.tab === 'meeting' || params.tab === 'reports' || params.tab === 'alerts' || params.tab === 'email') setTab(params.tab);
   }, [params.tab]);
 
   const profile = state.status === 'signed-in' ? state.profile : null;
@@ -76,14 +79,17 @@ export default function MomScreen() {
 
   const projectName = projects.find((p) => p.id === selectedProjectId)?.name ?? 'Project';
   const me = { id: profile.id, name: profile.fullName || profile.email };
+  const isAdmin = profile.role === 'admin';
+  const tabs = TABS.filter((t) => t.key !== 'email' || isAdmin);
+  const activeTab: MomTab = tab === 'email' && !isAdmin ? 'meeting' : tab;
 
   return (
     <View className="flex-1 bg-neutral-50">
       <View className="bg-white border-b border-neutral-100 px-4 pt-3">
         <Text className="text-2xs font-bold uppercase tracking-wider text-neutral-400">{projectName}</Text>
         <View className="flex-row mt-2">
-          {TABS.map((t) => {
-            const active = tab === t.key;
+          {tabs.map((t) => {
+            const active = activeTab === t.key;
             return (
               <Pressable key={t.key} onPress={() => { setTab(t.key); router.setParams({ tab: t.key }); }} className="flex-1 items-center pb-2.5" style={{ borderBottomWidth: 2, borderBottomColor: active ? '#F0A227' : 'transparent' }}>
                 <Ionicons name={t.icon} size={18} color={active ? NAVY : '#9CA3AF'} />
@@ -97,11 +103,13 @@ export default function MomScreen() {
       </View>
 
       <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: bottomPadding }} keyboardShouldPersistTaps="handled">
-        {!data ? (
+        {activeTab === 'email' ? (
+          <EmailReportsTab defaultEmail={profile.email} />
+        ) : !data ? (
           <ActivityIndicator color={NAVY} style={{ marginTop: 32 }} />
-        ) : tab === 'meeting' ? (
+        ) : activeTab === 'meeting' ? (
           <MeetingTab projectId={selectedProjectId} projectName={projectName} data={data} update={update} me={me} />
-        ) : tab === 'reports' ? (
+        ) : activeTab === 'reports' ? (
           <ReportsTab projectId={selectedProjectId} projectName={projectName} data={data} update={update} />
         ) : (
           <CustomAlertsTab projectId={selectedProjectId} projectName={projectName} update={update} me={me} />
