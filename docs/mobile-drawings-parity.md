@@ -207,17 +207,15 @@ only; *adapted* = can't work identically on a phone, equivalent described
 
 ---
 
-## 5. Decisions needed before Step 1
+## 5. Decisions (answered 2026-11-06)
 
-Your answers to the earlier (non-parity) brief conflict with "same
-permissions and same features as the web" in four places:
+| Topic | Decision |
+|---|---|
+| Site engineers | **View + add tags & photos** in the app (app-only extension; the web stays admin / manager / senior SE). Database rules must allow site engineers to read drawings and create tags and tag photos. Edit/delete and the rest follow the web roles. |
+| Offline downloads | **Keep, after parity**: view offline + queue tags/photos, built once every row above is done. |
+| Sample Commercial folders (F4, F5) | **Show them**, same as the web, with the "Sample data" badge. |
+| Upload revision, new floor plan / department drawing, Show changes, Send reminder | **All in the app** (parity); reminder via a new Edge Function (§4.6). |
+| Clients | No access (same as the web). |
 
-| Topic | Earlier answer | Parity with web | Needs your choice |
-|---|---|---|---|
-| Site engineers | view + add tags & photos | no access to drawings or File Management | which one? |
-| Offline downloads | yes, view + queue tags offline | the web has no offline | keep as an app extra (after parity) or drop? |
-| Sample commercial folders | don't show | shown with "Sample data" badge | show (parity) or hide? |
-| Upload, revisions, new sheets, reminders, compare | web only | all on the web | do all in the app (parity) — confirm |
-
-Also confirm: the web drawing viewer is still only on admin-web's local
-branch `feature/drawing-viewer`. The app will match that branch.
+The web drawing viewer is still only on admin-web's local branch
+`feature/drawing-viewer`; the app matches that branch.
