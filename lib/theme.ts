@@ -92,5 +92,91 @@ export const chat = {
   readTick: '#B45309',
 } as const;
 
-export const theme = { colors, type, space, radius, shadow, HIT, chat };
+// Site Groups chat palettes (docs/site-groups-chat-design.md §3). Light is
+// what the app shows today (it is locked to light mode); dark is complete
+// and used wherever the platform reports a dark colour scheme. Every text
+// pair is >= 4.5:1, icons >= 3:1. Same keys in both — read them through
+// useChatPalette() (lib/groupChats/chatTheme.ts), never directly by mode.
+const chatLight = {
+  bg: '#EDF0F4',
+  incomingBg: '#FFFFFF',
+  incomingBorder: '#E1E5EB',
+  outgoingBg: '#E3EBF5',
+  outgoingBorder: '#D3DEEC',
+  textIn: '#111827',
+  textOut: '#0F1F33',
+  metaIn: '#5B6472',
+  metaOut: '#4B5768',
+  tickRead: '#B45309',
+  failed: '#B91C1C',
+  linkIn: '#1D4ED8',
+  linkOut: '#1D4ED8',
+  dateChipBg: '#FFFFFF',
+  dateChipText: '#374151',
+  unreadBg: '#FEF5E4',
+  unreadText: '#B45309',
+  composerBar: '#FFFFFF',
+  composerBorder: '#E3E6EB',
+  inputBg: '#F1F3F6',
+  inputText: '#111827',
+  placeholder: '#6B7280',
+  sendBg: '#F0A227',
+  sendIcon: '#0F1F33',
+  badgeBg: '#F0A227',
+  badgeText: '#0F1F33',
+  fabBg: '#FFFFFF',
+  fabIcon: '#0F1F33',
+  surface: '#FFFFFF',
+  surfacePressed: '#F1F3F6',
+  separator: '#EDEFF2',
+  title: '#111827',
+  muted: '#5B6472',
+  highlight: '#FDE7B8',
+  avatarAlpha: 0.14,
+  senderPalette: ['#1D4ED8', '#B45309', '#7C3AED', '#0F766E', '#BE185D', '#4D7C0F', '#C2410C', '#1C3358'],
+};
+
+const chatDark: typeof chatLight = {
+  bg: '#0B111B',
+  incomingBg: '#172131',
+  incomingBorder: '#202C3F',
+  outgoingBg: '#1F3A63',
+  outgoingBorder: '#284673',
+  textIn: '#E7ECF3',
+  textOut: '#F3F6FA',
+  metaIn: '#9AA6B8',
+  metaOut: '#B4C0D3',
+  tickRead: '#F2B347',
+  failed: '#FCA5A5',
+  linkIn: '#8AB4FF',
+  linkOut: '#A9C7FF',
+  dateChipBg: '#1A2433',
+  dateChipText: '#C9D2DE',
+  unreadBg: '#2B2213',
+  unreadText: '#F2B347',
+  composerBar: '#111A27',
+  composerBorder: '#1E2A3B',
+  inputBg: '#1A2433',
+  inputText: '#E7ECF3',
+  placeholder: '#8592A6',
+  sendBg: '#F0A227',
+  sendIcon: '#0F1F33',
+  badgeBg: '#F0A227',
+  badgeText: '#0F1F33',
+  fabBg: '#1A2433',
+  fabIcon: '#E7ECF3',
+  surface: '#111A27',
+  surfacePressed: '#1A2433',
+  separator: '#1E2A3B',
+  title: '#E7ECF3',
+  muted: '#9AA6B8',
+  highlight: '#5A4317',
+  avatarAlpha: 0.22,
+  senderPalette: ['#8AB4FF', '#F2B347', '#C4A5FF', '#5EEAD4', '#F9A8D4', '#A3E635', '#FDBA74', '#B4C3F5'],
+};
+
+export type ChatPalette = typeof chatLight;
+export const chatPalettes: Record<'light' | 'dark', ChatPalette> = { light: chatLight, dark: chatDark };
+
+export const theme = { colors, type, space, radius, shadow, HIT, chat, chatPalettes };
 export type Theme = typeof theme;

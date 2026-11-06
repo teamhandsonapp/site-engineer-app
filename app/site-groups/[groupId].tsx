@@ -18,6 +18,8 @@ import type { ChatMessage } from '../../lib/groupChats/types';
 import { MessageBubble } from '../../components/groupChats/MessageBubble';
 import { Composer, ReadOnlyNote } from '../../components/groupChats/Composer';
 import { OfflineBanner } from '../../components/groupChats/OfflineBanner';
+import { ChatBackground } from '../../components/groupChats/ChatBackground';
+import { themedStyles, useChatScheme } from '../../lib/groupChats/chatTheme';
 import { ProjectGate } from '../../components/ProjectGate';
 import { ActionSheet, type MenuAction } from '../../components/ui/ActionMenu';
 import { AppText } from '../../components/ui/AppText';
@@ -143,6 +145,7 @@ function Chat({ groupId }: { groupId: string }) {
   );
 
   const title = info && info !== 'missing' ? info.name : 'Site Group';
+  const t = chatStyles(useChatScheme());
 
   if (info === 'missing') {
     return (
@@ -161,15 +164,17 @@ function Chat({ groupId }: { groupId: string }) {
     >
       <Stack.Screen options={{ ...HEADER, title }} />
       <OfflineBanner />
-      {loading && messages.length === 0 ? (
-        <View style={styles.fill}>
-          <SkeletonList rows={6} />
-        </View>
-      ) : error && messages.length === 0 ? (
-        <ErrorState message={error} onRetry={() => void reload()} />
-      ) : messages.length === 0 ? (
-        <EmptyState icon="chatbubbles-outline" title="No messages yet" subtitle="Messages in this WhatsApp group will appear here." />
-      ) : (
+      <View style={t.area}>
+        <ChatBackground />
+        {loading && messages.length === 0 ? (
+          <View style={styles.fill}>
+            <SkeletonList rows={6} />
+          </View>
+        ) : error && messages.length === 0 ? (
+          <ErrorState message={error} onRetry={() => void reload()} />
+        ) : messages.length === 0 ? (
+          <EmptyState icon="chatbubbles-outline" title="No messages yet" subtitle="Messages in this WhatsApp group will appear here." />
+        ) : (
         <FlatList
           data={items}
           inverted
@@ -185,7 +190,8 @@ function Chat({ groupId }: { groupId: string }) {
           contentContainerStyle={styles.listContent}
           keyboardShouldPersistTaps="handled"
         />
-      )}
+        )}
+      </View>
       {canSend ? <Composer onSend={onSend} /> : <ReadOnlyNote />}
       <ActionSheet visible={!!menu} onClose={closeMenu} actions={actions} title={menu?.kind === 'failed' ? menu.m.error ?? 'Not sent' : undefined} />
     </KeyboardAvoidingView>
@@ -193,6 +199,10 @@ function Chat({ groupId }: { groupId: string }) {
 }
 
 const keyOf = (item: ChatItem) => item.key;
+
+const chatStyles = themedStyles((p) => ({
+  area: { flex: 1, backgroundColor: p.bg },
+}));
 
 function DaySeparator({ label }: { label: string }) {
   return (
