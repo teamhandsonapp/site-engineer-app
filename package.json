@@ -68,7 +68,8 @@
     "lint": "expo lint",
     "release": "bash scripts/release.sh",
     "status": "node scripts/store-status.mjs",
-    "tracking-report": "node scripts/tracking-test-report.mjs"
+    "tracking-report": "node scripts/tracking-test-report.mjs",
+    "test:requests": "node scripts/test-request-budget.mjs"
   },
   "private": true
 }
