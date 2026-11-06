@@ -61,6 +61,7 @@ export default function AuthenticatedLayout() {
       }}
     >
       <Drawer.Screen name="home" options={{ title: 'Home', drawerLabel: 'Home' }} />
+      <Drawer.Screen name="app-progress" options={{ title: 'App Progress', drawerLabel: 'App Progress' }} />
       {/* Cross-project notification center — every unresolved alert across
           EVERY project, not scoped to selectedProjectId like Critical
           Alerts. Staff-only (DrawerContent.tsx's STAFF_ONLY_ROUTES) — the

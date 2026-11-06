@@ -40,7 +40,7 @@ const FIELD_ROLE_ONLY_ROUTES = new Set(['attendance', 'day-timeline', 'daily-upd
 // role themselves), not this filter — this just keeps the menu itself from
 // offering a screen/action a lower-access account would get rejected from
 // anyway.
-const ADMIN_MANAGER_ONLY_ROUTES = new Set(['mom', 'access-roles', 'invoices', 'settings', 'devices', 'team-attendance', 'engineer-attendance', 'leave-log', 'notifications']);
+const ADMIN_MANAGER_ONLY_ROUTES = new Set(['app-progress', 'mom', 'access-roles', 'invoices', 'settings', 'devices', 'team-attendance', 'engineer-attendance', 'leave-log', 'notifications']);
 
 // Stricter than ADMIN_MANAGER_ONLY_ROUTES above — Contact Book is
 // admin-only per its own requirement, explicitly excluding manager/site
@@ -114,6 +114,7 @@ const REPORT_SUBMENU: { label: string; href: string; params?: Record<string, str
 const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   home: 'home-outline',
   notifications: 'notifications-outline',
+  'app-progress': 'stats-chart-outline',
   'site-groups': 'chatbubbles-outline',
   'critical-alerts': 'warning-outline',
   'daily-updates': 'document-text-outline',
