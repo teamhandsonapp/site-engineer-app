@@ -593,9 +593,14 @@ export default function AccessRolesScreen() {
             {Object.entries(counts).map(([r, c]) => ` · ${c} ${roleLabel(r as UserRole)}`).join('')}
           </Text>
         </View>
-        <Pressable onPress={() => setCreateOpen(true)} className="w-9 h-9 rounded-full bg-brand-navy items-center justify-center">
-          <Ionicons name="add" size={20} color="#fff" />
-        </Pressable>
+        {/* Admin only: the manage-user function refuses createUser /
+            sendInvite / generatePassword for anyone else (403), which left a
+            manager with an empty password box and an error. */}
+        {isAdmin && (
+          <Pressable onPress={() => setCreateOpen(true)} accessibilityRole="button" accessibilityLabel="Create user" className="w-9 h-9 rounded-full bg-brand-navy items-center justify-center">
+            <Ionicons name="add" size={20} color="#fff" />
+          </Pressable>
+        )}
       </View>
 
       {loading ? (
