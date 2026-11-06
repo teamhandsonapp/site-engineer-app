@@ -118,13 +118,6 @@ export function SitePhotosBrowser({ projectId, projectName, onExit }: { projectI
           </View>
         </View>
 
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.infoSoft, borderRadius: radius.sm, padding: space.md, marginBottom: space.lg }}>
-          <Ionicons name="information-circle-outline" size={16} color={colors.info} />
-          <AppText variant="caption" tone="default" style={{ flex: 1, color: colors.info }}>
-            Sample photos for now. Photos added from a DPR also appear here on this phone.
-          </AppText>
-        </View>
-
         {loading ? (
           <SkeletonList rows={5} />
         ) : !floor ? (

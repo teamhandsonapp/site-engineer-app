@@ -62,7 +62,6 @@ export function EmailReportsTab({ defaultEmail }: { defaultEmail: string }) {
 
   return (
     <View>
-      <Banner tone="info">Test only: sends a sample report with dummy data, marked TEST. Nothing is scheduled. Limit 10 per hour.</Banner>
       {banner && (
         <Banner tone={banner.tone} onClose={() => setBanner(null)}>
           {banner.text}

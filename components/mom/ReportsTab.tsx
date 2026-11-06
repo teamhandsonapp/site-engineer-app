@@ -192,9 +192,6 @@ function AutomatedSection({
 
   return (
     <View>
-      <Banner tone="info">
-        Set up reports to go out on a schedule. For now these are saved in the app only — automatic sending starts once the email / WhatsApp sender is connected. Use &quot;Send now&quot; meanwhile.
-      </Banner>
       {msg && <Banner tone="ok" onClose={() => setMsg(null)}>{msg}</Banner>}
       <View className="mb-3">
         <Button label="New automated report" icon="add-circle-outline" onPress={() => setEditing(blank)} />

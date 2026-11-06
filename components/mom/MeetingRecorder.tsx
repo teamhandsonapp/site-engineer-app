@@ -157,7 +157,6 @@ function RecordingRow({ recording, index, onDelete }: { recording: MeetingRecord
   const player = useAudioPlayer(recording.uri);
   const status = useAudioPlayerStatus(player);
   const [confirm, setConfirm] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (status.didJustFinish) {
@@ -185,12 +184,6 @@ function RecordingRow({ recording, index, onDelete }: { recording: MeetingRecord
             {status.playing || status.currentTime > 0 ? ` · ${clock(status.currentTime * 1000)}` : ''}
           </Text>
         </View>
-        <Pressable hitSlop={8} onPress={() => setNote('Transcribe will turn this recording into text minutes. It needs a speech-to-text service to be connected first.')}>
-          <View className="flex-row items-center gap-1 rounded-lg border border-neutral-200 px-2 py-1">
-            <Ionicons name="document-text-outline" size={13} color={NAVY} />
-            <Text className="text-2xs font-bold" style={{ color: NAVY }}>Transcribe</Text>
-          </View>
-        </Pressable>
         <Pressable hitSlop={8} onPress={() => (confirm ? onDelete() : setConfirm(true))}>
           <Ionicons name={confirm ? 'trash' : 'trash-outline'} size={17} color={confirm ? '#DC2626' : '#9CA3AF'} />
         </Pressable>
@@ -204,7 +197,6 @@ function RecordingRow({ recording, index, onDelete }: { recording: MeetingRecord
         </View>
       )}
       {recording.transcript && <Text className="text-xs text-neutral-700 mt-2">{recording.transcript}</Text>}
-      {note && <Text className="text-2xs text-blue-700 mt-2">{note}</Text>}
     </View>
   );
 }
