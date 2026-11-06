@@ -182,9 +182,11 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
   // value either crowds the island or leaves a gap on older phones.
   const { top: topInset } = useSafeAreaInsets();
 
-  const visibleRoutes = state.routes
-    .map((route, index) => ({ route, index }))
-    .filter(({ route }) => isRouteVisible(route.name));
+  // App Progress is listed first in the menu (above Home) by request. Only
+  // the menu order changes — Home stays the first screen of the drawer, so
+  // the app still opens on Home and Android back still returns to Home.
+  const shownRoutes = state.routes.map((route, index) => ({ route, index })).filter(({ route }) => isRouteVisible(route.name));
+  const visibleRoutes = [...shownRoutes.filter(({ route }) => route.name === 'app-progress'), ...shownRoutes.filter(({ route }) => route.name !== 'app-progress')];
   const singleRoutes = visibleRoutes.filter(({ route }) => !routeHasSubmenu(route.name));
   const submenuRoutes = visibleRoutes.filter(({ route }) => routeHasSubmenu(route.name));
 
