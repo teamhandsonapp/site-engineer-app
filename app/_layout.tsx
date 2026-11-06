@@ -25,6 +25,7 @@ import { useSiteGroupsAccessSync } from '../lib/groupChats/access';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { RestoreErrorScreen } from '../components/RestoreErrorScreen';
 import { BrandSplash } from '../components/BrandSplash';
+import { SafeHeaderBack } from '../components/SafeHeaderBack';
 import { ToastProvider } from '../components/ui/Toast';
 
 // Runs once at module load — this file is the app's true entry point, so
@@ -138,7 +139,7 @@ function RootLayout() {
             <SiteGroupsAccessSync />
             <AuthGate fontsReady={fontsReady}>
               <ProjectProvider>
-                  <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0F1F33' } }}>
+                  <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0F1F33' }, headerLeft: ({ tintColor }) => <SafeHeaderBack tintColor={tintColor} /> }}>
                     {/* Pure black, not the shared navy default above — both
                         screens before authentication are a deliberately
                         strict black/white/grey design, so a transition
