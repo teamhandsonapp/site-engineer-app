@@ -58,7 +58,9 @@ const ADMIN_ONLY_ROUTES = new Set(['contacts', 'dpr-edit-requests']);
 // explicit request), so it's hidden as its own top-level row.
 // leave-log likewise sits under Attendance (team-attendance) as a sub-item,
 // (MoM's own Meeting / Reports / Custom Alerts tabs are its sub-items.)
-const HIDDEN_ROUTES = new Set(['gantt', 'flowchart', 'task-list', 'critical-alerts', 'dpr-edit-requests', 'leave-log', 'engineer-attendance', 'devices',
+// documents: removed from the menu on request (2026-11-06) — drawings now
+// live in Files › Drawings. The screen itself is kept, just not listed.
+const HIDDEN_ROUTES = new Set(['gantt', 'flowchart', 'task-list', 'critical-alerts', 'dpr-edit-requests', 'leave-log', 'engineer-attendance', 'devices', 'documents',
   // Day Timeline is a location map trail — hidden while location features are off.
   ...(LOCATION_FEATURES_ENABLED ? [] : ['day-timeline'])]);
 
