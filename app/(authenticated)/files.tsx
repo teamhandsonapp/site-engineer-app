@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -741,7 +741,13 @@ export default function FilesScreen() {
         />
       )}
       {folders.map((f) => (
-        <FolderRow key={f.id} folder={f} count={itemCount(f, projectUploads)} onPress={() => setPath([...path, f])} />
+        <FolderRow
+          key={f.id}
+          folder={f.id === 'drawings' && !current ? { ...f, description: 'Architect & consultant sheets, revisions, layers and tagged areas' } : f}
+          count={f.id === 'drawings' && !current ? 'Open' : itemCount(f, projectUploads)}
+          // Drawings opens the real drawing register (same data as admin-web).
+          onPress={() => (f.id === 'drawings' && !current ? router.push({ pathname: '/drawings', params: projectId ? { projectId } : {} } as never) : setPath([...path, f]))}
+        />
       ))}
       {showDrawingFilters && (
         <Card className="mb-3">
