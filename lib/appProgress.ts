@@ -35,6 +35,22 @@ export interface ScreenProgress {
 //   Contacts             — 20 in DB, all bulk-added 13 Sep; admin-only rules live
 // Create / invite / reset / role change / contact edits were not run (they
 // write to live data) and need an admin login — kept as "Test …".
+//
+// DPR, MoM, Status — checked 2026-11-06:
+//   DPR list + form      — engineer login: In Progress tasks, DPR page opens
+//   Submit / draft       — 4 real submits (25 Sep, 28 Oct, all by admin), draft 5 Nov
+//   Reminder push        — 123 sent, latest today 17:30 IST
+//   History / checklist  — fake history rows; sample quality items in code
+//   MoM storage          — meetings/schedules/history saved on the phone only
+//   MoM invitees         — manager sees "No contacts yet" (Contact Book is
+//                          admin-only, Specific Book empty) → can't create
+//   Task report PDF      — Preview PDF opened with real ROAST tasks (8/15)
+//   Weekly test email    — 4 sent, all accepted (report_email_log)
+//   Department alert     — never used (0 rows)
+//   Monthly Status (Aug) — TASK-001: 4 DPRs 18/25/25/25 % = DB
+//   Architect Status     — 3 tasks, 9 pending inputs = DB
+//   Task Based Status    — TASK-001 loads; contractor "Suresh Reddy" is fixed text
+//   Site Engineer Status — shows SAMPLE rows when there's no real data
 export const APP_PROGRESS: ScreenProgress[] = [
   {
     screen: 'Home',
@@ -136,5 +152,75 @@ export const APP_PROGRESS: ScreenProgress[] = [
     done: ['Admin only access', '20 contacts saved'],
     pending: ['Test add / edit contact', 'Test delete contact', 'Test search & filters', 'Test WhatsApp share'],
     needed: [{ item: 'Admin login for testing', from: 'PMC team' }],
+  },
+  {
+    screen: 'DPR',
+    updated: '2026-11-06',
+    done: ['DPR task list', 'Status buckets', 'Open DPR form', 'Save draft', 'Submit DPR', 'DPR reminder push'],
+    pending: [
+      'Real submission history',
+      'Real quality checklist',
+      'Photo location online',
+      'Lock submitted DPRs',
+      'Fix date on old DPRs',
+      'Reminder: skip if submitted',
+      'Reminder opens DPR',
+      'Test engineer submit',
+      'Test photo upload',
+      'Test edit requests',
+      'Test checklist PDF',
+    ],
+    needed: [
+      { item: 'Engineers on projects', from: 'PMC team' },
+      { item: 'Phone for photo tests', from: 'PMC team' },
+      { item: 'Fix reminder & lock', from: 'Development' },
+      { item: 'New Play Store build', from: 'Phone update' },
+    ],
+  },
+  {
+    screen: 'MoM',
+    updated: '2026-11-06',
+    done: ['Meeting form & checks', 'Task report PDF', 'Weekly test email'],
+    pending: [
+      'Save meetings online',
+      'Invitees for managers',
+      'Auto-send schedules',
+      'Send by WhatsApp',
+      'Transcribe recordings',
+      'Save recordings online',
+      'Real data in email report',
+      'Test monthly email',
+      'Test department alert',
+      'Test recording on phone',
+      'Test agenda & attendance',
+    ],
+    needed: [
+      { item: 'Who gets MoM reports', from: 'Client' },
+      { item: 'WhatsApp provider', from: 'PMC team' },
+      { item: 'Speech-to-text choice', from: 'PMC team' },
+      { item: 'Save MoM online', from: 'Development' },
+      { item: 'New Play Store build', from: 'Phone update' },
+    ],
+  },
+  {
+    screen: 'Status',
+    updated: '2026-11-06',
+    done: ['Status by time (4)', 'Architect status', 'Client status', 'Contractor status', 'Task based report'],
+    pending: [
+      'Real engineer status only',
+      'Real contractor name',
+      'Skip drafts in totals',
+      'Today in India time',
+      'Client project picker',
+      'Consultant status',
+      'Test vendor status',
+      'Test department status',
+      'Test PDF download',
+    ],
+    needed: [
+      { item: 'Client login for testing', from: 'PMC team' },
+      { item: 'Contractor per task', from: 'Client' },
+      { item: 'Remove sample data', from: 'Development' },
+    ],
   },
 ];
