@@ -24,7 +24,7 @@ export const APP_PROGRESS: ScreenProgress[] = [
   {
     screen: 'Notifications',
     updated: '2026-11-06',
-    done: ['6 notification groups', 'Live alert bell', 'DPR reminder push', 'Send critical alerts', 'Location group auto-hide'],
+    done: ['6 notification groups', 'Live alert bell', 'DPR reminder push', 'Send critical alerts', 'Location group auto-hide', 'Testing tools in this tab'],
     pending: [
       'Real data (now sample)',
       'Real alerts & messages',

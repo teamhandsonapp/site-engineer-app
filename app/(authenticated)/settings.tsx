@@ -32,8 +32,6 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { SiteLocationMapPicker } from '../../components/SiteLocationMapPicker';
 import { RedZonesCard } from '../../components/RedZonesCard';
-import { SendNotificationCard } from '../../components/SendNotificationCard';
-import { SendCriticalAlertCard } from '../../components/SendCriticalAlertCard';
 import { LOCATION_FEATURES_ENABLED } from '../../lib/featureFlags';
 
 const INPUT_CLASS = 'border border-neutral-200 rounded-lg px-3 py-2.5 text-sm text-neutral-900';
@@ -473,7 +471,6 @@ export default function SettingsScreen() {
         isAdmin ? (
           <ScrollView contentContainerClassName="px-4 pt-4 pb-10" keyboardShouldPersistTaps="handled">
             <DevicesLink />
-            <SendNotificationCard onResult={showToast} />
             <Text className="text-xs text-neutral-400 text-center mt-2">
               Pick a project from the Project Dashboard to edit its settings.
             </Text>
@@ -499,10 +496,6 @@ export default function SettingsScreen() {
           )}
 
           <DevicesLink />
-          {isAdmin && <SendNotificationCard onResult={showToast} />}
-          {profile && (
-            <SendCriticalAlertCard projectId={selectedProjectId} senderId={profile.id} onResult={showToast} />
-          )}
 
           <Card className="mb-4">
             <Text className="text-sm font-bold text-neutral-900 mb-3">Project Info</Text>

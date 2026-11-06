@@ -2,6 +2,10 @@ import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../../lib/AuthContext';
+import { useProject } from '../../lib/ProjectContext';
+import { useToast } from '../../components/ui/Toast';
+import { SendNotificationCard } from '../../components/SendNotificationCard';
+import { SendCriticalAlertCard } from '../../components/SendCriticalAlertCard';
 import {
   CATEGORIES,
   CATEGORY_LABEL,
@@ -105,6 +109,9 @@ export default function NotificationsScreen() {
   const isAdminOrManager =
     state.status === 'signed-in' && (state.profile.role === 'admin' || state.profile.role === 'manager');
   const [expanded, setExpanded] = useState<Partial<Record<NotificationCategory, boolean>>>({});
+  const { selectedProjectId } = useProject();
+  const toast = useToast();
+  const onResult = (type: 'success' | 'error', message: string) => (type === 'success' ? toast.success(message) : toast.error(message));
 
   function toggle(category: NotificationCategory) {
     setExpanded((prev) => ({ ...prev, [category]: !prev[category] }));
@@ -120,7 +127,7 @@ export default function NotificationsScreen() {
 
   return (
     <View className="flex-1 bg-neutral-50">
-      <ScrollView contentContainerClassName="px-4 pt-4 pb-8">
+      <ScrollView contentContainerClassName="px-4 pt-4 pb-8" keyboardShouldPersistTaps="handled">
         <Text className="text-2xs text-neutral-400 mb-3">{DUMMY_NOTIFICATIONS.length} across all categories</Text>
         {CATEGORIES.map((category) => (
           <CategorySection
@@ -131,6 +138,19 @@ export default function NotificationsScreen() {
             onToggle={() => toggle(category)}
           />
         ))}
+
+        {/* Testing (moved from Settings): send a broadcast push (admin only)
+            and a critical alert to the selected project. */}
+        <View className="flex-row items-center mt-5 mb-2">
+          <Ionicons name="flask-outline" size={15} color="#6B7280" />
+          <Text className="text-xs font-bold uppercase tracking-wide text-neutral-500 ml-1.5">Testing</Text>
+        </View>
+        {state.profile.role === 'admin' ? <SendNotificationCard onResult={onResult} /> : null}
+        {selectedProjectId ? (
+          <SendCriticalAlertCard projectId={selectedProjectId} senderId={state.profile.id} onResult={onResult} />
+        ) : (
+          <Text className="text-xs text-neutral-400 mb-3">Pick a project to send a critical alert.</Text>
+        )}
       </ScrollView>
     </View>
   );
