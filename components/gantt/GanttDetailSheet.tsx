@@ -76,9 +76,10 @@ export function GanttDetailSheet({
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
-        <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 380, maxHeight: '85%' }}>
-          <Card>
-            <ScrollView showsVerticalScrollIndicator={false}>
+        <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 380, maxHeight: '85%', overflow: 'hidden' }}>
+          {/* Card + list may shrink (minHeight 0) so the buttons stay inside the box on small phones / large text. */}
+          <Card style={{ flexShrink: 1, minHeight: 0 }}>
+            <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
               <Text className="text-md font-bold text-neutral-900">{task.taskName}</Text>
               <Text className="text-xs font-mono text-neutral-400 mt-0.5">{task.taskCode}</Text>
 

@@ -93,8 +93,11 @@ function LeaveReasonSheet({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
       <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={handleClose}>
-        <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 380 }}>
-          <Card>
+        {/* Reasons + note scroll inside the card so Confirm Leave stays on
+            screen on small phones / large text. */}
+        <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 380, maxHeight: '90%' }}>
+          <Card style={{ flexShrink: 1, minHeight: 0 }}>
+            <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="handled">
             <Text className="text-md font-bold text-neutral-900 mb-1">Why are you leaving?</Text>
             <Text className="text-xs text-neutral-400 mb-3">Your check-in stays open while you&apos;re out.</Text>
 
@@ -123,6 +126,7 @@ function LeaveReasonSheet({
               className="border border-neutral-200 rounded-lg px-3 py-2 text-sm text-neutral-900 mb-4"
               style={{ minHeight: 52, textAlignVertical: 'top' }}
             />
+            </ScrollView>
 
             <View className="flex-row justify-end gap-2">
               <Pressable onPress={handleClose} disabled={submitting} className="px-3 py-1.5 rounded-lg bg-neutral-100">

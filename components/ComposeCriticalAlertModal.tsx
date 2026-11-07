@@ -80,6 +80,9 @@ export function ComposeCriticalAlertModal({
               <Ionicons name="close" size={20} color="#9CA3AF" />
             </Pressable>
           </View>
+          {/* Body scrolls and the message box stops growing, so Send stays
+              inside the dialog on small phones / large text. */}
+          <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="handled">
           <Text className="text-xs text-neutral-400 mb-3">
             {mode === 'admin'
               ? `Reaches the selected engineer directly on ${projectName ?? 'this project'} — a real push notification, not just an in-app message.`
@@ -94,7 +97,7 @@ export function ComposeCriticalAlertModal({
               ) : engineers.length === 0 ? (
                 <Text className="text-xs text-neutral-400">No engineers assigned to this project yet.</Text>
               ) : (
-                <ScrollView style={{ maxHeight: 140 }}>
+                <ScrollView style={{ maxHeight: 140 }} nestedScrollEnabled>
                   {engineers.map((eng) => {
                     const active = eng.id === selectedEngineerId;
                     return (
@@ -122,7 +125,7 @@ export function ComposeCriticalAlertModal({
             multiline
             numberOfLines={3}
             className="border border-neutral-200 rounded-lg px-3 py-2.5 text-sm text-neutral-900 mb-3"
-            style={{ minHeight: 72, textAlignVertical: 'top' }}
+            style={{ minHeight: 72, maxHeight: 140, textAlignVertical: 'top' }}
           />
 
           {mode === 'admin' && selectedEngineer && (
@@ -130,6 +133,7 @@ export function ComposeCriticalAlertModal({
           )}
 
           {error && <Text className="text-xs text-red-600 mb-2">{error}</Text>}
+          </ScrollView>
 
           <Pressable
             onPress={handleSend}

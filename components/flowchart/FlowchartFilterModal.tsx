@@ -203,8 +203,9 @@ export function FlowchartFilterModal({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
-        <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 400, maxHeight: '80%' }}>
-          <Card>
+        <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 400, maxHeight: '80%', overflow: 'hidden' }}>
+          {/* Filters list may shrink (minHeight 0) so Done / Clear all stay inside the box on small phones / large text. */}
+          <Card style={{ flexShrink: 1, minHeight: 0 }}>
             <View className="flex-row items-center justify-between mb-3">
               <Text className="text-md font-bold text-neutral-900">Filter Flowchart</Text>
               <Pressable onPress={onClose} hitSlop={8}>
@@ -212,7 +213,7 @@ export function FlowchartFilterModal({
               </Pressable>
             </View>
 
-            <ScrollView showsVerticalScrollIndicator={false}>
+            <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
               <ChipRow label="Floor" options={FLOOR_LEVEL_PRESETS} value={floor} onChange={onChangeFloor} />
               <ChipRow label="Department" options={departments} value={department} onChange={onChangeDepartment} />
               <ChipRow label="Room" options={ROOM_TYPE_PRESETS} value={room} onChange={onChangeRoom} />

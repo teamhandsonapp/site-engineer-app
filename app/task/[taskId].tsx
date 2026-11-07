@@ -153,7 +153,8 @@ function ProcurementLeadTimeCard({ task }: { task: TaskDetailInfo }) {
         </View>
         <View className="flex-1 rounded-lg bg-white border border-neutral-200 px-2.5 py-2 justify-center">
           <Text className="text-sm font-bold text-neutral-800">{task.procurementTypeDurationDays}d</Text>
-          <Text className="text-2xs text-neutral-400 mt-0.5">Procurement</Text>
+          {/* One long word in a narrow tile: shrink to fit at large font sizes instead of breaking mid-word. */}
+          <Text className="text-2xs text-neutral-400 mt-0.5" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>Procurement</Text>
         </View>
         <View className="flex-1 rounded-lg bg-white border border-neutral-200 px-2.5 py-2 justify-center">
           <Text className="text-sm font-bold text-neutral-800">+{PROCUREMENT_INPUT_PRESET_DAYS}d</Text>

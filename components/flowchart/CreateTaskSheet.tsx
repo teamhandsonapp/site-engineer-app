@@ -180,9 +180,10 @@ export function CreateTaskSheet({
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
-        <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 400, maxHeight: '88%' }}>
-          <Card>
-            <ScrollView showsVerticalScrollIndicator={false}>
+        <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 400, maxHeight: '88%', overflow: 'hidden' }}>
+          {/* Card + list may shrink (minHeight 0) so the buttons stay inside the box on small phones / large text. */}
+          <Card style={{ flexShrink: 1, minHeight: 0 }}>
+            <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
               <Text className="text-sm font-bold text-neutral-900 mb-3">New Task</Text>
 
               {error && (

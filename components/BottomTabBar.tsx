@@ -140,7 +140,9 @@ export function BottomTabBar({
                 </View>
               ) : null}
             </View>
-            <AppText variant="caption" numberOfLines={1} style={{ color: active ? colors.navy : colors.textMuted, fontFamily: active ? 'IBMPlexSans_600SemiBold' : 'IBMPlexSans_500Medium', fontSize: 12 }}>
+            {/* Five labels share a 320–360dp row: at the largest font size they
+                shrink to fit (Android/iOS) instead of cutting off ("Attend…"). */}
+            <AppText variant="caption" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} maxFontSizeMultiplier={1.4} style={{ color: active ? colors.navy : colors.textMuted, fontFamily: active ? 'IBMPlexSans_600SemiBold' : 'IBMPlexSans_500Medium', fontSize: 12 }}>
               {tab.label}
             </AppText>
           </Pressable>

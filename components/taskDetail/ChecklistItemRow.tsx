@@ -179,7 +179,9 @@ export function ChecklistItemRow({
                 <Text className="text-xs font-semibold text-neutral-800 mb-1.5">{item.itemLabel}</Text>
               </Pressable>
             )}
-            <View className="flex-row items-center gap-3">
+            {/* Wraps on narrow screens / large text so the quantity never runs
+                under the comment / history / delete buttons on the right. */}
+            <View className="flex-row flex-wrap items-center gap-x-3 gap-y-1.5">
               <StatusPicker
                 status={item.status}
                 changedAtISO={item.statusChangedAtISO}

@@ -127,8 +127,10 @@ function ChangeRoleSheet({
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
       <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
-        <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 380 }}>
-          <Card>
+        <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 380, maxHeight: '88%', overflow: 'hidden' }}>
+          {/* Scrolls on small phones / large text so every button stays reachable. */}
+          <Card style={{ flexShrink: 1, minHeight: 0 }}>
+            <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
             <Text className="text-md font-bold text-neutral-900">{user.fullName}</Text>
             <Text className="text-xs text-neutral-400 mb-3">{user.email}</Text>
             {error && (
@@ -183,6 +185,7 @@ function ChangeRoleSheet({
                 <Text className="text-xs font-semibold text-neutral-600">Close</Text>
               </Pressable>
             </View>
+            </ScrollView>
           </Card>
         </Pressable>
       </Pressable>
@@ -384,9 +387,10 @@ function CreateUserSheet({
       onRequestClose={() => { reset(); onClose(); }}
     >
       <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={() => { reset(); onClose(); }}>
-        <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 380, maxHeight: '85%' }}>
-          <Card>
-            <ScrollView showsVerticalScrollIndicator={false}>
+        <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 380, maxHeight: '85%', overflow: 'hidden' }}>
+          {/* Card + list may shrink (minHeight 0) so the buttons stay inside the box on small phones / large text. */}
+          <Card style={{ flexShrink: 1, minHeight: 0 }}>
+            <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
               {result ? (
                 <View>
                   <Text className="text-md font-bold text-neutral-900 mb-1">Account created</Text>
