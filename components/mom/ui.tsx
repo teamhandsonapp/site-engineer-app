@@ -4,6 +4,7 @@
 import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, Modal, Platform, Pressable, Text, TextInput, View, type TextInputProps } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useModalBottomPadding } from '../../lib/useSafeBottomOffset';
 
 const NativeDateTimePicker = Platform.OS !== 'web' ? require('@react-native-community/datetimepicker').default : null;
 
@@ -108,6 +109,7 @@ export function Banner({ tone, children, onClose }: { tone: 'ok' | 'error' | 'in
 
 // 'HH:MM' 24h. Native clock picker on Android/iOS; a plain HH:MM box on web.
 export function TimeField({ label, value, onChange }: { label?: string; value: string | null; onChange: (time: string) => void }) {
+  const sheetBottomPad = useModalBottomPadding(8); // iPhone home bar
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(value ?? '');
 
@@ -158,7 +160,7 @@ export function TimeField({ label, value, onChange }: { label?: string; value: s
       {open && Platform.OS === 'ios' && (
         <Modal transparent animationType="fade" onRequestClose={() => setOpen(false)}>
           <Pressable className="flex-1 justify-end bg-black/40" onPress={() => setOpen(false)}>
-            <Pressable className="bg-white rounded-t-2xl pb-8 pt-2">
+            <Pressable className="bg-white rounded-t-2xl pt-2" style={{ paddingBottom: sheetBottomPad }}>
               <NativeDateTimePicker
                 value={base}
                 mode="time"

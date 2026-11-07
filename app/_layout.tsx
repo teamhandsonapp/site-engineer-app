@@ -3,7 +3,8 @@ import '../global.css';
 import { useEffect, type ReactNode } from 'react';
 import { enableFreeze } from 'react-native-screens';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { View } from 'react-native';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Sentry from '@sentry/react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import { Stack, useRootNavigationState } from 'expo-router';
@@ -26,6 +27,7 @@ import { ErrorBoundary } from '../components/ErrorBoundary';
 import { RestoreErrorScreen } from '../components/RestoreErrorScreen';
 import { BrandSplash } from '../components/BrandSplash';
 import { SafeHeaderBack } from '../components/SafeHeaderBack';
+import { colors } from '../lib/theme';
 import { ToastProvider } from '../components/ui/Toast';
 
 // Runs once at module load — this file is the app's true entry point, so
@@ -139,14 +141,7 @@ function RootLayout() {
             <SiteGroupsAccessSync />
             <AuthGate fontsReady={fontsReady}>
               <ProjectProvider>
-                  <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0F1F33' }, headerLeft: ({ tintColor }) => <SafeHeaderBack tintColor={tintColor} /> }}>
-                    {/* Pure black, not the shared navy default above — both
-                        screens before authentication are a deliberately
-                        strict black/white/grey design, so a transition
-                        should never show a navy frame behind them. */}
-                    <Stack.Screen name="index" options={{ contentStyle: { backgroundColor: '#000000' } }} />
-                    <Stack.Screen name="login" options={{ contentStyle: { backgroundColor: '#0F1F33' } }} />
-                  </Stack>
+                  <AppStack />
               </ProjectProvider>
             </AuthGate>
           </AuthProvider>
@@ -154,6 +149,47 @@ function RootLayout() {
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </ErrorBoundary>
+  );
+}
+
+// Pages pushed on top of the menu (task, DPR checklist, reports, templates,
+// drawings, team…) have no bottom tab bar under them, and Android draws the
+// system navigation bar (3-button or gesture) OVER the app (edge-to-edge is
+// always on). This one wrapper keeps every such page's content above that
+// bar instead of fixing each page. Left out: the two sign-in screens (they
+// pad themselves), the menu screens (the tab bar pads), and pages that pin
+// their own inset-aware bottom bar (DPR entry's Save/Submit footer, the
+// template canvas zoom controls, the group chat composer).
+const OWN_BOTTOM_INSET = new Set([
+  'index',
+  'login',
+  '(authenticated)',
+  'dpr-edit/[taskId]',
+  'flowchart-templates/canvas/[templateId]',
+  'site-groups/[groupId]',
+  'site-groups/preview',
+]);
+
+function AppStack() {
+  const insets = useSafeAreaInsets();
+  return (
+    <Stack
+      screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0F1F33' }, headerLeft: ({ tintColor }) => <SafeHeaderBack tintColor={tintColor} /> }}
+      screenLayout={({ children, route }) =>
+        OWN_BOTTOM_INSET.has(route.name) ? (
+          children
+        ) : (
+          <View style={{ flex: 1, paddingBottom: insets.bottom, backgroundColor: colors.bg }}>{children}</View>
+        )
+      }
+    >
+      {/* Pure black, not the shared navy default above — both
+          screens before authentication are a deliberately
+          strict black/white/grey design, so a transition
+          should never show a navy frame behind them. */}
+      <Stack.Screen name="index" options={{ contentStyle: { backgroundColor: '#000000' } }} />
+      <Stack.Screen name="login" options={{ contentStyle: { backgroundColor: '#0F1F33' } }} />
+    </Stack>
   );
 }
 

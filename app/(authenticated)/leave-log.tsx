@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, FlatList, Modal, Platform, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase';
 import {
   fetchEngineersForFilter,
@@ -101,6 +102,10 @@ function FilterModal({ visible, onClose, engineers, projects, filters, onApply }
   // bottom of this pageSheet Modal — same shape (and same clipping risk)
   // as DrawerContent.tsx's Logout footer.
   const footerBottomPadding = useSafeBottomOffset(12);
+  // pageSheet is a card on iOS but full-screen on Android, where the
+  // header must clear the status bar (Modals are edge-to-edge).
+  const insets = useSafeAreaInsets();
+  const headerTopPadding = Platform.OS === 'ios' ? 20 : insets.top + 16;
   const [engineerSearch, setEngineerSearch] = useState('');
   const [draft, setDraft] = useState<LeaveLogFilters>(filters);
   const [showFromPicker, setShowFromPicker] = useState(false);
@@ -127,7 +132,7 @@ function FilterModal({ visible, onClose, engineers, projects, filters, onApply }
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View className="flex-1 bg-neutral-50">
-        <View className="flex-row items-center justify-between px-5 pt-5 pb-3 bg-white border-b border-neutral-100">
+        <View className="flex-row items-center justify-between px-5 pb-3 bg-white border-b border-neutral-100" style={{ paddingTop: headerTopPadding }}>
           <Text className="text-lg font-semibold text-neutral-900">Filters</Text>
           <Pressable onPress={onClose} hitSlop={10}>
             <Ionicons name="close" size={24} color="#111" />

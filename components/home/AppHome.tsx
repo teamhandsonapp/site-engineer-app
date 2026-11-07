@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Modal, Pressable, View } from 'react-native';
+import { Modal, Pressable, ScrollView, View } from 'react-native';
 import { router } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { isFieldRole, useAuth } from '../../lib/AuthContext';
@@ -9,6 +9,7 @@ import { timeOfDayGreeting, firstName } from '../../lib/greeting';
 import { useDependencyCompletionsRealtime } from '../../lib/dependencyCompletionsRealtime';
 import { colors, radius, shadow, space } from '../../lib/theme';
 import { haptic } from '../../lib/haptics';
+import { useModalBottomPadding } from '../../lib/useSafeBottomOffset';
 import { ProgressRing } from '../ui/ProgressRing';
 import { EmptyState } from '../ui/EmptyState';
 import { AppText } from '../ui/AppText';
@@ -97,7 +98,8 @@ function QuickTile({ icon, label, color, onPress }: { icon: keyof typeof Ionicon
       <View style={{ width: 38, height: 38, borderRadius: radius.sm, backgroundColor: `${color}1A`, alignItems: 'center', justifyContent: 'center' }}>
         <Ionicons name={icon} size={20} color={color} />
       </View>
-      <AppText variant="bodyStrong" numberOfLines={1}>
+      {/* Two lines so "Critical Alerts" isn't cut off at large font sizes. */}
+      <AppText variant="bodyStrong" numberOfLines={2}>
         {label}
       </AppText>
     </Pressable>
@@ -218,13 +220,16 @@ function ProjectPickerSheet({
   onPick: (id: string) => void;
   onClose: () => void;
 }) {
+  // Last project row stays above the navigation bar; a long list scrolls.
+  const bottomPad = useModalBottomPadding(space.lg);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={{ flex: 1, backgroundColor: 'rgba(15,31,51,0.35)', justifyContent: 'flex-end' }} onPress={onClose} accessibilityLabel="Close">
-        <Pressable onPress={() => {}} style={{ backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: space.lg, paddingBottom: space.xxxl }}>
-          <AppText variant="section" style={{ marginBottom: space.md }}>
+        <Pressable onPress={() => {}} style={{ maxHeight: '85%', backgroundColor: colors.surface, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, paddingTop: space.lg }}>
+          <AppText variant="section" style={{ marginBottom: space.md, paddingHorizontal: space.lg }}>
             Switch project
           </AppText>
+          <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: bottomPad }}>
           {projects.map((p) => {
             const active = p.id === selectedId;
             return (
@@ -254,6 +259,7 @@ function ProjectPickerSheet({
               </Pressable>
             );
           })}
+          </ScrollView>
         </Pressable>
       </Pressable>
     </Modal>

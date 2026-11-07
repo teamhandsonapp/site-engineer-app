@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CONTACT_CATEGORIES, CONTACT_CATEGORY_LABEL, type ContactCategory } from '../../lib/contacts';
 import { fetchRecipients } from '../../lib/mom/share';
 import type { Recipient } from '../../lib/mom/types';
@@ -27,6 +28,7 @@ export function RecipientPicker({
   title?: string;
   onlyCategories?: ContactCategory[];
 }) {
+  const insets = useSafeAreaInsets();
   const [all, setAll] = useState<Recipient[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -75,7 +77,9 @@ export function RecipientPicker({
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <View className="flex-1 bg-neutral-50">
-        <View className="flex-row items-center gap-3 px-4 pt-12 pb-3 bg-white border-b border-neutral-100">
+        {/* Full-screen modal (edge-to-edge): header below the status bar,
+            Done above the navigation bar. */}
+        <View className="flex-row items-center gap-3 px-4 pb-3 bg-white border-b border-neutral-100" style={{ paddingTop: insets.top + 12 }}>
           <Pressable hitSlop={10} onPress={onClose}>
             <Ionicons name="close" size={22} color={NAVY} />
           </Pressable>
@@ -132,7 +136,7 @@ export function RecipientPicker({
           })}
         </ScrollView>
 
-        <View className="px-4 pb-8 pt-3 bg-white border-t border-neutral-100">
+        <View className="px-4 pt-3 bg-white border-t border-neutral-100" style={{ paddingBottom: insets.bottom + 12 }}>
           <Button label={`Done (${picked.size})`} icon="checkmark" onPress={() => onDone(Array.from(picked.values()))} />
         </View>
       </View>

@@ -42,3 +42,12 @@ export function useSafeBottomOffset(extra = 0): number {
   const insets = useSafeAreaInsets();
   return Math.max(insets.bottom + GESTURE_SAFETY_MARGIN, MIN_FLOOR) + extra;
 }
+
+// Bottom padding for anything inside a Modal that reaches the bottom edge
+// (sheet footers, sheet scroll content, full-screen modal footers). With
+// edge-to-edge on, React Native draws every Modal behind the status bar and
+// the navigation bar too, so the bar's height (3-button ≈ 48dp, gesture ≈
+// 16–24dp, iPhone home bar ≈ 34pt) must be added on top of the normal gap.
+export function useModalBottomPadding(gap = 16): number {
+  return useSafeAreaInsets().bottom + gap;
+}

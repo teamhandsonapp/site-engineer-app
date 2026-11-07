@@ -44,7 +44,17 @@ export function DemoEngineerDetail({ userId }: { userId: string }) {
 
   return (
     <View className="flex-1 bg-neutral-50">
-      <Stack.Screen options={{ title: e.name }} />
+      {/* Same header as the real detail page — without headerShown the page
+          had no back arrow and its content sat under the status bar. */}
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          title: e.name,
+          headerStyle: { backgroundColor: '#0F1F33' },
+          headerTintColor: '#fff',
+          headerTitleStyle: { fontWeight: '600' },
+        }}
+      />
       <ScrollView contentContainerClassName="px-4 pt-4 pb-10">
         {/* Header */}
         <Card className="mb-3">

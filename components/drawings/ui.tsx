@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors } from '../../lib/theme';
+import { useModalBottomPadding } from '../../lib/useSafeBottomOffset';
 import type { ConsultantStatusDTO } from '../../lib/drawings/types';
 
 // Phone versions of admin-web's side panels and dialogs: a bottom sheet with
@@ -19,6 +20,8 @@ export function BottomSheet({
   children: ReactNode;
   footer?: ReactNode;
 }) {
+  // Keeps the footer buttons / last row above the navigation bar.
+  const bottomPad = useModalBottomPadding(footer ? 8 : 24);
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
@@ -36,10 +39,10 @@ export function BottomSheet({
               <Ionicons name="close" size={18} color={colors.text} />
             </Pressable>
           </View>
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: footer ? 16 : 32 }} keyboardShouldPersistTaps="handled">
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: footer ? 16 : bottomPad }} keyboardShouldPersistTaps="handled">
             {children}
           </ScrollView>
-          {footer ? <View className="px-4 pt-2 pb-6 border-t border-neutral-100">{footer}</View> : null}
+          {footer ? <View className="px-4 pt-2 border-t border-neutral-100" style={{ paddingBottom: bottomPad }}>{footer}</View> : null}
         </View>
       </KeyboardAvoidingView>
     </Modal>
