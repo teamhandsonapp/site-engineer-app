@@ -3,7 +3,7 @@
 // Progress screen. Add the next screen as a new entry. Keep every item a
 // short name (a few words, one line) — no sentences.
 
-export type ProgressFrom = 'Client' | 'PMC team' | 'Development' | 'Phone update';
+export type ProgressFrom = 'Client' | 'Prakash' | 'Development' | 'Phone update';
 
 export interface ScreenProgress {
   screen: string;
@@ -58,7 +58,7 @@ export const APP_PROGRESS: ScreenProgress[] = [
     done: ['Greeting & date', 'Project switcher', 'Quick links', 'DPR link for engineers', 'Project progress list'],
     pending: ['Real Overview counts', 'Engineers: only their projects', 'Test client home', 'Test client YES / NO replies'],
     needed: [
-      { item: 'Client login for testing', from: 'PMC team' },
+      { item: 'Client login for testing', from: 'Prakash' },
       { item: 'Connect Overview counts', from: 'Development' },
     ],
   },
@@ -82,9 +82,9 @@ export const APP_PROGRESS: ScreenProgress[] = [
     needed: [
       { item: 'Who gets which alerts', from: 'Client' },
       { item: 'Site engineer list?', from: 'Client' },
-      { item: 'All projects or one', from: 'PMC team' },
-      { item: 'OK for read / unread table', from: 'PMC team' },
-      { item: 'Phone for push tests', from: 'PMC team' },
+      { item: 'All projects or one', from: 'Prakash' },
+      { item: 'OK for read / unread table', from: 'Prakash' },
+      { item: 'Phone for push tests', from: 'Prakash' },
       { item: 'Connect real data', from: 'Development' },
       { item: 'New Play Store build', from: 'Phone update' },
     ],
@@ -106,7 +106,7 @@ export const APP_PROGRESS: ScreenProgress[] = [
       'Test checklist edits',
     ],
     needed: [
-      { item: 'OK for lag / lead change', from: 'PMC team' },
+      { item: 'OK for lag / lead change', from: 'Prakash' },
       { item: 'Fix apply issues', from: 'Development' },
       { item: 'New Play Store build', from: 'Phone update' },
     ],
@@ -131,7 +131,7 @@ export const APP_PROGRESS: ScreenProgress[] = [
       { item: 'Transmittal, bills, quotes', from: 'Client' },
       { item: 'Storage for folders', from: 'Development' },
       { item: 'Phone drawing viewer', from: 'Development' },
-      { item: 'OK for reminder service', from: 'PMC team' },
+      { item: 'OK for reminder service', from: 'Prakash' },
       { item: 'New Play Store build', from: 'Phone update' },
     ],
   },
@@ -141,9 +141,9 @@ export const APP_PROGRESS: ScreenProgress[] = [
     done: ['User list', 'Role counts', 'Admin & manager only', 'Create user: admin only'],
     pending: ['Test create user', 'Test email invite', 'Test reset password', 'Test deactivate', 'Test change role', 'Search users', 'Edit name / phone'],
     needed: [
-      { item: 'Admin login for testing', from: 'PMC team' },
+      { item: 'Admin login for testing', from: 'Prakash' },
       { item: 'Managers change roles?', from: 'Client' },
-      { item: 'Email domain for invites', from: 'PMC team' },
+      { item: 'Email domain for invites', from: 'Prakash' },
     ],
   },
   {
@@ -151,7 +151,7 @@ export const APP_PROGRESS: ScreenProgress[] = [
     updated: '2026-11-06',
     done: ['Admin only access', '20 contacts saved'],
     pending: ['Test add / edit contact', 'Test delete contact', 'Test search & filters', 'Test WhatsApp share'],
-    needed: [{ item: 'Admin login for testing', from: 'PMC team' }],
+    needed: [{ item: 'Admin login for testing', from: 'Prakash' }],
   },
   {
     screen: 'DPR',
@@ -171,8 +171,8 @@ export const APP_PROGRESS: ScreenProgress[] = [
       'Test checklist PDF',
     ],
     needed: [
-      { item: 'Engineers on projects', from: 'PMC team' },
-      { item: 'Phone for photo tests', from: 'PMC team' },
+      { item: 'Engineers on projects', from: 'Prakash' },
+      { item: 'Phone for photo tests', from: 'Prakash' },
       { item: 'Fix reminder & lock', from: 'Development' },
       { item: 'New Play Store build', from: 'Phone update' },
     ],
@@ -196,8 +196,8 @@ export const APP_PROGRESS: ScreenProgress[] = [
     ],
     needed: [
       { item: 'Who gets MoM reports', from: 'Client' },
-      { item: 'WhatsApp provider', from: 'PMC team' },
-      { item: 'Speech-to-text choice', from: 'PMC team' },
+      { item: 'WhatsApp provider', from: 'Prakash' },
+      { item: 'Speech-to-text choice', from: 'Prakash' },
       { item: 'Save MoM online', from: 'Development' },
       { item: 'New Play Store build', from: 'Phone update' },
     ],
@@ -218,7 +218,7 @@ export const APP_PROGRESS: ScreenProgress[] = [
       'Test PDF download',
     ],
     needed: [
-      { item: 'Client login for testing', from: 'PMC team' },
+      { item: 'Client login for testing', from: 'Prakash' },
       { item: 'Contractor per task', from: 'Client' },
       { item: 'Remove sample data', from: 'Development' },
     ],

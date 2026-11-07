@@ -9,7 +9,7 @@ import { APP_PROGRESS, type ProgressFrom, type ScreenProgress } from '../../lib/
 
 const FROM_COLOR: Record<ProgressFrom, { fg: string; bg: string }> = {
   Client: { fg: '#B45309', bg: '#FEF3C7' },
-  'PMC team': { fg: '#1D4ED8', bg: '#DBEAFE' },
+  Prakash: { fg: '#1D4ED8', bg: '#DBEAFE' },
   Development: { fg: '#0F766E', bg: '#CCFBF1' },
   'Phone update': { fg: '#7C3AED', bg: '#EDE9FE' },
 };
