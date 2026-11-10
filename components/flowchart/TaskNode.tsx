@@ -292,9 +292,7 @@ export function TaskNode({
         >
           <Text numberOfLines={1} className="font-bold" style={[font2xs, { color: '#713F12', textAlign: 'center' }]}>{dateRange}</Text>
         </View>
-        {!task.taskId.startsWith('MILE-') && (
-          <Text className="font-mono font-bold" style={[font2xs, { color: textColor, opacity: 0.75, textAlign: 'center' }]}>{task.taskId}</Text>
-        )}
+        {/* Task code (TASK-001 / CIVIL-123456) hidden — names only, by request 2026-11-09. */}
         {/* category wraps up to 2 lines instead of truncating at 1 — a long
             category (well above the ~15-char median) used to read as
             overflowing/running past the box's own width rather than

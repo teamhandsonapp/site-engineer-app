@@ -95,7 +95,7 @@ function TaskCard({ task }: { task: DprActivityTask }) {
             {task.taskName}
           </Text>
           <Text className="text-2xs text-neutral-400">
-            {task.taskCode} · {task.workName} · {task.entries.length} DPR{task.entries.length === 1 ? '' : 's'}
+            {task.workName} · {task.entries.length} DPR{task.entries.length === 1 ? '' : 's'}
           </Text>
         </View>
         {task.forecast && <Text className="text-base font-extrabold text-emerald-600 mr-1">{task.forecast.percentDone}%</Text>}

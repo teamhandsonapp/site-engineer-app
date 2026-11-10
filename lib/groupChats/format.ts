@@ -69,6 +69,17 @@ export function dayLabel(iso: string, now = new Date()): string {
   return `${days[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+// Date chip text, WhatsApp style: TODAY, YESTERDAY, 12 NOVEMBER 2026.
+const MONTHS_FULL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+export function dayChipLabel(iso: string, now = new Date()): string {
+  const d = new Date(iso);
+  if (sameDay(d, now)) return 'TODAY';
+  const y = new Date(now);
+  y.setDate(now.getDate() - 1);
+  if (sameDay(d, y)) return 'YESTERDAY';
+  return `${d.getDate()} ${MONTHS_FULL[d.getMonth()]} ${d.getFullYear()}`.toUpperCase();
+}
+
 export function dayKey(iso: string): string {
   const d = new Date(iso);
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;

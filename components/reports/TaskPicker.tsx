@@ -51,7 +51,7 @@ export function TaskPicker({ options, selectedTaskId, onSelect }: TaskPickerProp
             <Text className="text-2xs font-semibold uppercase tracking-wide text-neutral-400 mb-0.5">Task</Text>
             {selected ? (
               <Text className="text-sm font-bold text-neutral-900" numberOfLines={1}>
-                {selected.milestoneLabel ?? selected.taskCode} — {selected.taskName}
+                {selected.milestoneLabel ? `${selected.milestoneLabel} — ` : ''}{selected.taskName}
               </Text>
             ) : (
               <Text className="text-sm text-neutral-400">Select a task to generate its report</Text>
@@ -93,7 +93,7 @@ export function TaskPicker({ options, selectedTaskId, onSelect }: TaskPickerProp
                     style={{ backgroundColor: o.id === selectedTaskId ? 'rgba(240,162,39,0.14)' : 'transparent' }}
                   >
                     <Text className="text-sm font-semibold text-neutral-800">
-                      {o.milestoneLabel ?? o.taskCode} — {o.taskName}
+                      {o.milestoneLabel ? `${o.milestoneLabel} — ` : ''}{o.taskName}
                     </Text>
                     <Text className="text-xs text-neutral-400 mt-0.5">{o.workName}</Text>
                   </Pressable>

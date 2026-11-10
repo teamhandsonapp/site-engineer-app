@@ -46,7 +46,7 @@ function HistoryRow({ entry, isLast }: { entry: MockHistoryEntry; isLast: boolea
     <View className={isLast ? '' : 'border-b border-neutral-100'}>
       <Pressable onPress={() => setExpanded((v) => !v)} className="flex-row items-center justify-between py-2.5">
         <View className="flex-1 pr-2">
-          <Text className="text-xs font-semibold text-neutral-800" numberOfLines={1}>{entry.taskCode} — {entry.taskName}</Text>
+          <Text className="text-xs font-semibold text-neutral-800" numberOfLines={1}>{entry.taskName}</Text>
           <Text className="text-2xs text-neutral-400 mt-0.5">
             DPR: {formatDateLabel(new Date(entry.dprDateISO))} · Submitted: {formatDateTimeLabel(new Date(entry.submittedAtISO))}
           </Text>
@@ -66,13 +66,6 @@ function HistoryRow({ entry, isLast }: { entry: MockHistoryEntry; isLast: boolea
               <Text className="text-2xs font-bold text-neutral-500">{entry.percentComplete}% done that day</Text>
             )}
           </View>
-
-          {(entry.targetedWorkforcePerDay != null || entry.actualWorkforcePerDay != null) && (
-            <View className="flex-row gap-4 mb-1.5">
-              <Text className="text-2xs text-neutral-500">Targeted: <Text className="font-bold text-neutral-900">{entry.targetedWorkforcePerDay ?? '—'}</Text></Text>
-              <Text className="text-2xs text-neutral-500">Actual: <Text className="font-bold text-neutral-900">{entry.actualWorkforcePerDay ?? '—'}</Text></Text>
-            </View>
-          )}
 
           {entry.dependencies.length > 0 && (
             <View className="flex-row flex-wrap gap-1 mb-1.5">

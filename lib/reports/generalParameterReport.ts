@@ -22,6 +22,18 @@ export interface GeneralParameterReportData {
   // E — inclusive working-day span from planned start to due date. Null if
   // either date is missing.
   plannedWorkingDays: number | null;
+  // Same inclusive working-day count for the REAL dates: actual start to
+  // actual end, or to today while the task is still running (then
+  // actualWorkingDaysOngoing is true). Null before an actual start.
+  actualWorkingDays: number | null;
+  actualWorkingDaysOngoing: boolean;
+  // The client's "Delayed By" (2026-11-09): Planned End − Actual End in
+  // calendar days, negative when late (e.g. 22 Aug − 15 Sep = −24). Uses the
+  // real actual end, or today while the task is still running (then
+  // delayedByOngoing is true). Null before an actual start / without a
+  // planned end.
+  delayedByDays: number | null;
+  delayedByOngoing: boolean;
   // H, Type 1 (Preconstruction delay) — working days between planned start
   // and actual start (or today, if it still hasn't started) that the task
   // is behind on even beginning. 0 when it started on/before schedule.
@@ -115,7 +127,7 @@ function toDateKeyUtc(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-async function fetchBlockedDates(years: Set<number>): Promise<Set<string>> {
+export async function fetchBlockedDates(years: Set<number>): Promise<Set<string>> {
   const blocked = new Set<string>();
   if (years.size === 0) return blocked;
   const minYear = Math.min(...years);
@@ -148,6 +160,11 @@ export async function fetchGeneralParameterReport(taskId: string, projectId: str
     base.plannedStartDate && base.dueDate
       ? countWorkingDaysBetween(parseDateKeyUtc(base.plannedStartDate), parseDateKeyUtc(base.dueDate), blocked)
       : null;
+
+  const actualWorkingDaysOngoing = !!base.actualStartDate && !base.actualEndDate;
+  const actualWorkingDays = base.actualStartDate
+    ? countWorkingDaysBetween(parseDateKeyUtc(base.actualStartDate), parseDateKeyUtc(base.actualEndDate ?? todayKey), blocked)
+    : null;
 
   let preconstructionDelayDays = 0;
   if (base.plannedStartDate) {
@@ -189,7 +206,7 @@ export async function fetchGeneralParameterReport(taskId: string, projectId: str
     supabase.from('dpr_entries').select('id', { count: 'exact', head: true }).eq('task_id', taskId).not('submitted_at', 'is', null),
     supabase
       .from('dpr_entries')
-      .select('report_date, dependency_categories, comment_preset, comment_text, percent_complete, targeted_workforce_per_day, actual_workforce_per_day')
+      .select('report_date, dependency_categories, comment_preset, comment_text, percent_complete, targeted_workforce_per_day, actual_workforce_per_day, delay_reason_comments')
       .eq('task_id', taskId)
       .order('report_date', { ascending: false }),
   ]);
@@ -210,8 +227,9 @@ export async function fetchGeneralParameterReport(taskId: string, projectId: str
     percent_complete: number | null;
     targeted_workforce_per_day: number | null;
     actual_workforce_per_day: number | null;
+    delay_reason_comments: Partial<Record<DprDependencyCategory, string>> | null;
   }
-  const typedEntries = (allEntries ?? []) as AllEntryRow[];
+  const typedEntries = (allEntries ?? []) as unknown as AllEntryRow[];
 
   const delayByCategory = DPR_DEPENDENCY_CATEGORIES.map((category) => {
     let count = 0;
@@ -221,7 +239,12 @@ export async function fetchGeneralParameterReport(taskId: string, projectId: str
       count += 1;
       // allEntries is already sorted newest-first, so the first match found
       // is the most recent one — never overwritten by an older row.
-      if (lastComment === null && row.comment_preset) {
+      // The comment typed for THIS reason (2026-11-09) wins; older rows
+      // only had the one shared Comments preset.
+      const ownComment = row.delay_reason_comments?.[category]?.trim();
+      if (lastComment === null && ownComment) {
+        lastComment = ownComment;
+      } else if (lastComment === null && row.comment_preset) {
         lastComment = row.comment_preset === 'other' ? row.comment_text : DPR_COMMENT_LABEL[row.comment_preset];
       }
     }
@@ -284,6 +307,12 @@ export async function fetchGeneralParameterReport(taskId: string, projectId: str
     progressDelayDays = Math.round((percentShortfall / dailyRatePercent) * 10) / 10;
   }
 
+  const delayedByOngoing = !base.actualEndDate;
+  const delayedByDays =
+    base.dueDate && base.actualStartDate
+      ? Math.round((parseDateKeyUtc(base.dueDate).getTime() - parseDateKeyUtc(base.actualEndDate ?? todayKey).getTime()) / 86_400_000)
+      : null;
+
   let effectiveActualEndDate: string | null = base.actualEndDate;
   if (!effectiveActualEndDate && cumulativePercentComplete >= 100 && base.actualStartDate && dailyProgress.length > 0) {
     const cursor = parseDateKeyUtc(base.actualStartDate);
@@ -299,6 +328,10 @@ export async function fetchGeneralParameterReport(taskId: string, projectId: str
     effectiveActualEndDate,
     base,
     plannedWorkingDays,
+    actualWorkingDays,
+    actualWorkingDaysOngoing,
+    delayedByDays,
+    delayedByOngoing,
     preconstructionDelayDays,
     constructionDelayDays,
     contractorChecklist,

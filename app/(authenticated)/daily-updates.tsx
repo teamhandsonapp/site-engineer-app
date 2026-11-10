@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
-import { router } from 'expo-router';
 import { isFieldRole, useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
 import { Card } from '../../components/ui/Card';
@@ -11,7 +10,6 @@ import { formatCardDateRange } from '../../lib/flowchart/delay';
 import {
   addDaysToKey,
   EMPTY_DPR_ENTRY,
-  fetchPendingChecklistSummaries,
   fetchTodayDprEntries,
   fetchTodaySubtasks,
   fetchUrgentTasksForEngineer,
@@ -22,11 +20,8 @@ import {
   type DprEntryFields,
   type DprSubtaskItem,
   type DprTask,
-  type PendingChecklistGroup,
 } from '../../lib/dprEntries';
 import { fetchApprovedGrantsForToday, requestDprEditAccess } from '../../lib/dprEditRequests';
-import { CATEGORY_LABEL } from '../../lib/taskDetail/constants';
-import type { DependencyCategory } from '../../lib/taskDetail/constants';
 import { fetchWorksForProject, type WorkOption } from '../../lib/flowchart/data';
 
 // Outside/above the status+department drill-down — Today (the full DPR
@@ -46,7 +41,7 @@ function TaskSummaryRow({ task }: { task: DprTask }) {
   return (
     <View className="flex-row items-center justify-between py-2.5 border-b border-neutral-100">
       <View className="flex-1 pr-2">
-        <Text className="text-xs font-semibold text-neutral-800" numberOfLines={1}>{task.taskCode} — {task.taskName}</Text>
+        <Text className="text-xs font-semibold text-neutral-800" numberOfLines={1}>{task.taskName}</Text>
         <Text className="text-2xs text-neutral-400 mt-0.5">{task.workName}</Text>
       </View>
       <View className="items-end">
@@ -61,80 +56,8 @@ function TaskSummaryRow({ task }: { task: DprTask }) {
   );
 }
 
-// Pending tab's own row shape — by explicit request, distinct from the full
-// DprTaskRow every other bucket shows: just the task id/department plus
-// which checklist categories still have unfulfilled prerequisite items and
-// how many (e.g. "Architect: 3 pending"), not the whole DPR entry form.
-// Tapping through opens /task/[taskId] — the existing prerequisite-detail
-// screen (reused as-is, not rebuilt) — for "what exactly is pending."
-function PendingTaskSummaryRow({ task, groups }: { task: DprTask; groups: PendingChecklistGroup[] }) {
-  return (
-    <Pressable onPress={() => router.push(`/task/${task.id}`)}>
-      <Card className="mb-2.5">
-        <View className="flex-row items-start justify-between">
-          <View className="flex-1 pr-2">
-            <Text className="text-sm font-bold text-neutral-900" numberOfLines={1}>
-              {task.taskCode} · {task.workName}
-            </Text>
-            <Text className="text-xs text-neutral-500 mt-0.5" numberOfLines={1}>{task.taskName}</Text>
-          </View>
-          <Text className="text-neutral-300 text-base">›</Text>
-        </View>
-        {groups.length > 0 && (
-          <View className="flex-row flex-wrap gap-1.5 mt-2">
-            {groups.map((g) => (
-              <View key={g.category} className="px-2 py-0.5 rounded-full bg-red-50">
-                <Text className="text-2xs font-semibold text-red-600">
-                  {CATEGORY_LABEL[g.category as DependencyCategory] ?? g.category}: {g.pendingCount} pending
-                </Text>
-              </View>
-            ))}
-          </View>
-        )}
-      </Card>
-    </Pressable>
-  );
-}
-
-// Today's tasks drill down 2 levels: first ONLY the 4 status options
-// (Priority/In Progress/On Hold/Pending — the last one covers draft/ready/
-// blocked, shown as "Yet to Start" everywhere else in this app, renamed
-// "Pending" here — "Priority"/urgent internally is the one exception, see
-// below); tapping one hides that list and shows that status's departments
-// as a chip row PLUS the currently-picked department's tasks directly
-// below, both on the same screen — switching chips no longer navigates to
-// a separate level (by explicit request, once several real departments
-// existed at once: a full extra screen just to pick one, before any task
-// appeared, read as an unnecessary step). The chip row auto-selects the
-// first department the moment a status is opened, so a task list is always
-// showing, never an empty "pick one" prompt. Bucketing is driven by the
-// task's REAL status (bucketForTask below) — In Progress means the task has
-// actually started, not just "scheduled today"; a not-yet-started task
-// (draft/ready/blocked) lands in Pending regardless of its date. Priority/
-// urgent is a separate, orthogonal bucket — whatever an admin pushed to
-// THIS engineer from the flowchart (pushTasksUrgent), fetched separately
-// since an urgent task might not even be scheduled today.
-type StatusBucket = 'urgent' | 'in_progress' | 'on_hold' | 'pending';
-const BUCKET_ORDER: StatusBucket[] = ['urgent', 'in_progress', 'on_hold', 'pending'];
-const BUCKET_LABEL: Record<StatusBucket, string> = {
-  urgent: 'Priority',
-  in_progress: 'In Progress',
-  on_hold: 'On Hold',
-  pending: 'Pending',
-};
-// Wired to the task's REAL status — was a hardcoded stub returning
-// 'in_progress' for every task regardless of status, by explicit
-// correction: "it should have started, then only it will come in
-// progress." Matches STATUS_DISPLAY_LABEL's own grouping (DprTaskRow.tsx):
-// draft/ready/blocked = "Yet to Start" (-> pending here), on_hold stays its
-// own bucket, in_progress is the only one that means the task has actually
-// started. completed tasks never reach this function at all (excluded
-// upstream by fetchWeekDprTasks's own point-5 filter).
-function bucketForTask(task: DprTask): StatusBucket {
-  if (task.status === 'in_progress') return 'in_progress';
-  if (task.status === 'on_hold') return 'on_hold';
-  return 'pending'; // draft/ready/blocked
-}
+// "All" chip on the DPR list's department filter.
+const ALL_DEPARTMENTS = 'All';
 
 // The DPR tab's single screen — no separate landing page + "New DPR" button
 // step, and no Scheduled-today/This-week stat cards, by explicit request:
@@ -184,17 +107,8 @@ export default function DailyUpdatesLandingScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [timeScope, setTimeScope] = useState<TimeScope>('today');
-  // null = not drilled in yet — only the level above is shown, by explicit
-  // request ("when I open one thing only another will come... not
-  // everything show outside"). Status -> Department -> Tasks is a strict
-  // one-level-at-a-time reveal now, each with its own back step, instead of
-  // all three stacked and visible together.
-  const [activeBucket, setActiveBucket] = useState<StatusBucket | null>(null);
-  // Department chips — back by explicit request, scoped to non-Pending
-  // buckets only (Pending's own PendingTaskSummaryRow already shows each
-  // task's department inline, so a filter row there would be redundant).
+  // Department filter chip on Today's list (null = All).
   const [activeDepartment, setActiveDepartment] = useState<string | null>(null);
-  const [pendingSummaries, setPendingSummaries] = useState<Record<string, PendingChecklistGroup[]>>({});
   // Which of today's tasks this engineer already has an admin-approved
   // "Contact Admin" edit grant for — unlocks DprTaskRow's own locked form
   // for just that (task, day), see its isLockedForEngineer.
@@ -227,11 +141,6 @@ export default function DailyUpdatesLandingScreen() {
       const allIds = [...new Set([...weekTasks.map((t) => t.id), ...urgent.map((t) => t.id)])];
       setEntries(await fetchTodayDprEntries(allIds, todayKey));
       setSubtasksByTask(await fetchTodaySubtasks(allIds, todayKey));
-      // Pending tab's own checklist summary — fetched for every task here
-      // (cheap, one batched query) rather than re-fetched per drill-down,
-      // since which tasks land in "pending" is only known once bucketed at
-      // render time from the real status.
-      setPendingSummaries(await fetchPendingChecklistSummaries(allIds));
       if (engineerId) setApprovedGrants(await fetchApprovedGrantsForToday(allIds, todayKey, engineerId));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -262,30 +171,25 @@ export default function DailyUpdatesLandingScreen() {
     );
   }
 
-  const todayTasks = tasks.filter((t) => t.scheduledToday);
   const tomorrowTasks = tasks.filter((t) => t.plannedStartDate && t.plannedEndDate && t.plannedStartDate <= tomorrowKey && t.plannedEndDate >= tomorrowKey);
   const weekTasks = tasks.filter((t) => t.plannedStartDate && t.plannedEndDate && t.plannedStartDate <= weekEndKey && t.plannedEndDate >= weekStartKey);
-  const tasksByBucket: Record<StatusBucket, DprTask[]> = { urgent: urgentTasks, in_progress: [], on_hold: [], pending: [] };
-  for (const task of todayTasks) tasksByBucket[bucketForTask(task)].push(task);
 
-  // Department chips — shown for every bucket EXCEPT Pending (that one's
-  // own PendingTaskSummaryRow already prints the department inline per row,
-  // so a filter there would just be a redundant extra tap). Auto-selects
-  // the FIRST department the moment a status is opened (falls back to it
-  // whenever activeDepartment is null or stale — e.g. picked under a
-  // different status tab with no matching department) so a task list is
-  // always showing under the chips, never an empty "pick one" prompt.
-  const activeBucketTasks = activeBucket ? tasksByBucket[activeBucket] : [];
-  const showDepartmentChips = activeBucket !== null && activeBucket !== 'pending';
-  const departments = showDepartmentChips ? Array.from(new Set(activeBucketTasks.map((t) => t.workName))) : [];
-  const effectiveDepartment = showDepartmentChips
-    ? ((activeDepartment && departments.includes(activeDepartment) ? activeDepartment : departments[0]) ?? null)
-    : null;
-  const visibleTasks = showDepartmentChips ? activeBucketTasks.filter((t) => t.workName === effectiveDepartment) : activeBucketTasks;
+  // Today's list: every active task (urgent pushes first), then by planned
+  // start — no status / checklist drill-down any more.
+  const urgentIds = new Set(urgentTasks.map((t) => t.id));
+  const allDprTasks = [
+    ...urgentTasks,
+    ...tasks
+      .filter((t) => t.scheduledToday && !urgentIds.has(t.id))
+      .sort((a, b) => (a.plannedStartDate ?? '9999').localeCompare(b.plannedStartDate ?? '9999')),
+  ];
+  const listDepartments = Array.from(new Set(allDprTasks.map((t) => t.workName)));
+  const listDepartment = activeDepartment && listDepartments.includes(activeDepartment) ? activeDepartment : ALL_DEPARTMENTS;
+  const listTasks = listDepartment === ALL_DEPARTMENTS ? allDprTasks : allDprTasks.filter((t) => t.workName === listDepartment);
 
   async function handleRequestEditAccess(task: DprTask, message: string) {
     if (!selectedProjectId || state.status !== 'signed-in') return;
-    await requestDprEditAccess(task.id, todayKey, selectedProjectId, state.profile.id, `${task.taskCode} — ${task.taskName}`, message);
+    await requestDprEditAccess(task.id, todayKey, selectedProjectId, state.profile.id, task.taskName, message);
   }
 
   return (
@@ -314,14 +218,7 @@ export default function DailyUpdatesLandingScreen() {
             <EmptyState icon="calendar-outline" iconColor="#9CA3AF" title="No project selected" subtitle="Pick a project from Home to fill in today's DPR." />
           ) : (
             <>
-              {/* Hidden once drilled into a status bucket (In Progress/On
-                  Hold/Pending), by explicit correction — Today/Upcoming/
-                  Week only belongs at the outermost level; sitting above
-                  the bucket's own back arrow + task list read as clutter.
-                  Upcoming/Week have no bucket drill-down of their own (see
-                  their flat TaskSummaryRow list below), so this only ever
-                  needs to hide for Today. */}
-              {!(timeScope === 'today' && activeBucket !== null) && (
+              {/* Today / Upcoming / Week switch. */}
                 <View className="flex-row self-start rounded-lg bg-neutral-100 p-0.5 mb-3">
                   {TIME_SCOPE_ORDER.map((scope) => {
                     const active = scope === timeScope;
@@ -339,64 +236,27 @@ export default function DailyUpdatesLandingScreen() {
                     );
                   })}
                 </View>
-              )}
 
               {timeScope === 'today' ? (
                 <>
-                {todayTasks.length === 0 && urgentTasks.length === 0 ? (
+                {allDprTasks.length === 0 ? (
                   <EmptyState
                     icon="checkmark-done-outline"
                     iconColor="#9CA3AF"
-                    title="Nothing scheduled today"
-                    subtitle="No active tasks have a planned date falling on today."
+                    title="No tasks to report on"
+                    subtitle="Tasks added to this project's flowchart show here."
                   />
-                ) : activeBucket === null ? (
-                  // Level 1 — status only. Nothing else on screen until one is tapped.
-                  <View className="gap-2.5">
-                    {BUCKET_ORDER.map((bucket) => (
-                      <Pressable
-                        key={bucket}
-                        onPress={() => setActiveBucket(bucket)}
-                        className="flex-row items-center justify-between rounded-xl border border-neutral-200 bg-white px-4 py-3.5"
-                      >
-                        <Text className="text-sm font-bold text-neutral-900">{BUCKET_LABEL[bucket]}</Text>
-                        <View className="flex-row items-center gap-2">
-                          <View className="px-2 py-0.5 rounded-full bg-neutral-100">
-                            <Text className="text-2xs font-bold text-neutral-600">{tasksByBucket[bucket].length}</Text>
-                          </View>
-                          <Text className="text-neutral-300 text-base">›</Text>
-                        </View>
-                      </Pressable>
-                    ))}
-                    {isAdminUser && <DprHistorySection />}
-                  </View>
                 ) : (
-                  // Level 2 — department chips (Pending excepted, see
-                  // showDepartmentChips's own comment above) directly above
-                  // that department's tasks, both on this one screen;
-                  // switching chips just swaps effectiveDepartment, no
-                  // further navigation.
+                  // Planned start/end drive this list now, not the pre-
+                  // construction checklist stage, by explicit request
+                  // (2026-11-09): every active task, earliest planned start
+                  // first, each opening straight into its DPR 1..N pager.
                   <>
-                    <Pressable onPress={() => setActiveBucket(null)} className="flex-row items-center gap-1 mb-3 self-start">
-                      <Text className="text-base text-neutral-400">‹</Text>
-                      <Text className="text-sm font-semibold text-neutral-500">{BUCKET_LABEL[activeBucket]}</Text>
-                    </Pressable>
-
-                    {showDepartmentChips && departments.length > 0 && (
-                      // items-center — a horizontal ScrollView's content container
-                      // defaults to alignItems: stretch on its cross axis; without
-                      // this each chip stretches to the ScrollView's own height
-                      // instead of its own content, turning rounded-full into a
-                      // giant vertical capsule (confirmed live once already).
-                      // maxHeight — on web, ScrollView itself has no intrinsic
-                      // height and defaults to flex-growing inside this column
-                      // layout, which left a large empty gap above and below the
-                      // chip row (confirmed live) instead of sitting flush under
-                      // the back link. Capped to the chip's own rendered height.
+                    {listDepartments.length > 1 && (
                       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 44 }} contentContainerClassName="flex-row items-center gap-2 mb-3">
-                        {departments.map((dept) => {
-                          const count = activeBucketTasks.filter((t) => t.workName === dept).length;
-                          const active = dept === effectiveDepartment;
+                        {[ALL_DEPARTMENTS, ...listDepartments].map((dept) => {
+                          const active = dept === listDepartment;
+                          const count = dept === ALL_DEPARTMENTS ? allDprTasks.length : allDprTasks.filter((t) => t.workName === dept).length;
                           return (
                             <Pressable
                               key={dept}
@@ -413,37 +273,26 @@ export default function DailyUpdatesLandingScreen() {
                         })}
                       </ScrollView>
                     )}
-
-                    {visibleTasks.length === 0 ? (
-                      <Text className="text-xs text-neutral-400 px-1">No tasks in this group.</Text>
-                    ) : activeBucket === 'pending' ? (
-                      visibleTasks.map((task) => (
-                        <PendingTaskSummaryRow key={task.id} task={task} groups={pendingSummaries[task.id] ?? []} />
-                      ))
-                    ) : (
-                      visibleTasks.map((task) => (
-                        <DprTaskRow
-                          key={task.id}
-                          task={task}
-                          projectId={selectedProjectId}
-                          works={projectWorks}
-                          dependencies={(entries[task.id] ?? EMPTY_DPR_ENTRY).dependencyCategories}
-                          dependencyOtherText={(entries[task.id] ?? EMPTY_DPR_ENTRY).dependencyOtherText}
-                          comment={(entries[task.id] ?? EMPTY_DPR_ENTRY).comment}
-                          subtasks={subtasksByTask[task.id] ?? []}
-                          percentComplete={(entries[task.id] ?? EMPTY_DPR_ENTRY).percentComplete}
-                          targetedWorkforcePerDay={(entries[task.id] ?? EMPTY_DPR_ENTRY).targetedWorkforcePerDay}
-                          actualWorkforcePerDay={(entries[task.id] ?? EMPTY_DPR_ENTRY).actualWorkforcePerDay}
-                          submittedByName={(entries[task.id] ?? EMPTY_DPR_ENTRY).submittedByName}
-                          submittedAtISO={(entries[task.id] ?? EMPTY_DPR_ENTRY).submittedAtISO}
-                          isAdmin={isAdminUser}
-                          dprSubmittedAtISO={(entries[task.id] ?? EMPTY_DPR_ENTRY).dprSubmittedAtISO}
-                          hasApprovedEditGrant={approvedGrants.has(task.id)}
-                          onRequestEditAccess={(message) => handleRequestEditAccess(task, message)}
-                        />
-                      ))
-                    )}
-
+                    {listTasks.map((task) => (
+                      <DprTaskRow
+                        key={task.id}
+                        task={task}
+                        projectId={selectedProjectId}
+                        works={projectWorks}
+                        dependencies={(entries[task.id] ?? EMPTY_DPR_ENTRY).dependencyCategories}
+                        dependencyOtherText={(entries[task.id] ?? EMPTY_DPR_ENTRY).dependencyOtherText}
+                        comment={(entries[task.id] ?? EMPTY_DPR_ENTRY).comment}
+                        subtasks={subtasksByTask[task.id] ?? []}
+                        percentComplete={(entries[task.id] ?? EMPTY_DPR_ENTRY).percentComplete}
+                        submittedByName={(entries[task.id] ?? EMPTY_DPR_ENTRY).submittedByName}
+                        submittedAtISO={(entries[task.id] ?? EMPTY_DPR_ENTRY).submittedAtISO}
+                        isAdmin={isAdminUser}
+                        dprSubmittedAtISO={(entries[task.id] ?? EMPTY_DPR_ENTRY).dprSubmittedAtISO}
+                        hasApprovedEditGrant={approvedGrants.has(task.id)}
+                        onRequestEditAccess={(message) => handleRequestEditAccess(task, message)}
+                      />
+                    ))}
+                    {isAdminUser && <DprHistorySection />}
                   </>
                 )}
                 </>

@@ -91,7 +91,7 @@ function TaskRowCard({ row }: { row: StakeholderTaskRow }) {
         <View className="flex-1 pr-2">
           <Text className="text-sm font-bold text-neutral-900" numberOfLines={1}>{row.taskName}</Text>
           <Text className="text-2xs text-neutral-400 mt-0.5">
-            {row.taskCode} · {row.workName}
+            {row.workName}
           </Text>
         </View>
         {row.isOverdue ? (

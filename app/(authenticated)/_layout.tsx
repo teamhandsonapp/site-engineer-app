@@ -61,7 +61,6 @@ export default function AuthenticatedLayout() {
       }}
     >
       <Drawer.Screen name="home" options={{ title: 'Home', drawerLabel: 'Home' }} />
-      <Drawer.Screen name="app-progress" options={{ title: 'App Progress', drawerLabel: 'App Progress' }} />
       {/* Cross-project notification center — every unresolved alert across
           EVERY project, not scoped to selectedProjectId like Critical
           Alerts. Staff-only (DrawerContent.tsx's STAFF_ONLY_ROUTES) — the
@@ -102,7 +101,7 @@ export default function AuthenticatedLayout() {
           exclusive per role (see DrawerContent.tsx's FIELD_ROLE_ONLY_ROUTES
           / ADMIN_MANAGER_ONLY_ROUTES split) and never shown to the same
           account at once. */}
-      <Drawer.Screen name="team-attendance" options={{ title: 'Site Attendance', drawerLabel: 'Site Attendance' }} />
+      <Drawer.Screen name="team-attendance" options={{ title: 'Site Engineer Attendance', drawerLabel: 'Attendance' }} />
       {/* Site engineers' own attendance scores — a sub-item under Site
           Attendance in the drawer (DrawerContent.tsx SUBMENUS), admin/
           manager only like team-attendance. */}

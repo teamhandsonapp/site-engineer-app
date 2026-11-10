@@ -75,10 +75,9 @@ const SUBMENUS: Record<string, { route: string; label: string; params?: { tab: s
     { route: 'mom', label: 'Custom Alerts', params: { tab: 'alerts' } },
     { route: 'mom', label: 'Email Reports', params: { tab: 'email' }, adminOnly: true },
   ],
-  'team-attendance': [
-    { route: 'engineer-attendance', label: 'Site Engineer Attendance' },
-    { route: 'leave-log', label: 'Leave Log' },
-  ],
+  // Attendance itself now opens Site Engineer Attendance (Workforce
+  // Attendance removed 2026-11-09), so it isn't repeated as a sub-item.
+  'team-attendance': [{ route: 'leave-log', label: 'Leave Log' }],
 };
 
 // Reports submenu — restructured (by explicit request) into "Report by

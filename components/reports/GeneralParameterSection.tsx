@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useProject } from '../../lib/ProjectContext';
+import { useAuth } from '../../lib/AuthContext';
+import { supabase } from '../../lib/supabase';
 import { EmptyState } from '../ui/EmptyState';
 import { ReportSection } from './ReportSection';
 import { PieChart } from './charts/PieChart';
@@ -186,6 +188,229 @@ interface DelayByCategoryItem {
 }
 
 
+// ─── Type 2: one compact page (2026-11-09) ──────────────────────────────────
+// Pre Construction -> Construction -> Post Construction as three tight cards,
+// each with its delay as a badge in the header, so the whole report fits on
+// one phone screen without scrolling.
+const SHORT_MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function shortKey(key: string | null): string {
+  if (!key) return '—';
+  const [y, m, d] = key.split('-').map(Number);
+  return `${d} ${SHORT_MONTH_NAMES[m - 1]} ${String(y).slice(2)}`;
+}
+
+// Print-friendly colours for Type 2, by request (2026-11-09): text black
+// (light grey disappears on paper); exactly two colours for dates — planned
+// (start, end, working days) blue, actual (start, end, working days) green;
+// delays brown (not red).
+const T2_BLACK = '#111827';
+const T2_BLUE = '#1D4ED8';
+const T2_GREEN = '#047857';
+const T2_RED = '#8B4513'; // delay colour: brown
+
+function DelayBadge({ days, label = 'delay', suffix = '' }: { days: number; label?: string; suffix?: string }) {
+  return (
+    <View className="rounded-full px-2 py-0.5" style={{ borderWidth: 1, borderColor: T2_RED }}>
+      <Text className="text-2xs font-extrabold" style={{ color: T2_RED }}>
+        {days}d {label}
+        {suffix}
+      </Text>
+    </View>
+  );
+}
+
+function Stage({ n, title, badge, children }: { n: number; title: string; badge: ReactNode; children: ReactNode }) {
+  return (
+    <View className="rounded-xl border border-neutral-300 px-3 py-2 mb-2">
+      <View className="flex-row items-center justify-between mb-1.5">
+        <View className="flex-row items-center gap-1.5">
+          <View className="w-4 h-4 rounded-full bg-brand-navy items-center justify-center">
+            <Text className="text-white font-extrabold" style={{ fontSize: 9 }}>{n}</Text>
+          </View>
+          <Text className="text-xs font-extrabold uppercase tracking-wide" style={{ color: T2_BLACK }}>
+            {title}
+          </Text>
+        </View>
+        {badge}
+      </View>
+      {children}
+    </View>
+  );
+}
+
+// "Label = formula = value" line under each stage.
+function Formula({ label, formula, days, suffix = '', valueText }: { label: string; formula: string; days: number; suffix?: string; valueText?: string }) {
+  return (
+    <Text className="text-xs mt-1.5" style={{ color: T2_BLACK }}>
+      <Text className="font-bold">{label}</Text> = {formula} ={' '}
+      <Text className="font-extrabold" style={{ color: T2_RED }}>
+        {valueText ?? `${days}d${suffix}`}
+      </Text>
+    </Text>
+  );
+}
+
+// Client's sign convention: Planned End − Actual End, so late = negative.
+const signedDays = (n: number) => `${n < 0 ? '−' : n > 0 ? '+' : ''}${Math.abs(n)} days`;
+
+function Type2Report({
+  data,
+  projectName,
+  completedPercent,
+  pendingPercent,
+  constructionDelay,
+}: {
+  data: GeneralParameterReportData;
+  projectName: string;
+  completedPercent: number;
+  pendingPercent: number;
+  constructionDelay: number;
+}) {
+  const { base } = data;
+  // Reasons for delay come ONLY from what's ticked in the DPR (not the
+  // pre-construction checklist), by request — all 0 until a DPR gives one.
+  // "Other" is listed only once it's actually been used.
+  const reasons: DelayByCategoryItem[] = data.delayByCategory
+    .filter((d) => d.category !== 'other' || d.count > 0)
+    .map((d) => ({ category: d.category, label: d.label, pending: d.count, lastComment: d.lastComment }));
+  const pre = data.preconstructionDelayDays;
+  const total = pre + constructionDelay;
+  const [openReason, setOpenReason] = useState<string | null>(null);
+  const black = { color: T2_BLACK };
+  const blue = { color: T2_BLUE };
+  const green = { color: T2_GREEN };
+  const cell = 'flex-1 text-xs font-bold';
+
+  return (
+    <View>
+      {/* Project / Task / Department — one full-width line each. */}
+      <View className="rounded-xl border border-neutral-300 px-3 py-2 mb-2 gap-1">
+        {[
+          ['Project', projectName],
+          ['Task', base.task.taskName],
+          ['Department', base.task.workName],
+        ].map(([label, value]) => (
+          <View key={label} className="flex-row items-start">
+            <Text className="text-xs" style={[black, { width: 84 }]}>
+              {label}
+            </Text>
+            <Text className="flex-1 text-sm font-bold" style={black}>
+              {value}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      <Stage n={1} title="Pre Construction" badge={<DelayBadge days={pre} suffix={base.actualStartDate ? '' : ' so far'} />}>
+        <View className="flex-row">
+          <View className="flex-1">
+            <Text className="text-2xs" style={black}>Planned start</Text>
+            <Text className="text-xs font-bold" style={blue}>{shortKey(base.plannedStartDate)}</Text>
+          </View>
+          <View className="flex-1">
+            <Text className="text-2xs" style={black}>Actual start</Text>
+            <Text className="text-xs font-bold" style={green}>
+              {base.actualStartDate ? shortKey(base.actualStartDate) : 'Not started'}
+            </Text>
+          </View>
+        </View>
+        <Formula label="Pre Construction Delay" formula="Planned Start − Actual Start" days={pre} suffix={base.actualStartDate ? '' : ' so far'} />
+      </Stage>
+
+      <Stage n={2} title="Construction" badge={<DelayBadge days={constructionDelay} />}>
+        <View className="flex-row mb-0.5">
+          <Text className="text-2xs" style={[black, { width: 56 }]} />
+          <Text className="flex-1 text-2xs" style={black}>Start</Text>
+          <Text className="flex-1 text-2xs" style={black}>End</Text>
+          <Text className="flex-1 text-2xs text-right" style={black}>Working days</Text>
+        </View>
+        <View className="flex-row mb-0.5">
+          <Text className="text-2xs font-bold" style={[blue, { width: 56 }]}>Planned</Text>
+          <Text className={cell} style={blue}>{shortKey(base.plannedStartDate)}</Text>
+          <Text className={cell} style={blue}>{shortKey(base.dueDate)}</Text>
+          <Text className={`${cell} text-right`} style={blue}>{data.plannedWorkingDays ?? '—'}</Text>
+        </View>
+        <View className="flex-row mb-1.5">
+          <Text className="text-2xs font-bold" style={[green, { width: 56 }]}>Actual</Text>
+          <Text className={cell} style={green}>{base.actualStartDate ? shortKey(base.actualStartDate) : '—'}</Text>
+          <Text className={cell} style={green}>
+            {data.effectiveActualEndDate ? shortKey(data.effectiveActualEndDate) : base.actualStartDate ? 'ongoing' : '—'}
+          </Text>
+          <Text className={`${cell} text-right`} style={green}>
+            {data.actualWorkingDays != null ? `${data.actualWorkingDays}${data.actualWorkingDaysOngoing ? ' so far' : ''}` : '—'}
+          </Text>
+        </View>
+        <View className="flex-row items-center gap-2">
+          <View className="flex-1 h-2 rounded-full bg-neutral-200 overflow-hidden">
+            <View style={{ width: `${Math.max(0, Math.min(100, completedPercent))}%`, height: '100%', backgroundColor: CHART_COMPLETED }} />
+          </View>
+          <Text className="text-2xs font-bold" style={black}>{completedPercent}% done</Text>
+          <Text className="text-2xs font-bold" style={black}>{pendingPercent}% pending</Text>
+        </View>
+        <Formula label="Construction Delay" formula="Actual Working Days − Planned Working Days" days={constructionDelay} />
+      </Stage>
+
+      <Stage
+        n={3}
+        title="Post Construction"
+        badge={
+          <View className="rounded-full px-2 py-0.5" style={{ borderWidth: 1, borderColor: T2_RED }}>
+            <Text className="text-2xs font-extrabold" style={{ color: T2_RED }}>
+              {data.delayedByDays != null ? `Delayed by ${signedDays(data.delayedByDays)}${data.delayedByOngoing ? ' so far' : ''}` : 'Not started'}
+            </Text>
+          </View>
+        }
+      >
+        {/* The client's "Delayed By" (2026-11-09): straight Planned End −
+            Actual End, same as their sheet (e.g. 22 Aug − 15 Sep = −24). */}
+        {data.delayedByDays != null ? (
+          <Formula
+            label="Delayed By"
+            formula={`Planned End ${shortKey(base.dueDate)} − Actual End ${base.actualEndDate ? shortKey(base.actualEndDate) : 'today'}`}
+            days={data.delayedByDays}
+            valueText={`${signedDays(data.delayedByDays)}${data.delayedByOngoing ? ' so far' : ''}`}
+          />
+        ) : (
+          <Text className="text-xs mt-1" style={black}>
+            Delayed By = Planned End − Actual End (shown once the task has started)
+          </Text>
+        )}
+        <Text className="text-2xs font-bold uppercase tracking-wide mt-2 mb-1" style={black}>
+          Reasons for delay
+        </Text>
+        <View className="flex-row items-center gap-4">
+          <PieChart
+            data={reasons.map((d) => ({ key: d.category, label: d.label, value: d.pending, color: DEPARTMENT_COLOR[d.category] ?? DEPARTMENT_COLOR_FALLBACK }))}
+            size={112}
+            donut
+            showLegend={false}
+          />
+          <View className="flex-1">
+            {reasons.map((d) => {
+              const color = DEPARTMENT_COLOR[d.category] ?? DEPARTMENT_COLOR_FALLBACK;
+              const open = openReason === d.category;
+              return (
+                <Pressable key={d.category} onPress={() => setOpenReason(open ? null : d.category)} className="py-1">
+                  <View className="flex-row items-center gap-1.5">
+                    <View className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
+                    <Text className="flex-1 text-xs" style={black}>{d.label}</Text>
+                    <Text className="text-xs font-bold" style={{ color: d.pending > 0 ? T2_RED : T2_BLACK }}>{d.pending}</Text>
+                    {d.lastComment ? <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={12} color={T2_BLACK} /> : <View style={{ width: 12 }} />}
+                  </View>
+                  {open && d.lastComment ? (
+                    <Text className="text-2xs ml-3.5 mt-0.5" style={black}>
+                      {d.lastComment}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      </Stage>
+    </View>
+  );
+}
 // Shared donut + legend + expandable "Reasons for Delays" list — used 3x
 // (Pre Construction/Construction/Post Construction), each with a different
 // items source and expanded-detail text, by explicit request. Kept as one
@@ -270,7 +495,7 @@ function DelayByCategorySection({
           })}
         </View>
       </View>
-      {items.every((d) => d.pending === 0) && <Text className="text-2xs text-neutral-400 mt-1.5">{emptyMessage}</Text>}
+      {!!emptyMessage && items.every((d) => d.pending === 0) && <Text className="text-2xs text-neutral-400 mt-1.5">{emptyMessage}</Text>}
 
       <Text className="text-xs font-extrabold uppercase tracking-wide text-neutral-700 mt-3 mb-2">Reasons for Delays</Text>
       <View className="gap-1">
@@ -486,7 +711,17 @@ export function deriveReportView(data: GeneralParameterReportData, taskTypes: Ta
 // One A4 PDF covering all three stages (Pre Construction, Construction,
 // Post Construction), by explicit request — used by the report screen's
 // Download PDF and by project Settings' Printouts.
-export function buildTaskReportPdfHtml(data: GeneralParameterReportData, projectName: string, taskTypes: TaskTypeOption[]): string {
+// Task Based report layouts, chosen per project (projects.report_format):
+// type1 = Pre Construction / Construction / Post Construction tabs,
+// type2 = everything on one page (what the client wants for now).
+export type ReportFormat = 'type1' | 'type2';
+
+export function buildTaskReportPdfHtml(
+  data: GeneralParameterReportData,
+  projectName: string,
+  taskTypes: TaskTypeOption[],
+  format: ReportFormat = 'type1'
+): string {
   const { base } = data;
   const {
     checklistDelayByCategory,
@@ -543,7 +778,6 @@ export function buildTaskReportPdfHtml(data: GeneralParameterReportData, project
   const headerCells = [
     info('Project Name', projectName),
     info('Task Name', base.task.taskName),
-    info('Task ID', base.task.taskCode),
     info('Report Date', formatReportDate(new Date())),
     info('Department', base.task.workName),
     info('Contractor', DUMMY_CONTRACTOR_NAME),
@@ -600,6 +834,10 @@ export function buildTaskReportPdfHtml(data: GeneralParameterReportData, project
       ]
     : [];
 
+  // Construction delay = actual working days − planned working days (by
+  // dates, 2026-11-09); 0 before an actual start.
+  const constructionDelay = data.constructionDelayDays ?? 0;
+
   const stageTitle = (n: number, name: string) =>
     `<div class="stage"><span class="badge">${n}</span>${esc(name)}</div>`;
 
@@ -611,6 +849,12 @@ export function buildTaskReportPdfHtml(data: GeneralParameterReportData, project
           ...headerCells,
           info('Planned Start', base.plannedStartDate ? formatDateKeyLabel(base.plannedStartDate) : 'Not set'),
           info('Planned End', base.dueDate ? formatDateKeyLabel(base.dueDate) : 'Not set'),
+          info('Actual Start', base.actualStartDate ? formatDateKeyLabel(base.actualStartDate) : 'Not started yet', base.actualStartDate ? undefined : '#9CA3AF'),
+          info(
+            'Pre Construction Delay',
+            `${data.preconstructionDelayDays} working day${data.preconstructionDelayDays === 1 ? '' : 's'}${base.actualStartDate ? '' : ' so far'}`,
+            data.preconstructionDelayDays > 0 ? CHART_PENDING : DONE_COLOR
+          ),
         ])}
         ${delaySection('Delay by Prerequisites', "From this task's prerequisite checklist — Pending, On Hold and Revisions items", checklistDelayByCategory, (d) =>
           (d.pendingItems ?? []).map((i) => `${i.label} — ${i.statusLabel}${i.comment ? ` · ${i.comment}` : ''}`)
@@ -624,9 +868,15 @@ export function buildTaskReportPdfHtml(data: GeneralParameterReportData, project
       <div class="card">
         ${infoGrid(headerCells)}
         ${infoGrid([
-          info('Total Working Days', data.plannedWorkingDays != null ? `${data.plannedWorkingDays} days` : 'Not set'),
+          info('Planned Working Days', data.plannedWorkingDays != null ? `${data.plannedWorkingDays} days` : 'Not set'),
           info('Actual Start Date', actualStart),
           info('Actual End Date', actualEnd, data.effectiveActualEndDate ? undefined : '#9CA3AF'),
+          info(
+            'Actual Working Days',
+            data.actualWorkingDays != null ? `${data.actualWorkingDays} days${data.actualWorkingDaysOngoing ? ' so far' : ''}` : 'Not started yet',
+            data.actualWorkingDays != null ? undefined : '#9CA3AF'
+          ),
+          info('Construction Delay', `${constructionDelay} working day${constructionDelay === 1 ? '' : 's'}`, constructionDelay > 0 ? CHART_PENDING : DONE_COLOR),
           ...workforceCells,
         ])}
         <div class="chartrow">
@@ -661,7 +911,7 @@ export function buildTaskReportPdfHtml(data: GeneralParameterReportData, project
       </div>
     </section>`;
 
-  const totalDelay = data.preconstructionDelayDays + data.progressDelayDays;
+  const totalDelay = data.preconstructionDelayDays + constructionDelay;
   const delayColor = (n: number) => (n > 0 ? CHART_PENDING : DONE_COLOR);
   const post = `
     <section class="page">
@@ -671,7 +921,7 @@ export function buildTaskReportPdfHtml(data: GeneralParameterReportData, project
         <div class="sec">Cumulative Delay</div>
         <div class="rows">
           <div class="row"><span>Preconstruction (Planned Start − Actual Start)</span><b style="color:${delayColor(data.preconstructionDelayDays)}">${data.preconstructionDelayDays}d</b></div>
-          <div class="row"><span>Construction (Expected Progress − Actual DPR Progress)</span><b style="color:${delayColor(data.progressDelayDays)}">${data.progressDelayDays}d</b></div>
+          <div class="row"><span>Construction (Actual Working Days − Planned Working Days)</span><b style="color:${delayColor(constructionDelay)}">${constructionDelay}d</b></div>
           <div class="row"><span>Cumulative Total (Preconstruction + Construction)</span><b style="color:${delayColor(totalDelay)}">${totalDelay}d</b></div>
         </div>
         ${delaySection('Cumulative Reason for Delay', 'Checklist + DPR combined', cumulativeDelayByCategory, (d) => checklistItemsFor(d.category))}
@@ -713,11 +963,78 @@ export function buildTaskReportPdfHtml(data: GeneralParameterReportData, project
     .sign { display: flex; gap: 24px; margin-top: 18px; }
     .sign div { flex: 1; border-top: 1px solid #111827; padding-top: 3px; font-size: 9.5px; color: #6B7280; margin-top: 26px; }
   `;
-  const top = `<div class="top"><div class="logo">PMC PORTAL · TASK BASED REPORT</div><div class="meta">${esc(projectName)} · ${esc(base.task.taskCode)}<br/>Generated ${esc(formatReportDate(new Date()))}</div></div>`;
+  const top = `<div class="top"><div class="logo">PMC PORTAL · TASK BASED REPORT</div><div class="meta">${esc(projectName)} · ${esc(base.task.taskName)}<br/>Generated ${esc(formatReportDate(new Date()))}</div></div>`;
   const sign = `<div class="sign"><div>Prepared by (PMC)</div><div>Client acknowledgement &amp; date</div></div>`;
   const withChrome = (section: string) => section.replace('<section class="page">', `<section class="page">${top}`).replace(/<\/section>$/, `${sign}</section>`);
 
-  return `<!doctype html><html><head><meta charset="utf-8"/><title>${esc(base.task.taskCode)} — Task Based Report</title><style>${style}</style></head><body>${[pre, construction, post]
+  // Type 2 (2026-11-09): everything on ONE page — schedule, the three
+  // delays, progress and every reason for delay with its comment.
+  // Type 2 (2026-11-09): everything on ONE page. Print colours by request:
+  // all text black (grey is too faint on paper), planned values blue,
+  // delays red.
+  const BLUE = '#1D4ED8'; // planned start / end / working days
+  const GREEN = '#047857'; // actual start / end / working days
+  const RED = '#8B4513'; // delays — brown, not red, by request
+  const BLACK = '#111827';
+  const formula = (label: string, f: string, days: number, suffix = '') =>
+    `<div class="row"><span><b>${esc(label)}</b> = ${esc(f)}</span><b style="color:${RED}">${days}d${esc(suffix)}</b></div>`;
+  const type2 = `
+    <section class="page">
+      ${stageTitle(1, 'Task Status')}
+      <div class="card">
+        ${infoGrid([
+          // No Task ID / Task Type / Procurement Lead Time on Type 2, by request.
+          info('Project Name', projectName, BLACK),
+          info('Task Name', base.task.taskName, BLACK),
+          info('Report Date', formatReportDate(new Date()), BLACK),
+          info('Department', base.task.workName, BLACK),
+        ])}
+        <div class="sec">1 · Pre Construction</div>
+        ${infoGrid([
+          info('Planned Start', base.plannedStartDate ? formatDateKeyLabel(base.plannedStartDate) : 'Not set', BLUE),
+          info('Actual Start', base.actualStartDate ? formatDateKeyLabel(base.actualStartDate) : 'Not started yet', GREEN),
+        ])}
+        <div class="rows">
+          ${formula('Pre Construction Delay', 'Planned Start − Actual Start', data.preconstructionDelayDays, base.actualStartDate ? '' : ' so far')}
+        </div>
+        <div class="sec">2 · Construction</div>
+        ${infoGrid([
+          info('Planned Start', base.plannedStartDate ? formatDateKeyLabel(base.plannedStartDate) : 'Not set', BLUE),
+          info('Planned End', base.dueDate ? formatDateKeyLabel(base.dueDate) : 'Not set', BLUE),
+          info('Planned Working Days', data.plannedWorkingDays != null ? `${data.plannedWorkingDays} days` : 'Not set', BLUE),
+          info('Actual Start', base.actualStartDate ? formatDateKeyLabel(base.actualStartDate) : 'Not started yet', GREEN),
+          info('Actual End', actualEnd, GREEN),
+          info(
+            'Actual Working Days',
+            data.actualWorkingDays != null ? `${data.actualWorkingDays} days${data.actualWorkingDaysOngoing ? ' so far' : ''}` : 'Not started yet',
+            GREEN
+          ),
+          info('Work Completed', `${completedPercent}%`, BLACK),
+          info('Work Pending', `${pendingPercent}%`, BLACK),
+        ])}
+        <div class="rows">
+          ${formula('Construction Delay', 'Actual Working Days − Planned Working Days', constructionDelay)}
+        </div>
+        <div class="sec">3 · Post Construction</div>
+        <div class="rows">
+          ${formula('Total Delay', `Pre Construction ${data.preconstructionDelayDays}d + Construction ${constructionDelay}d`, totalDelay)}
+        </div>
+        ${delaySection(
+          'Reasons for Delay',
+          'From the reasons ticked in the DPR, with the comment given for each',
+          data.delayByCategory
+            .filter((d) => d.category !== 'other' || d.count > 0)
+            .map((d) => ({ category: d.category, label: d.label, pending: d.count, lastComment: d.lastComment })),
+          (d) => (d.lastComment ? [`Comment: ${d.lastComment}`] : [])
+        )}
+      </div>
+    </section>`;
+  // Every grey label/note in the shared print styles -> black for Type 2.
+  const type2Style = `
+    .top .meta, .lbl, .subt, .legl, .stat .lbl, .note, .note.muted, .reason ul, .sign div, .row span { color: ${BLACK} !important; }
+    .sec { color: ${BLACK} !important; }`;
+  const pages = format === 'type2' ? [type2] : [pre, construction, post];
+  return `<!doctype html><html><head><meta charset="utf-8"/><title>${esc(base.task.taskCode)} — Task Based Report</title><style>${style}${format === 'type2' ? type2Style : ''}</style></head><body>${pages
     .map((x) => withChrome(x.trim()))
     .join('')}</body></html>`;
 }
@@ -742,6 +1059,40 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
   useEffect(() => {
     fetchTaskTypes().then(setTaskTypes).catch(() => {}); // letter falls back to the raw name below if this fails
   }, []);
+
+  // Report layout for this project (projects.report_format). Admin/manager
+  // can switch it; everyone else just sees the project's choice.
+  const { state: authState } = useAuth();
+  const canChooseFormat = authState.status === 'signed-in' && (authState.profile.role === 'admin' || authState.profile.role === 'manager');
+  const [format, setFormat] = useState<ReportFormat>('type1');
+  const [formatError, setFormatError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    let cancelled = false;
+    supabase
+      .from('projects')
+      .select('report_format')
+      .eq('id', selectedProjectId)
+      .maybeSingle()
+      .then(({ data: row }) => {
+        const f = (row as { report_format?: string } | null)?.report_format;
+        if (!cancelled && (f === 'type1' || f === 'type2')) setFormat(f);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProjectId]);
+  async function chooseFormat(next: ReportFormat) {
+    if (next === format || !selectedProjectId) return;
+    const prev = format;
+    setFormat(next);
+    setFormatError(null);
+    const { error } = await supabase.from('projects').update({ report_format: next }).eq('id', selectedProjectId);
+    if (error) {
+      setFormat(prev);
+      setFormatError(`Couldn't save the report format — ${error.message}`);
+    }
+  }
   // 3 tabs for Status of the Work, by explicit request, Pre Construction
   // first — Construction shows the task's own quantity donut; Pre
   // Construction shows Planned Start/End/Actual Start/Task delayed by plus
@@ -812,13 +1163,15 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
     FASTER_RATE_PERCENT,
     fasterPaceDaysExact,
   } = deriveReportView(data, taskTypes, delaySortAsc);
+  // Construction delay by dates (actual − planned working days), 0 before start.
+  const constructionDelay = data.constructionDelayDays ?? 0;
 
   async function handleExport() {
     setExportError(null);
     setExportSavedTo(null);
     setExporting(true);
     try {
-      const note = await downloadPrintout(buildTaskReportPdfHtml(data, projectName, taskTypes), `${base.task.taskCode}-Task-Based-Report`);
+      const note = await downloadPrintout(buildTaskReportPdfHtml(data, projectName, taskTypes, format), `${base.task.taskCode}-Task-Based-Report`);
       if (note) setExportSavedTo(note);
     } catch (err) {
       setExportError(err instanceof Error ? err.message : 'Could not create the PDF.');
@@ -830,13 +1183,45 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
   return (
     <>
       <ReportSection>
+        {canChooseFormat && (
+          // One slim row: label left, small Type 1 / Type 2 switch right.
+          <View className="mb-2">
+            <View className="flex-row items-center justify-between">
+              <Text className="text-2xs font-semibold text-neutral-400">Report format</Text>
+              <View className="flex-row rounded-md bg-neutral-100 p-0.5">
+                {(
+                  [
+                    { key: 'type1', label: 'Type 1' },
+                    { key: 'type2', label: 'Type 2' },
+                  ] as const
+                ).map((opt) => {
+                  const active = format === opt.key;
+                  return (
+                    <Pressable
+                      key={opt.key}
+                      onPress={() => void chooseFormat(opt.key)}
+                      accessibilityRole="button"
+                      accessibilityLabel={opt.key === 'type1' ? 'Type 1, three tabs' : 'Type 2, one page'}
+                      accessibilityState={{ selected: active }}
+                      className="rounded px-2.5 py-1"
+                      style={{ backgroundColor: active ? '#0F1F33' : 'transparent' }}
+                    >
+                      <Text className={`text-2xs font-bold ${active ? 'text-white' : 'text-neutral-500'}`}>{opt.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+            {formatError && <Text className="text-2xs text-red-600 mt-1">{formatError}</Text>}
+          </View>
+        )}
         {/* Per-DPR selector, by explicit request — defaults to "All
             (Cumulative)" (the existing tabbed report, unchanged); picking a
             specific real DPR swaps the whole tabbed view below for a
             focused card of just that one submission's own fields, since
             "cumulative" doesn't mean anything for a single day. Only shown
             once there's at least one real entry to pick from. */}
-        {data.perDayEntries.length > 0 && (
+        {format !== 'type2' && data.perDayEntries.length > 0 && (
           <View className="mb-3">
             <Text className="text-2xs text-neutral-400 mb-1">Viewing</Text>
             <Pressable
@@ -879,7 +1264,7 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
           </View>
         )}
 
-        {selectedDprDate ? (
+        {selectedDprDate && format !== 'type2' ? (
           (() => {
             const entry = data.perDayEntries.find((e) => e.reportDate === selectedDprDate);
             const entryIndex = data.perDayEntries.findIndex((e) => e.reportDate === selectedDprDate);
@@ -916,6 +1301,15 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
               </View>
             );
           })()
+        ) : format === 'type2' ? (
+          // Type 2 — everything on one compact page (2026-11-09).
+          <Type2Report
+            data={data}
+            projectName={projectName}
+            completedPercent={completedPercent}
+            pendingPercent={pendingPercent}
+            constructionDelay={constructionDelay}
+          />
         ) : (
         <>
         <View className="flex-row self-start rounded-lg bg-neutral-100 p-0.5 mb-3">
@@ -943,7 +1337,6 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
         <View className="flex-row flex-wrap">
           <InfoCell label="Project Name" value={projectName} />
           <InfoCell label="Task Name" value={base.task.taskName} />
-          <InfoCell label="Task ID" value={base.task.taskCode} />
           <InfoCell label="Report Date" value={formatReportDate(new Date())} />
           <InfoCell label="Department" value={base.task.workName} />
           <InfoCell label="Contractor" value={DUMMY_CONTRACTOR_NAME} />
@@ -957,6 +1350,18 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
             <>
               <InfoCell label="Planned Start" value={base.plannedStartDate ? formatDateKeyLabel(base.plannedStartDate) : 'Not set'} />
               <InfoCell label="Planned End" value={base.dueDate ? formatDateKeyLabel(base.dueDate) : 'Not set'} />
+              <InfoCell
+                label="Actual Start"
+                value={base.actualStartDate ? formatDateKeyLabel(base.actualStartDate) : 'Not started yet'}
+                valueColor={base.actualStartDate ? undefined : '#9CA3AF'}
+              />
+              {/* Pre-construction delay = working days from planned start to
+                  actual start (or to today if it hasn't started), 2026-11-09. */}
+              <InfoCell
+                label="Pre Construction Delay"
+                value={`${data.preconstructionDelayDays} working day${data.preconstructionDelayDays === 1 ? '' : 's'}${base.actualStartDate ? '' : ' so far'}`}
+                valueColor={data.preconstructionDelayDays > 0 ? CHART_PENDING : DONE_COLOR}
+              />
             </>
           )}
         </View>
@@ -977,26 +1382,18 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
               value={`${data.preconstructionDelayDays}d`}
               color={data.preconstructionDelayDays > 0 ? CHART_PENDING : DONE_COLOR}
             />
-            {/* Was data.constructionDelayDays — elapsed working days since
-                actual start vs planned duration — by explicit correction:
-                that grows every single day the task stays open regardless
-                of real progress, so a task genuinely 58% done via real DPR
-                submissions (3 of 5 planned days) still read as "16d behind"
-                just because Actual End hasn't been set yet. Swapped for
-                data.progressDelayDays instead — the same real earned-
-                progress shortfall Pre Construction's own "Task delayed by"
-                used (how much of the expected-by-today % hasn't actually
-                been submitted, in day-equivalents) — ~2 days pending here,
-                matching "3 done, 2 pending" for a 5-day task. */}
+            {/* Back to a dates-based construction delay, by explicit request
+                (2026-11-09): actual working days (actual start -> actual
+                end, or today while running) minus planned working days. */}
             <Row
-              label="Construction (Expected Progress − Actual DPR Progress)"
-              value={`${data.progressDelayDays}d`}
-              color={data.progressDelayDays > 0 ? CHART_PENDING : DONE_COLOR}
+              label="Construction (Actual Working Days − Planned Working Days)"
+              value={`${constructionDelay}d`}
+              color={constructionDelay > 0 ? CHART_PENDING : DONE_COLOR}
             />
             <Row
               label="Cumulative Total (Preconstruction + Construction)"
-              value={`${data.preconstructionDelayDays + data.progressDelayDays}d`}
-              color={data.preconstructionDelayDays + data.progressDelayDays > 0 ? CHART_PENDING : DONE_COLOR}
+              value={`${data.preconstructionDelayDays + constructionDelay}d`}
+              color={data.preconstructionDelayDays + constructionDelay > 0 ? CHART_PENDING : DONE_COLOR}
             />
           </>
         )}
@@ -1022,7 +1419,7 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
                 cells into ONE grid (instead of two separate 3-item/2-item
                 columns) keeps every row's height naturally even. */}
             <View className="flex-row flex-wrap">
-              <InfoCell label="Total Working Days" value={data.plannedWorkingDays != null ? `${data.plannedWorkingDays} days` : 'Not set'} />
+              <InfoCell label="Planned Working Days" value={data.plannedWorkingDays != null ? `${data.plannedWorkingDays} days` : 'Not set'} />
               <InfoCell
                 label="Actual Start Date"
                 value={
@@ -1036,6 +1433,16 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
                 label="Actual End Date"
                 value={data.effectiveActualEndDate ? formatDateKeyLabel(data.effectiveActualEndDate) : 'Not finished yet'}
                 valueColor={data.effectiveActualEndDate ? undefined : '#9CA3AF'}
+              />
+              <InfoCell
+                label="Actual Working Days"
+                value={data.actualWorkingDays != null ? `${data.actualWorkingDays} days${data.actualWorkingDaysOngoing ? ' so far' : ''}` : 'Not started yet'}
+                valueColor={data.actualWorkingDays != null ? undefined : '#9CA3AF'}
+              />
+              <InfoCell
+                label="Construction Delay"
+                value={`${constructionDelay} working day${constructionDelay === 1 ? '' : 's'}`}
+                valueColor={constructionDelay > 0 ? CHART_PENDING : DONE_COLOR}
               />
               {/* Workforce — Construction only, by explicit request (moved
                   off Pre Construction: nothing to track manpower against
@@ -1177,7 +1584,7 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
                   </Text>
                   <Text className="text-xs text-amber-700">
                     {base.dependencies.blocking.length > 0
-                      ? base.dependencies.blocking.map((t) => `${t.taskCode} — ${t.taskName}`).join(', ')
+                      ? base.dependencies.blocking.map((t) => t.taskName).join(', ')
                       : 'No downstream tasks are linked to this one yet.'}
                   </Text>
                 </View>

@@ -60,6 +60,8 @@ function FlowchartScreenContent() {
   // (Start/Complete/Happening) PLUS a range, so it only counts as active
   // once all three are set (see plannedDateFilterActive below).
   const [filterModalOpen, setFilterModalOpen] = useState(false);
+  // Live task count of the empty-project canvas; hides the first-task hint.
+  const [emptyCanvasCount, setEmptyCanvasCount] = useState(0);
   const [floorFilter, setFloorFilter] = useState<string | null>(null);
   const [deptFilter, setDeptFilter] = useState<string | null>(null);
   const [roomFilter, setRoomFilter] = useState<string | null>(null);
@@ -212,13 +214,41 @@ function FlowchartScreenContent() {
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color="#0F1F33" />
         </View>
-      ) : !data || data.tasks.length === 0 ? (
+      ) : !data || (data.tasks.length === 0 && !isStaff) ? (
         <EmptyState
           icon="git-network-outline"
           iconColor="#9CA3AF"
           title="No tasks yet"
           subtitle="This project doesn't have any tasks to chart yet."
         />
+      ) : data.tasks.length === 0 ? (
+        // Staff on an empty project: keep the canvas (its toolbar holds the
+        // New Task button) with a centred hint over the empty grid.
+        <View className="flex-1">
+          <FlowchartCanvas
+            key="empty"
+            projectId={selectedProjectId}
+            initialTasks={data.tasks}
+            seriesEdges={data.seriesEdges}
+            parallelEdges={data.parallelEdges}
+            taskTypes={data.taskTypes}
+            canEdit={isStaff}
+            canvasTheme={canvasTheme}
+            onCanvasThemeChange={setCanvasTheme}
+            onTaskCountChange={setEmptyCanvasCount}
+          />
+          {emptyCanvasCount === 0 ? <View pointerEvents="none" className="absolute inset-0 items-center justify-center px-10">
+            <View className="items-center rounded-2xl px-6 py-5" style={{ backgroundColor: isDark ? 'rgba(20,20,20,0.92)' : 'rgba(255,255,255,0.94)' }}>
+              <View className="w-14 h-14 rounded-full items-center justify-center mb-3" style={{ backgroundColor: '#FEF3C7' }}>
+                <Ionicons name="git-network-outline" size={26} color="#F0A227" />
+              </View>
+              <Text className="text-base font-bold text-center" style={{ color: isDark ? '#F5F5F5' : '#0F1F33' }}>Start this project&apos;s flowchart</Text>
+              <Text className="text-xs text-center mt-1.5" style={{ color: isDark ? '#A3A3A3' : '#6B7280' }}>
+                Tap <Text className="font-bold">New Task</Text> at the top to add the first task.
+              </Text>
+            </View>
+          </View> : null}
+        </View>
       ) : (
         <>
           <PhaseCompletionBar tasks={data.tasks} seriesEdges={data.seriesEdges} theme={canvasTheme} />

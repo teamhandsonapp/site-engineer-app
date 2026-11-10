@@ -12,7 +12,7 @@ function TaskCheckRow({ task }: { task: TaskParamCheck }) {
       <Pressable onPress={() => setOpen((v) => !v)} className="flex-row items-center justify-between px-3.5 py-2">
         <View className="flex-row items-center gap-1.5 flex-1 pr-2">
           <Ionicons name={task.allOk ? 'checkmark-circle' : 'close-circle'} size={13} color={task.allOk ? '#16A34A' : '#DC2626'} />
-          <Text className="text-2xs font-medium text-neutral-800 flex-1" numberOfLines={1}>{task.taskCode} — {task.taskName}</Text>
+          <Text className="text-2xs font-medium text-neutral-800 flex-1" numberOfLines={1}>{task.taskName}</Text>
         </View>
         <View className="flex-row items-center gap-1.5">
           <Text className="text-2xs text-neutral-500">{task.okCount}/{task.total}</Text>

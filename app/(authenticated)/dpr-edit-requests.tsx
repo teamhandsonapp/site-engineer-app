@@ -90,7 +90,7 @@ export default function DprEditRequestsScreen() {
             requests.map((r) => (
               <Card key={r.id} className="mb-3">
                 <Text className="text-2xs text-neutral-400 mb-0.5">{r.requestedByName} · {formatDateTimeLabel(new Date(r.createdAtISO))}</Text>
-                <Text className="text-sm font-bold text-neutral-900 mb-1">{r.taskCode} — {r.taskName}</Text>
+                <Text className="text-sm font-bold text-neutral-900 mb-1">{r.taskName}</Text>
                 <Text className="text-xs text-neutral-500 mb-2">DPR date: {formatDateLabel(new Date(`${r.reportDate}T00:00:00Z`))}</Text>
                 {r.message && <Text className="text-xs text-neutral-700 mb-3" numberOfLines={4}>{r.message}</Text>}
 

@@ -7,8 +7,10 @@ import { memo } from 'react';
 import { ImageBackground, StyleSheet, View } from 'react-native';
 import { useChatScheme } from '../../lib/groupChats/chatTheme';
 
+const LIGHT_TILE = require('../../assets/site-groups/chat-tile-light.png');
 const TILES = {
-  light: require('../../assets/site-groups/chat-tile-light.png'),
+  light: LIGHT_TILE,
+  lightBlue: LIGHT_TILE,
   dark: require('../../assets/site-groups/chat-tile-dark.png'),
 };
 

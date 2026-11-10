@@ -97,6 +97,7 @@ export async function fetchUpcomingTasks(): Promise<UpcomingTask[]> {
     .gte('planned_start_date', toKey(today))
     .lte('planned_start_date', toKey(windowEnd))
     .not('status', 'in', '(in_progress,completed)')
+    .is('deleted_at', null)
     .order('planned_start_date', { ascending: true });
 
   if (error) throw new Error(error.message);

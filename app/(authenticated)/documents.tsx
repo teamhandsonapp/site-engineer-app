@@ -219,7 +219,7 @@ function AssignTaskPicker({
                   className="flex-row items-center justify-between px-3 py-2.5 rounded-lg mb-1 bg-neutral-50"
                 >
                   <View className="flex-1 pr-2">
-                    <Text className="text-sm font-semibold text-neutral-800" numberOfLines={1}>{task.taskCode} — {task.taskName}</Text>
+                    <Text className="text-sm font-semibold text-neutral-800" numberOfLines={1}>{task.taskName}</Text>
                     <Text className="text-2xs text-neutral-400">{task.workName}</Text>
                   </View>
                   {assigningId === task.id ? <ActivityIndicator size="small" color="#0F1F33" /> : <Ionicons name="add-circle-outline" size={20} color="#0F1F33" />}
@@ -345,7 +345,7 @@ function DocumentDetailModal({
                 {links.map((link) => (
                   <View key={link.linkId} className="flex-row items-center justify-between px-3 py-2 rounded-lg bg-neutral-50 mb-1">
                     <Text className="text-xs font-semibold text-neutral-800 flex-1 pr-2" numberOfLines={1}>
-                      {link.taskCode} — {link.taskName}
+                      {link.taskName}
                     </Text>
                     <Pressable onPress={() => handleUnassign(link.linkId)} hitSlop={6}>
                       <Ionicons name="close-circle" size={16} color="#9CA3AF" />

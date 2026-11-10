@@ -317,7 +317,7 @@ export function CreateTaskSheet({
                 className="flex-row items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5 mb-1"
               >
                 <Text className="text-sm text-neutral-900" numberOfLines={1}>
-                  {selectedLinkTask ? `${selectedLinkTask.taskId} — ${selectedLinkTask.taskName}` : 'Select the prerequisite task'}
+                  {selectedLinkTask ? selectedLinkTask.taskName : 'Select the prerequisite task'}
                 </Text>
                 <Text className="text-neutral-400">{linkTaskOpen ? '▲' : '▼'}</Text>
               </Pressable>
@@ -331,7 +331,7 @@ export function CreateTaskSheet({
                         onPress={() => { setLinkTaskId(t.id); setLinkTaskOpen(false); }}
                         className={`px-3 py-2 ${active ? 'bg-neutral-100' : ''}`}
                       >
-                        <Text className="text-xs text-neutral-700" numberOfLines={1}>{t.taskId} — {t.taskName}</Text>
+                        <Text className="text-xs text-neutral-700" numberOfLines={1}>{t.taskName}</Text>
                       </Pressable>
                     );
                   })}

@@ -392,7 +392,6 @@ export function TaskDetailSheet({
         <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 380, maxHeight: '85%', overflow: 'hidden' }}>
           <Card style={{ flexShrink: 1, minHeight: 0 }}>
             <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
-              <Text className="text-2xs font-mono font-bold text-neutral-400">{task.taskId}</Text>
 
               <View className="flex-row items-center gap-2 my-1.5">
                 <View className="px-2 py-0.5 rounded-full bg-yellow-100">

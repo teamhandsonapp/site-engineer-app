@@ -136,7 +136,7 @@ export default function GeneralParameterReportScreen() {
         </ScrollView>
       ) : (
         <ScrollView
-          contentContainerClassName="px-4 pt-4 pb-10"
+          contentContainerClassName="px-3 pt-2 pb-6"
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#0F1F33" />}
         >
           {pickersExpanded || !data ? (
@@ -145,23 +145,21 @@ export default function GeneralParameterReportScreen() {
               <TaskPicker options={options} selectedTaskId={selectedTaskId} onSelect={handleSelectTask} />
             </>
           ) : (
+            // One slim line (project · task) — tap to change. Kept short so
+            // the whole report fits on one screen (2026-11-09).
             <Pressable
               onPress={() => setPickersExpanded(true)}
-              className="flex-row items-center justify-between bg-white rounded-2xl border border-neutral-100 px-3.5 py-3 mb-4"
+              accessibilityRole="button"
+              accessibilityLabel="Change project or task"
+              className="flex-row items-center bg-white rounded-xl border border-neutral-100 px-3 py-2 mb-2"
             >
-              <View className="flex-1 pr-2">
-                <Text className="text-2xs text-neutral-400 mb-0.5">
-                  {projects.find((p) => p.id === selectedProjectId)?.name ?? 'Project'}
-                </Text>
-                <Text className="text-sm font-bold text-neutral-900" numberOfLines={1}>
-                  {data.base.task.taskCode} — {data.base.task.taskName}
-                </Text>
-                <Text className="text-2xs text-neutral-400 mt-0.5" numberOfLines={1}>{data.base.task.workName}</Text>
-              </View>
-              <View className="flex-row items-center gap-1">
-                <Text className="text-2xs font-bold text-brand-amber">Change</Text>
-                <Ionicons name="chevron-down" size={14} color="#F0A227" />
-              </View>
+              <Ionicons name="document-text-outline" size={14} color="#6B7280" />
+              <Text className="flex-1 text-xs text-neutral-500 ml-1.5 mr-2" numberOfLines={1}>
+                {projects.find((p) => p.id === selectedProjectId)?.name ?? 'Project'} ·{' '}
+                <Text className="font-bold text-neutral-900">{data.base.task.taskName}</Text>
+              </Text>
+              <Text className="text-2xs font-bold text-brand-amber">Change</Text>
+              <Ionicons name="chevron-down" size={12} color="#F0A227" />
             </Pressable>
           )}
 

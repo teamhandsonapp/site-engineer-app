@@ -81,7 +81,6 @@ export function GanttDetailSheet({
           <Card style={{ flexShrink: 1, minHeight: 0 }}>
             <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
               <Text className="text-md font-bold text-neutral-900">{task.taskName}</Text>
-              <Text className="text-xs font-mono text-neutral-400 mt-0.5">{task.taskCode}</Text>
 
               <View className="flex-row items-center gap-1.5 mt-2">
                 <View className="w-2 h-2 rounded-full" style={{ backgroundColor: task.workColor }} />
@@ -123,7 +122,7 @@ export function GanttDetailSheet({
               {drivingPrerequisite && (
                 <View className="mt-2.5 pt-2.5 border-t border-neutral-100">
                   <Text className="text-xs text-neutral-500">
-                    Delayed by <Text className="font-mono font-semibold text-neutral-700">{drivingPrerequisite.taskCode}</Text> — {drivingPrerequisite.taskName}
+                    Delayed by <Text className="font-semibold text-neutral-700">{drivingPrerequisite.taskName}</Text>
                   </Text>
                 </View>
               )}
@@ -137,7 +136,7 @@ export function GanttDetailSheet({
                     {downstreamImpacted.map((d) => (
                       <View key={d.taskCode} className="flex-row items-center justify-between">
                         <Text className="text-xs text-neutral-600 flex-1 pr-2" numberOfLines={1}>
-                          <Text className="font-mono">{d.taskCode}</Text> — {d.taskName}
+                          {d.taskName}
                         </Text>
                         <Text className="text-xs font-semibold text-red-600">+{d.totalDelayDays}d</Text>
                       </View>

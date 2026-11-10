@@ -86,7 +86,7 @@ function taskCard(task: DprActivityTask): string {
     <div class="head">
       <div>
         <div class="name">${esc(task.taskName)}</div>
-        <div class="meta">${esc(task.taskCode)} · ${esc(task.workName)} · ${task.entries.length} DPR${task.entries.length === 1 ? '' : 's'}</div>
+        <div class="meta">${esc(task.workName)} · ${task.entries.length} DPR${task.entries.length === 1 ? '' : 's'}</div>
       </div>
       ${task.forecast ? `<div class="pct">${task.forecast.percentDone}%</div>` : ''}
     </div>

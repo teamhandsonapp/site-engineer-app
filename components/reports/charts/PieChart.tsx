@@ -53,7 +53,19 @@ export function PieChart({
 
   return (
     <View className={showLegend ? 'flex-row items-center gap-4' : 'items-center'}>
-      {total === 0 ? (
+      {total === 0 && donut ? (
+        // Nothing recorded yet: keep the ring (grey) with a 0 in the middle,
+        // by request — the chart shouldn't vanish just because it's empty.
+        <View style={{ width: outerSize, height: outerSize, alignItems: 'center', justifyContent: 'center' }}>
+          <Svg width={size} height={size}>
+            <Circle cx={cx} cy={cy} r={r} fill="#E5E7EB" />
+            <Circle cx={cx} cy={cy} r={r * 0.55} fill="#fff" />
+          </Svg>
+          <View style={{ position: 'absolute', alignItems: 'center' }}>
+            <Text className="text-base font-extrabold text-neutral-900">0</Text>
+          </View>
+        </View>
+      ) : total === 0 ? (
         <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
           <Text className="text-2xs text-neutral-400 text-center">{emptyLabel}</Text>
         </View>

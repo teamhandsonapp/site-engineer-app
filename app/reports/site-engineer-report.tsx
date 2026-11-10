@@ -75,7 +75,7 @@ function DelayTaskRowCard({ row }: { row: SiteEngineerDelayRow }) {
             {row.taskName}
           </Text>
           <Text className="text-2xs text-neutral-400 mt-0.5">
-            {row.taskCode} · {row.workName}
+            {row.workName}
           </Text>
         </View>
         <View className="px-2 py-0.5 rounded-full" style={{ backgroundColor: statusBg }}>
@@ -170,7 +170,7 @@ function DprDayGroup({ date, rows }: { date: string; rows: SiteEngineerDprRow[] 
                 {row.taskName}
               </Text>
               <Text className="text-2xs text-neutral-400 mt-0.5">
-                {row.taskCode} · {row.workName}
+                {row.workName}
               </Text>
             </View>
             <View className="items-end">
@@ -210,7 +210,7 @@ function QualityChecklistRowCard({ row }: { row: SiteEngineerQualityChecklistRow
           {row.taskName}
         </Text>
         <Text className="text-2xs text-neutral-400 mt-0.5">
-          {row.taskCode} · {row.workName}
+          {row.workName}
         </Text>
       </View>
       <View className="items-end">

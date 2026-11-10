@@ -26,6 +26,40 @@ const STATUS_DISPLAY_LABEL: Record<string, string> = {
   completed: 'Completed',
 };
 
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function shortDate(key: string | null): string {
+  if (!key) return '—';
+  const [y, m, d] = key.split('-').map(Number);
+  return `${d} ${SHORT_MONTHS[m - 1]} ${String(y).slice(2)}`;
+}
+function daysInclusive(a: string, b: string): number {
+  return Math.round((new Date(`${b}T00:00:00Z`).getTime() - new Date(`${a}T00:00:00Z`).getTime()) / 86_400_000) + 1;
+}
+
+// Planned span (and the number of DPRs it gives) plus the real dates — the
+// DPR list is driven by planned start/end only, by explicit request
+// (2026-11-09), not by the pre-construction checklist.
+function PlannedActualDates({ task }: { task: DprTask }) {
+  const days = task.plannedStartDate && task.plannedEndDate ? daysInclusive(task.plannedStartDate, task.plannedEndDate) : null;
+  return (
+    <View className="rounded-lg border border-neutral-100 px-2.5 py-1.5 mb-2 gap-0.5">
+      <View className="flex-row items-center justify-between">
+        <Text className="text-2xs text-neutral-500">Planned</Text>
+        <Text className="text-2xs font-bold text-neutral-900">
+          {shortDate(task.plannedStartDate)} → {shortDate(task.plannedEndDate)}
+          {days != null && days > 0 ? `  ·  ${days} DPR${days === 1 ? '' : 's'}` : ''}
+        </Text>
+      </View>
+      <View className="flex-row items-center justify-between">
+        <Text className="text-2xs text-neutral-500">Actual</Text>
+        <Text className="text-2xs font-bold" style={{ color: task.actualStartDate ? '#111827' : '#9CA3AF' }}>
+          {task.actualStartDate ? `${shortDate(task.actualStartDate)} → ${task.actualEndDate ? shortDate(task.actualEndDate) : 'ongoing'}` : 'Not started'}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 // The list's own row — always just this one small collapsed card now, by
 // explicit correction: this used to swap in a full inline edit form (or,
 // after an earlier pass, a modal popup) right here in the middle of the
@@ -42,8 +76,6 @@ export function DprTaskRow({
   comment,
   subtasks,
   percentComplete,
-  targetedWorkforcePerDay,
-  actualWorkforcePerDay,
   submittedByName,
   submittedAtISO,
   isAdmin = false,
@@ -62,8 +94,6 @@ export function DprTaskRow({
   comment: DprComment | null;
   subtasks: DprSubtaskItem[];
   percentComplete: number | null;
-  targetedWorkforcePerDay: number | null;
-  actualWorkforcePerDay: number | null;
   submittedByName: string | null;
   submittedAtISO: string | null;
   isAdmin?: boolean;
@@ -183,6 +213,7 @@ export function DprTaskRow({
     <Card className="mb-2" style={{ padding: 12 }}>
       <Text className="text-2xs text-neutral-400">{task.workName}</Text>
       <Text className="text-xs font-bold text-neutral-900 mb-1.5">{task.taskName}</Text>
+      <PlannedActualDates task={task} />
 
       {/* "Submitted by" means dpr_entries.submitted_at (the real "Submit
           DPR" event), not just submitted_by/updated_at (whoever last
@@ -206,13 +237,6 @@ export function DprTaskRow({
           <Text className="text-2xs font-bold text-neutral-500">{percentComplete}% done today</Text>
         )}
       </View>
-
-      {(targetedWorkforcePerDay != null || actualWorkforcePerDay != null) && (
-        <View className="mb-2 flex-row gap-4">
-          <Text className="text-2xs text-neutral-500">Targeted: <Text className="font-bold text-neutral-900">{targetedWorkforcePerDay ?? '—'}</Text></Text>
-          <Text className="text-2xs text-neutral-500">Actual: <Text className="font-bold text-neutral-900">{actualWorkforcePerDay ?? '—'}</Text></Text>
-        </View>
-      )}
 
       {dependencies.length > 0 && (
         <View className="mb-2">

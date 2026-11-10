@@ -191,7 +191,7 @@ function DependencyGroup({ label, refs }: { label: string; refs: TaskDependencyR
             className="flex-row items-center justify-between rounded-lg bg-neutral-50 border border-neutral-100 px-2.5 py-2"
           >
             <View className="flex-1 pr-2">
-              <Text className="text-xs font-semibold text-neutral-800" numberOfLines={1}>{ref.taskCode} · {ref.taskName}</Text>
+              <Text className="text-xs font-semibold text-neutral-800" numberOfLines={1}>{ref.taskName}</Text>
             </View>
             {ref.type && (
               <View className="px-1.5 py-0.5 rounded bg-neutral-200">

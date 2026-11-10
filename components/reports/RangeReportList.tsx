@@ -12,7 +12,7 @@ function TaskRow({ row, isLast }: { row: RangeTaskRow; isLast: boolean }) {
     <View className={isLast ? '' : 'border-b border-neutral-100'}>
       <Pressable onPress={() => setOpen((v) => !v)} className="flex-row items-center justify-between px-3.5 py-2.5">
         <View className="flex-1 pr-2">
-          <Text className="text-xs font-semibold text-neutral-800" numberOfLines={1}>{row.taskCode} — {row.taskName}</Text>
+          <Text className="text-xs font-semibold text-neutral-800" numberOfLines={1}>{row.taskName}</Text>
           <Text className="text-2xs text-neutral-400 mt-0.5">
             {row.percentCompleteByQuantity != null ? `${row.percentCompleteByQuantity}% complete` : 'No quantity tracked'}
           </Text>

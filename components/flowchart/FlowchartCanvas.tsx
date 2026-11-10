@@ -71,6 +71,7 @@ export function FlowchartCanvas({
   canEdit,
   canvasTheme,
   onCanvasThemeChange,
+  onTaskCountChange,
 }: {
   projectId: string;
   initialTasks: FlowchartTask[];
@@ -86,6 +87,9 @@ export function FlowchartCanvas({
   // it's not changing on the top").
   canvasTheme: CanvasTheme;
   onCanvasThemeChange: (theme: CanvasTheme) => void;
+  // Optional: told the live task count whenever it changes (the screen uses
+  // it to drop the "add your first task" hint once a task exists).
+  onTaskCountChange?: (count: number) => void;
 }) {
   // PixelRatio.get() never changes for a mounted app (not a ref/state — a
   // plain device constant), so this is safe to read directly on every
@@ -100,6 +104,9 @@ export function FlowchartCanvas({
   const initialLayout = useMemo(() => safeLayout(initialTasks), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [tasks, setTasks] = useState<PositionedTask[]>(initialLayout.tasks);
+  useEffect(() => {
+    onTaskCountChange?.(tasks.length);
+  }, [tasks.length]); // eslint-disable-line react-hooks/exhaustive-deps
   // See TaskNode/EdgeLayer's own nodeScale prop — 1 for every normal
   // project; only smaller when this graph had to be shrunk to stay under
   // Android's bitmap ceiling. MUST be kept in lockstep with `tasks` (both
@@ -1498,7 +1505,6 @@ export function FlowchartCanvas({
                         onPress={() => jumpToTask(t.id)}
                         className="flex-row items-center gap-2.5 px-2.5 py-2.5 rounded-lg"
                       >
-                        <Text className="text-xs font-mono font-bold text-neutral-500" style={{ width: 36 }}>{t.taskId}</Text>
                         <Text className="text-xs text-neutral-800 flex-1" numberOfLines={1}>{t.taskName}</Text>
                       </Pressable>
                     ))

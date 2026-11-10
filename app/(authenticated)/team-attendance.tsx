@@ -1,30 +1,13 @@
-import { useAuth } from '../../lib/AuthContext';
-import { WorkforceAttendance } from '../../components/team/WorkforceAttendance';
-import { EmptyState } from '../../components/ui/EmptyState';
-import { Screen } from '../../components/ui/Screen';
-import { colors } from '../../lib/theme';
+import EngineerAttendanceScreen from './engineer-attendance';
 
-// Site Attendance (drawer) / "Workforce Attendance" (project dashboard) —
-// workers' planned vs actual workforce by department and date. The site
-// engineers' own attendance scores moved to engineer-attendance.tsx ("Site
-// Engineer Attendance"), listed under this tab in the drawer.
+// Attendance tab (drawer + bottom bar). Workers' "Workforce Attendance"
+// (planned vs actual people per department, components/team/
+// WorkforceAttendance.tsx) was removed on request (2026-11-09), so this
+// route now shows Site Engineer Attendance. The route name stays
+// team-attendance so the drawer, bottom tab and notification links keep
+// working unchanged.
 export default function TeamAttendanceScreen() {
-  const { state } = useAuth();
-  const isAdminOrManager = state.status === 'signed-in' && (state.profile.role === 'admin' || state.profile.role === 'manager');
-
-  if (!isAdminOrManager) {
-    return (
-      <Screen>
-        <EmptyState icon="lock-closed-outline" iconColor={colors.textMuted} title="Not available for this account" subtitle="Site Attendance is for admin and manager accounts." />
-      </Screen>
-    );
-  }
-
-  return (
-    <Screen>
-      <WorkforceAttendance />
-    </Screen>
-  );
+  return <EngineerAttendanceScreen />;
 }
 
 // Per-screen crash fallback (keeps the rest of the app usable).

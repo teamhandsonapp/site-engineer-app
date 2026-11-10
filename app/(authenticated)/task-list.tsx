@@ -51,7 +51,7 @@ function TaskRow({ task }: { task: FlowchartTask }) {
       className="bg-white rounded-xl border border-neutral-100 px-3.5 py-3 mb-2"
     >
       <View className="flex-row items-center justify-between mb-1">
-        <Text className="text-2xs font-bold text-neutral-400">{task.taskId} · {task.workName}</Text>
+        <Text className="text-2xs font-bold text-neutral-400">{task.workName}</Text>
         <View className="flex-row items-center gap-1.5">
           {delayChip && (
             <View className="px-1.5 py-0.5 rounded-full" style={{ backgroundColor: '#FEE2E2' }}>
@@ -81,7 +81,7 @@ function PendingReviewRow({ item }: { item: PendingChecklistVerification }) {
       className="bg-white rounded-xl border border-blue-100 px-3.5 py-3 mb-2"
     >
       <View className="flex-row items-center justify-between mb-1">
-        <Text className="text-2xs font-bold text-neutral-400">{item.taskCode} · {item.workName}</Text>
+        <Text className="text-2xs font-bold text-neutral-400">{item.workName}</Text>
         <View className="px-2 py-0.5 rounded-full bg-blue-50 border border-blue-200">
           <Text className="text-2xs font-bold text-blue-700">Pending review</Text>
         </View>

@@ -143,8 +143,9 @@ function Pill({ tone, label }: { tone: 'danger' | 'warning'; label: string }) {
 
 // Collapsed by default — a folder, not a permanently-open list, per
 // explicit request.
-function ProjectsFolder({ projects, onOpenProject }: { projects: ProjectStat[]; onOpenProject: (projectId: string) => void }) {
+function ProjectsFolder({ projects, onOpenProject, showPmcPortal }: { projects: ProjectStat[]; onOpenProject: (projectId: string) => void; showPmcPortal: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  const total = projects.length + (showPmcPortal ? 1 : 0);
   return (
     <ListSection title="Projects">
       <ListRow
@@ -153,17 +154,29 @@ function ProjectsFolder({ projects, onOpenProject }: { projects: ProjectStat[]; 
         iconColor={colors.textSecondary}
         iconBg={colors.surfaceMuted}
         chevron={false}
-        accessibilityLabel={`Your projects, ${projects.length}. ${expanded ? 'Collapse' : 'Expand'}`}
+        accessibilityLabel={`Your projects, ${total}. ${expanded ? 'Collapse' : 'Expand'}`}
         trailing={
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
             <AppText variant="bodyStrong" tone="muted" style={{ fontVariant: ['tabular-nums'] }}>
-              {projects.length}
+              {total}
             </AppText>
             <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={colors.textMuted} />
           </View>
         }
         onPress={() => setExpanded((v) => !v)}
       />
+      {/* PMC Portal: tracks the app itself, not a site project. Opens its own
+          screen (app/pmc-portal.tsx) instead of the project dashboard. */}
+      {expanded && showPmcPortal && (
+        <ListRow
+          title="PMC Portal"
+          subtitle="App Progress"
+          icon="phone-portrait-outline"
+          iconColor="#F0A227"
+          iconBg="#F0A2271A"
+          onPress={() => router.push('/pmc-portal')}
+        />
+      )}
       {expanded &&
         (projects.length === 0 ? (
           <EmptyState icon="briefcase-outline" iconColor={colors.textMuted} title="No projects yet" subtitle="Projects you're added to will show here." />
@@ -213,12 +226,14 @@ function ProjectPickerSheet({
   selectedId,
   onPick,
   onClose,
+  onOpenPmcPortal,
 }: {
   visible: boolean;
   projects: { id: string; name: string }[];
   selectedId: string | null;
   onPick: (id: string) => void;
   onClose: () => void;
+  onOpenPmcPortal: () => void;
 }) {
   // Last project row stays above the navigation bar; a long list scrolls.
   const bottomPad = useModalBottomPadding(space.lg);
@@ -230,6 +245,30 @@ function ProjectPickerSheet({
             Switch project
           </AppText>
           <ScrollView style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: space.lg, paddingBottom: bottomPad }}>
+          {/* PMC Portal first: it opens its own screen, not a site project. */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="PMC Portal"
+            onPress={() => {
+              haptic.select();
+              onOpenPmcPortal();
+            }}
+            style={({ pressed }) => ({
+              minHeight: 52,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: space.md,
+              paddingHorizontal: space.md,
+              borderRadius: radius.sm,
+              backgroundColor: pressed ? colors.surfaceMuted : 'transparent',
+            })}
+          >
+            <Ionicons name="phone-portrait-outline" size={18} color="#F0A227" />
+            <AppText variant="bodyStrong" style={{ flex: 1 }} numberOfLines={1}>
+              PMC Portal
+            </AppText>
+            <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+          </Pressable>
           {projects.map((p) => {
             const active = p.id === selectedId;
             return (
@@ -371,13 +410,21 @@ export function AppHome() {
 
       <OverviewList items={TEAM_COUNTS} />
 
-      <ProjectsFolder projects={projects} onOpenProject={openProject} />
+      <ProjectsFolder
+        projects={projects}
+        onOpenProject={openProject}
+        showPmcPortal
+      />
 
       <ProjectPickerSheet
         visible={pickerOpen}
         projects={projectOptions}
         selectedId={selectedProjectId}
         onClose={() => setPickerOpen(false)}
+        onOpenPmcPortal={() => {
+          setPickerOpen(false);
+          router.push('/pmc-portal');
+        }}
         onPick={(id) => {
           setSelectedProjectId(id);
           setPickerOpen(false);

@@ -32,16 +32,20 @@ function Row({ label, value }: { label: string; value: string }) {
 // Actual End naturally stays "Not set" here until the task is genuinely
 // marked complete — no separate "in progress" placeholder text needed.
 export function DprDelayBreakdown({ data }: { data: GeneralParameterReportData }) {
-  const { base, plannedWorkingDays } = data;
+  const { base, plannedWorkingDays, actualWorkingDays, actualWorkingDaysOngoing } = data;
   return (
     <View className="mb-3 rounded-lg bg-neutral-50 border border-neutral-200 px-3 py-2.5 gap-0.5">
       {/* Today's real date + time this box (and the DPR form below it) is
           being viewed/filled in — by explicit request, distinct from the
           task's own Actual dates underneath it. */}
       <Row label="DPR Date" value={formatDateTimeLabel(new Date())} />
-      <Row label="Total Working Days" value={plannedWorkingDays != null ? String(plannedWorkingDays) : 'Not set'} />
+      <Row label="Planned Working Days" value={plannedWorkingDays != null ? String(plannedWorkingDays) : 'Not set'} />
       <Row label="Actual Start" value={formatDateKeyLabel(base.actualStartDate)} />
       <Row label="Actual End" value={formatDateKeyLabel(base.actualEndDate)} />
+      <Row
+        label="Actual Working Days"
+        value={actualWorkingDays != null ? `${actualWorkingDays}${actualWorkingDaysOngoing ? ' so far' : ''}` : 'Not started'}
+      />
     </View>
   );
 }

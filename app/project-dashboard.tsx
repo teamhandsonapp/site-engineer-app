@@ -148,13 +148,10 @@ export default function ProjectDashboardScreen() {
           {/* Critical Alerts, Files and DPR pinned to the top, by explicit
               request. Flowchart Template Kit was removed from this screen
               (still in the side menu). */}
-          {/* Workforce + Site Engineer Attendance pinned at the very top for
-              admin/manager, by explicit request. */}
+          {/* Site Engineer Attendance pinned at the top for admin/manager.
+              Workforce (workers') Attendance removed on request, 2026-11-09. */}
           {isAdminOrManager && (
-            <>
-              <QuickLink icon="people-outline" label="Workforce Attendance" color="#16A34A" onPress={() => router.push('/team-attendance')} />
-              <QuickLink icon="finger-print-outline" label="Site Engineer Attendance" color="#0891B2" onPress={() => router.push('/engineer-attendance')} />
-            </>
+            <QuickLink icon="finger-print-outline" label="Site Engineer Attendance" color="#0891B2" onPress={() => router.push('/engineer-attendance')} />
           )}
           <QuickLink icon="warning-outline" label="Critical Alerts" color="#DC2626" onPress={() => router.push('/critical-alerts')} />
           <QuickLink

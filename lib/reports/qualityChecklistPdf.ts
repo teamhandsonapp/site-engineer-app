@@ -63,7 +63,7 @@ function buildHtml(checklist: QualityChecklist): string {
         </style>
       </head>
       <body>
-        <h1>Quality Checklist — ${esc(task.taskCode)}</h1>
+        <h1>Quality Checklist — ${esc(task.taskName)}</h1>
         <p class="sub">${esc(task.taskName)} · ${esc(task.workName)} · Generated ${formatDateLabel(new Date())}</p>
 
         ${sections}
@@ -132,7 +132,7 @@ export async function exportQualityChecklistPdf(checklist: QualityChecklist): Pr
   }
   await Sharing.shareAsync(uri, {
     mimeType: 'application/pdf',
-    dialogTitle: `${checklist.task.taskCode} — Quality Checklist`,
+    dialogTitle: `${checklist.task.taskName} — Quality Checklist`,
     UTI: 'com.adobe.pdf',
   });
   return '';

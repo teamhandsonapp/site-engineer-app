@@ -9,10 +9,8 @@ import type { FlowchartTask } from '../../lib/flowchart/types';
 // switch"). MILE-xx codes stay hidden here too, same reasoning as
 // TaskNode.tsx's own node label.
 function TaskRow({ task }: { task: FlowchartTask }) {
-  const showCode = !task.taskId.startsWith('MILE-');
   return (
     <Card className="mb-2.5">
-      {showCode && <Text className="text-2xs font-mono font-bold text-neutral-400 mb-0.5">{task.taskId}</Text>}
       <Text className="text-sm font-bold text-neutral-900 mb-1">{task.taskName}</Text>
       <View className="flex-row flex-wrap gap-1.5">
         <View className="px-2 py-0.5 rounded-full bg-neutral-100">

@@ -183,7 +183,7 @@ export default function DprChecklistScreen() {
       <Stack.Screen
         options={{
           headerShown: true,
-          title: checklist ? `${checklist.task.taskCode} — Quality Checklist` : 'Quality Checklist',
+          title: checklist ? 'Quality Checklist' : 'Quality Checklist',
           headerStyle: { backgroundColor: '#0F1F33' },
           headerTintColor: '#fff',
           headerTitleStyle: { fontWeight: '600' },

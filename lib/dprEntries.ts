@@ -115,6 +115,7 @@ export interface DprTask {
   plannedStartDate: string | null;
   plannedEndDate: string | null;
   actualStartDate: string | null;
+  actualEndDate: string | null;
   // Real Quantity of Work — the 'Quantity Of Work Done' DependencyItem
   // (category='quantity'), NOT Task.totalSft/sft_progress_entries. Null
   // quantityItemId means this task has no such checklist item at all
@@ -227,6 +228,7 @@ function toDprTask(row: RawTaskRow, todayKey: string): DprTask {
     plannedStartDate,
     plannedEndDate,
     actualStartDate: row.actual_start_date,
+    actualEndDate: row.actual_end_date,
     quantityItemId: quantityItem?.id ?? null,
     quantityDone: quantityItem?.quantity_value != null ? Number(quantityItem.quantity_value) : null,
     quantityUnit: quantityItem?.quantity_unit ?? null,
@@ -237,11 +239,11 @@ function toDprTask(row: RawTaskRow, todayKey: string): DprTask {
     // plan is stale. Only affects which tasks SHOW here — doesn't touch
     // plannedStartDate/plannedEndDate themselves, so "planned days"/target%
     // math everywhere else stays correct off the real dates.
-    scheduledToday: !!(
-      (plannedStartDate && plannedEndDate && plannedStartDate <= todayKey && plannedEndDate >= todayKey) ||
-      row.status === 'in_progress' ||
-      row.status === 'on_hold'
-    ),
+    // Every task on the flowchart that isn't completed shows in the DPR, by
+    // explicit request (2026-11-09): a task whose planned window is in the
+    // past or future can still have any of its days filled in from its own
+    // DPR 1..N pager, so hiding it by date only got in the way.
+    scheduledToday: row.status !== 'completed',
   };
 }
 
@@ -302,18 +304,11 @@ export async function fetchWeekDprTasks(
   return rows
     .filter((row) => isPilotVisible(row.task_id, normalizeToOne(row.work)?.code))
     .filter((row) => row.status !== 'completed') // point 5 — auto-hide, checked live every fetch
-    .map((row) => toDprTask(row, todayKey))
-    // Same principle as toDprTask's own scheduledToday fix — an
-    // in_progress/on_hold task shouldn't disappear from this fetch just
-    // because its planned dates fall outside the calendar week being
-    // viewed; this is the earlier filter that fix alone didn't reach,
-    // since a task filtered out here never even gets to scheduledToday.
-    .filter(
-      (t) =>
-        (t.plannedStartDate && t.plannedEndDate && t.plannedStartDate <= weekEndKey && t.plannedEndDate >= weekStartKey) ||
-        t.status === 'in_progress' ||
-        t.status === 'on_hold'
-    );
+    // No date filter any more — every non-completed task comes back (see
+    // toDprTask's scheduledToday). Upcoming/Week still narrow this list by
+    // their own planned-date checks on the screen; weekStartKey/weekEndKey
+    // stay in the signature for callers.
+    .map((row) => toDprTask(row, todayKey));
 }
 
 // DPR's own "Urgent" tab — tasks an admin pushed to THIS engineer from the
@@ -418,6 +413,9 @@ export interface DprEntryFields {
   // pair of plain text boxes on the DPR form.
   architectComment: string | null;
   clientComment: string | null;
+  // One comment per selected Reason for Delay, keyed by category — by
+  // explicit request (2026-11-09). dpr_entries.delay_reason_comments.
+  delayReasonComments: Partial<Record<DprDependencyCategory, string>>;
 }
 
 const EMPTY_ENTRY: DprEntryFields = {
@@ -432,6 +430,7 @@ const EMPTY_ENTRY: DprEntryFields = {
   dprSubmittedAtISO: null,
   architectComment: null,
   clientComment: null,
+  delayReasonComments: {},
 };
 
 // Dependency (points 1-6) + Comment (point 8) + daily % Complete — fields
@@ -444,7 +443,7 @@ export async function fetchTodayDprEntries(taskIds: string[], todayKey: string):
   const { data, error } = await supabase
     .from('dpr_entries')
     .select(
-      'task_id, dependency_categories, dependency_other_text, comment_preset, comment_text, percent_complete, targeted_workforce_per_day, actual_workforce_per_day, submitted_by, updated_at, submitted_at, architect_comment, client_comment'
+      'task_id, dependency_categories, dependency_other_text, comment_preset, comment_text, percent_complete, targeted_workforce_per_day, actual_workforce_per_day, submitted_by, updated_at, submitted_at, architect_comment, client_comment, delay_reason_comments'
     )
     .in('task_id', taskIds)
     .eq('report_date', todayKey);
@@ -463,6 +462,7 @@ export async function fetchTodayDprEntries(taskIds: string[], todayKey: string):
     submitted_at: string | null;
     architect_comment: string | null;
     client_comment: string | null;
+    delay_reason_comments: Partial<Record<DprDependencyCategory, string>> | null;
   }[];
 
   const submitterIds = [...new Set(rows.map((r) => r.submitted_by).filter((id): id is string => id != null))];
@@ -486,6 +486,7 @@ export async function fetchTodayDprEntries(taskIds: string[], todayKey: string):
       dprSubmittedAtISO: row.submitted_at,
       architectComment: row.architect_comment,
       clientComment: row.client_comment,
+      delayReasonComments: row.delay_reason_comments ?? {},
     };
   }
   return map;
@@ -506,9 +507,11 @@ export async function fetchAllDprEntriesForTask(taskId: string): Promise<DprHist
   const { data, error } = await supabase
     .from('dpr_entries')
     .select(
-      'report_date, dependency_categories, dependency_other_text, comment_preset, comment_text, percent_complete, targeted_workforce_per_day, actual_workforce_per_day, submitted_by, updated_at, submitted_at, architect_comment, client_comment'
+      'report_date, dependency_categories, dependency_other_text, comment_preset, comment_text, percent_complete, targeted_workforce_per_day, actual_workforce_per_day, submitted_by, updated_at, submitted_at, architect_comment, client_comment, delay_reason_comments'
     )
     .eq('task_id', taskId)
+    // Overall-progress rows have their own card, not a day in the pager.
+    .eq('is_overall', false)
     .order('report_date', { ascending: true });
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as {
@@ -525,6 +528,7 @@ export async function fetchAllDprEntriesForTask(taskId: string): Promise<DprHist
     submitted_at: string | null;
     architect_comment: string | null;
     client_comment: string | null;
+    delay_reason_comments: Partial<Record<DprDependencyCategory, string>> | null;
   }[];
 
   const submitterIds = [...new Set(rows.map((r) => r.submitted_by).filter((id): id is string => id != null))];
@@ -548,6 +552,7 @@ export async function fetchAllDprEntriesForTask(taskId: string): Promise<DprHist
       dprSubmittedAtISO: row.submitted_at,
       architectComment: row.architect_comment,
       clientComment: row.client_comment,
+      delayReasonComments: row.delay_reason_comments ?? {},
     },
   }));
 }
@@ -580,6 +585,10 @@ export async function upsertTodayDprEntry(
       submitted_by: submittedBy,
       architect_comment: fields.architectComment,
       client_comment: fields.clientComment,
+      // Only comments for reasons still selected are kept.
+      delay_reason_comments: Object.fromEntries(
+        Object.entries(fields.delayReasonComments ?? {}).filter(([cat, text]) => fields.dependencyCategories.includes(cat as DprDependencyCategory) && !!text?.trim())
+      ),
     },
     { onConflict: 'task_id,report_date' }
   );
@@ -605,6 +614,97 @@ export async function markDprSubmitted(taskId: string, todayKey: string): Promis
 }
 
 export { EMPTY_ENTRY as EMPTY_DPR_ENTRY };
+
+// ─── Overall progress (2026-11-09) ─────────────────────────────────────────
+// One total % for the whole task (0-100) plus Reasons for Delay with a
+// comment each, entered once from the top of the DPR screen instead of
+// filling every planned day. Stored as an ordinary dpr_entries row dated the
+// day it's saved, flagged is_overall, whose percent_complete is just that
+// day's share — so the existing reports, which add up percent_complete
+// across all of a task's rows, show exactly the overall % typed, and the
+// reasons/comments appear on that date in the date-range reports.
+export interface OverallProgress {
+  // Sum of every DPR row's percent_complete for the task, capped at 100.
+  overallPercent: number;
+  // Reasons + comments from the most recent overall entry.
+  reasons: DprDependencyCategory[];
+  comments: Partial<Record<DprDependencyCategory, string>>;
+  savedOn: string | null;
+  savedByName: string | null;
+}
+
+export async function fetchOverallProgress(taskId: string): Promise<OverallProgress> {
+  const { data, error } = await supabase
+    .from('dpr_entries')
+    .select('report_date, percent_complete, is_overall, dependency_categories, delay_reason_comments, submitted_by')
+    .eq('task_id', taskId)
+    .order('report_date', { ascending: false });
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as {
+    report_date: string;
+    percent_complete: number | null;
+    is_overall: boolean;
+    dependency_categories: DprDependencyCategory[] | null;
+    delay_reason_comments: Partial<Record<DprDependencyCategory, string>> | null;
+    submitted_by: string | null;
+  }[];
+  const total = Math.min(100, rows.reduce((s, r) => s + (r.percent_complete ?? 0), 0));
+  const latest = rows.find((r) => r.is_overall) ?? null;
+  let savedByName: string | null = null;
+  if (latest?.submitted_by) {
+    const { data: p } = await supabase.from('user_profiles').select('full_name').eq('id', latest.submitted_by).maybeSingle();
+    savedByName = (p as { full_name: string } | null)?.full_name ?? null;
+  }
+  return {
+    overallPercent: total,
+    reasons: latest?.dependency_categories ?? [],
+    comments: latest?.delay_reason_comments ?? {},
+    savedOn: latest?.report_date ?? null,
+    savedByName,
+  };
+}
+
+// Saves today's overall entry so that the task's total becomes
+// `overallPercent`. Today's row gets (overall - everything already recorded
+// on other days). Throws if the overall would have to go DOWN below what
+// earlier days already add up to (a past day's share can't be negative).
+export async function saveOverallProgress(
+  taskId: string,
+  overallPercent: number,
+  reasons: DprDependencyCategory[],
+  comments: Partial<Record<DprDependencyCategory, string>>,
+  userId: string | null
+): Promise<void> {
+  const todayKey = todayDateKey();
+  const { data, error } = await supabase.from('dpr_entries').select('report_date, percent_complete').eq('task_id', taskId);
+  if (error) throw new Error(error.message);
+  const otherDays = ((data ?? []) as { report_date: string; percent_complete: number | null }[])
+    .filter((r) => r.report_date !== todayKey)
+    .reduce((s, r) => s + (r.percent_complete ?? 0), 0);
+  const todayShare = Math.round(overallPercent) - otherDays;
+  if (todayShare < 0) {
+    throw new Error(`Earlier days already add up to ${otherDays}%, so the overall can't be set lower than that.`);
+  }
+  const keptComments = Object.fromEntries(
+    Object.entries(comments).filter(([cat, text]) => reasons.includes(cat as DprDependencyCategory) && !!text?.trim()).map(([c, t]) => [c, t!.trim()])
+  );
+  const nowIso = new Date().toISOString();
+  const { error: upErr } = await supabase.from('dpr_entries').upsert(
+    {
+      task_id: taskId,
+      report_date: todayKey,
+      is_overall: true,
+      percent_complete: Math.min(100, todayShare),
+      dependency_categories: reasons,
+      dependency_other_text: reasons.includes('other') ? (keptComments.other ?? null) : null,
+      delay_reason_comments: keptComments,
+      submitted_by: userId,
+      submitted_at: nowIso,
+    },
+    { onConflict: 'task_id,report_date' }
+  );
+  if (upErr) throw new Error(upErr.message);
+}
 
 // A day can have SEVERAL subtasks, each with its own free text and its own
 // Department — by explicit request, replacing the old one-subtask-per-day
