@@ -272,6 +272,19 @@ export async function updateTaskActualDate(
 ): Promise<void> {
   const { error } = await supabase.from('tasks').update({ [field]: value }).eq('id', taskId);
   if (error) throw new Error(error.message);
+  // By request (2026-11-10): saving an Actual Start date from Edit Task means
+  // the work has started, so a not-yet-started task (draft / ready /
+  // blocked) moves to in_progress right away — it then shows in DPR and the
+  // report without anyone touching the status by hand. On hold and completed
+  // are deliberate states and are left alone.
+  if (field === 'actual_start_date' && value) {
+    const { error: statusErr } = await supabase
+      .from('tasks')
+      .update({ status: 'in_progress' })
+      .eq('id', taskId)
+      .in('status', ['draft', 'ready', 'blocked']);
+    if (statusErr) throw new Error(statusErr.message);
+  }
 }
 
 export async function createDependency(

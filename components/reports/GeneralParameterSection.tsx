@@ -71,28 +71,18 @@ function parseFlexibleDateMs(value: string): number {
   return value.includes('T') ? new Date(value).getTime() : new Date(`${value}T00:00:00Z`).getTime();
 }
 
-// Weekday-only day-add (Sat/Sun skipped) — a lightweight stand-in for the
-// app's real holiday-table-aware addWorkingDaysSync (lib/workingDays.ts),
-// which needs a fetched blockedDates set this component doesn't otherwise
-// need. Reasonable here since projectedWorkingDays below is only ever a
-// few days out — not worth a second data fetch for that precision.
+// Day-add for the projected end date. Every calendar day counts as a working
+// day (by request, 2026-11-10: no Sundays or holidays off on site), so this
+// steps plain calendar days — matching DPR day labels and the report's
+// effective Actual End.
 function addWeekdaysDate(from: Date, days: number): Date {
   const cursor = new Date(from);
-  let remaining = days;
-  while (remaining > 0) {
-    cursor.setDate(cursor.getDate() + 1);
-    if (cursor.getDay() !== 0 && cursor.getDay() !== 6) remaining--;
-  }
+  cursor.setDate(cursor.getDate() + Math.max(0, days));
   return cursor;
 }
 
 function addWeekdaysLabel(from: Date, days: number): string {
-  const cursor = new Date(from);
-  let remaining = days;
-  while (remaining > 0) {
-    cursor.setDate(cursor.getDate() + 1);
-    if (cursor.getDay() !== 0 && cursor.getDay() !== 6) remaining--;
-  }
+  const cursor = addWeekdaysDate(from, days);
   return `${cursor.getDate()} ${SHORT_MONTHS[cursor.getMonth()]} ${cursor.getFullYear()}`;
 }
 
@@ -350,29 +340,20 @@ function Type2Report({
         <Formula label="Construction Delay" formula="Actual Working Days − Planned Working Days" days={constructionDelay} />
       </Stage>
 
-      <Stage
-        n={3}
-        title="Post Construction"
-        badge={
-          <View className="rounded-full px-2 py-0.5" style={{ borderWidth: 1, borderColor: T2_RED }}>
-            <Text className="text-2xs font-extrabold" style={{ color: T2_RED }}>
-              {data.delayedByDays != null ? `Delayed by ${signedDays(data.delayedByDays)}${data.delayedByOngoing ? ' so far' : ''}` : 'Not started'}
-            </Text>
-          </View>
-        }
-      >
+      {/* Post Construction = the total of the two stages above (Pre +
+          Construction), same as the PDF version of this report and the
+          Cumulative Delay panel — so e.g. Pre 0d + Construction 10d shows 10d. */}
+      <Stage n={3} title="Post Construction" badge={<DelayBadge days={total} label="total delay" />}>
+        <Formula label="Total Delay" formula={`Pre Construction ${pre}d + Construction ${constructionDelay}d`} days={total} />
         {/* The client's "Delayed By" (2026-11-09): straight Planned End −
-            Actual End, same as their sheet (e.g. 22 Aug − 15 Sep = −24). */}
-        {data.delayedByDays != null ? (
-          <Formula
-            label="Delayed By"
-            formula={`Planned End ${shortKey(base.dueDate)} − Actual End ${base.actualEndDate ? shortKey(base.actualEndDate) : 'today'}`}
-            days={data.delayedByDays}
-            valueText={`${signedDays(data.delayedByDays)}${data.delayedByOngoing ? ' so far' : ''}`}
-          />
-        ) : (
-          <Text className="text-xs mt-1" style={black}>
-            Delayed By = Planned End − Actual End (shown once the task has started)
+            Actual End in calendar days, same as their sheet (e.g. 22 Aug −
+            15 Sep = −24). A separate figure: an early start offsets it, so it
+            can differ from Total Delay above. */}
+        {data.delayedByDays != null && (
+          <Text className="text-2xs mt-1.5" style={black}>
+            End date vs plan: Planned End {shortKey(base.dueDate)} − Actual End {base.actualEndDate ? shortKey(base.actualEndDate) : 'today'} ={' '}
+            {signedDays(data.delayedByDays)}
+            {data.delayedByOngoing ? ' so far' : ''} (calendar days)
           </Text>
         )}
         <Text className="text-2xs font-bold uppercase tracking-wide mt-2 mb-1" style={black}>
@@ -1121,7 +1102,10 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
   // than "nothing has actually been reported yet." Planned dates and
   // subtasks are still visible on the DPR form itself either way — this
   // gate is specifically about the Report screen, not DPR entry.
-  if (!data.hasSubmittedDpr) {
+  // Opened up (2026-11-10, by request): a task with a real Actual Start date
+  // shows its report too, even with no DPR — the delay figures come from the
+  // task's own dates, same format as every other task.
+  if (!data.hasSubmittedDpr && !data.base.actualStartDate) {
     return (
       <EmptyState
         icon="document-text-outline"

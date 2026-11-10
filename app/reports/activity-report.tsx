@@ -54,7 +54,7 @@ const DEFAULT_RANGE_FOR_PRESET: Record<Preset, () => DateRange> = {
 };
 
 function ForecastLines({ f, dark }: { f: ProgressForecast; dark?: boolean }) {
-  const text = dark ? 'text-white/80' : 'text-neutral-600';
+  const text = dark ? 'text-white' : 'text-black';
   const toneClass = {
     normal: text,
     late: `font-semibold ${dark ? 'text-red-300' : 'text-red-600'}`,
@@ -74,9 +74,9 @@ function ForecastLines({ f, dark }: { f: ProgressForecast; dark?: boolean }) {
 function EntryLine({ row }: { row: DprActivityRow }) {
   return (
     <View className="flex-row items-center py-1 border-t border-neutral-100">
-      <Text className="text-2xs font-semibold text-neutral-500 w-14">{formatDayLabel(row.reportDate)}</Text>
+      <Text className="text-2xs font-semibold text-black w-14">{formatDayLabel(row.reportDate)}</Text>
       <Text className="text-2xs font-bold text-emerald-600 w-10">{row.percentComplete != null ? `${row.percentComplete}%` : '—'}</Text>
-      <Text className="text-2xs text-neutral-500 flex-1" numberOfLines={1}>
+      <Text className="text-2xs text-black flex-1" numberOfLines={1}>
         {entryNotes(row).join(' · ')}
       </Text>
     </View>
@@ -94,12 +94,12 @@ function TaskCard({ task }: { task: DprActivityTask }) {
           <Text className="text-sm font-bold text-neutral-900" numberOfLines={1}>
             {task.taskName}
           </Text>
-          <Text className="text-2xs text-neutral-400">
+          <Text className="text-2xs text-black">
             {task.workName} · {task.entries.length} DPR{task.entries.length === 1 ? '' : 's'}
           </Text>
         </View>
         {task.forecast && <Text className="text-base font-extrabold text-emerald-600 mr-1">{task.forecast.percentDone}%</Text>}
-        <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+        <Ionicons name="chevron-forward" size={16} color="#000000" />
       </View>
       {task.forecast && <ForecastLines f={task.forecast} />}
       <View className="mt-1.5">
@@ -107,6 +107,88 @@ function TaskCard({ task }: { task: DprActivityTask }) {
           <EntryLine key={`${row.reportDate}-${i}`} row={row} />
         ))}
       </View>
+    </Pressable>
+  );
+}
+
+function dayCount(from: string, to: string): number {
+  return Math.max(1, Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1);
+}
+
+// Monthly Status card — same look as the Weekly Status design the client
+// signed off on (2026-11-10): % done, a done/remaining bar with day counts,
+// the delay line, and Reasons for Delay from the DPRs in the month. Works for
+// tasks with no DPR too: a task with an Actual End counts as 100% done.
+function StatusTaskCard({ task }: { task: DprActivityTask }) {
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const f = task.forecast;
+  const finished = task.actualEndDate != null;
+  const percent = f ? f.percentDone : finished ? 100 : 0;
+  const remaining = Math.max(0, Math.round((100 - percent) * 10) / 10);
+  const doneDays = f ? f.daysElapsed : task.actualStartDate ? dayCount(task.actualStartDate, task.actualEndDate ?? todayKey) : 0;
+  const remainingDays = f ? f.daysRemaining : finished ? 0 : null;
+  const endLabel = finished ? `actual end ${formatDateLabel(task.actualEndDate)}` : f?.forecastEndDate ? `now expected ${formatDateLabel(f.forecastEndDate)}` : 'still running';
+  const plannedEnd = task.plannedEndDate ? `planned end ${formatDateLabel(task.plannedEndDate)}` : 'no planned end';
+  const delay = task.totalDelayDays;
+  // Every reason ever entered for this task (any date), not just this month's DPRs.
+  const reasons = task.reasonEntries.filter((row) => entryNotes(row).length > 0);
+
+  return (
+    <Pressable
+      onPress={() => router.push({ pathname: '/reports/general-parameter-report', params: { taskId: task.taskId } } as never)}
+      className="rounded-xl bg-white border border-neutral-100 px-3 py-3 mb-2.5 active:opacity-70"
+    >
+      <View className="flex-row items-start">
+        <View className="flex-1 pr-2">
+          <Text className="text-sm font-bold text-neutral-900">{task.taskName}</Text>
+          <Text className="text-2xs text-black mt-0.5">
+            <Text className="font-bold text-neutral-800">{task.taskCode}</Text> · {task.workName}
+          </Text>
+        </View>
+        <Text className="text-lg font-extrabold text-emerald-600 mr-1">{percent}%</Text>
+        <Ionicons name="chevron-forward" size={16} color="#000000" style={{ marginTop: 4 }} />
+      </View>
+
+      <View className="h-5 rounded-md border border-neutral-800 mt-2.5 overflow-hidden flex-row">
+        <View style={{ width: `${Math.min(100, Math.max(0, percent))}%`, backgroundColor: '#059669' }} />
+      </View>
+      <View className="flex-row mt-1">
+        <View className="flex-1 items-center">
+          <Text className="text-xs font-bold text-emerald-700">{percent}%</Text>
+          <Text className="text-2xs text-black">({doneDays} day{doneDays === 1 ? '' : 's'})</Text>
+        </View>
+        <View className="flex-1 items-center">
+          <Text className="text-xs font-bold text-neutral-800">{remaining}%</Text>
+          <Text className="text-2xs text-black">{remainingDays == null ? '(—)' : `(~${remainingDays} day${remainingDays === 1 ? '' : 's'})`}</Text>
+        </View>
+      </View>
+
+      <Text className="text-2xs text-black mt-2">
+        Planned {task.plannedStartDate ? formatDayLabel(task.plannedStartDate) : '—'} – {task.plannedEndDate ? formatDayLabel(task.plannedEndDate) : '—'} · Actual{' '}
+        {task.actualStartDate ? formatDayLabel(task.actualStartDate) : '—'} – {task.actualEndDate ? formatDayLabel(task.actualEndDate) : 'ongoing'}
+      </Text>
+      {delay != null &&
+        (delay > 0 ? (
+          <Text className="text-xs font-semibold text-red-600 mt-1">
+            Delayed by {delay} day{delay === 1 ? '' : 's'} — {plannedEnd}, {endLabel}
+          </Text>
+        ) : (
+          <Text className="text-xs font-semibold text-emerald-600 mt-1">
+            On time — {plannedEnd}, {endLabel}
+          </Text>
+        ))}
+
+      <Text className="text-2xs font-bold uppercase tracking-wide text-black mt-2.5 mb-1">Reasons for delay</Text>
+      {reasons.length === 0 ? (
+        <Text className="text-xs text-black py-1 border-t border-neutral-100">None reported in DPR</Text>
+      ) : (
+        reasons.map((row, i) => (
+          <View key={`${row.reportDate}-${i}`} className="flex-row py-1.5 border-t border-neutral-100">
+            <Text className="text-xs text-black w-16">{formatDayLabel(row.reportDate)}</Text>
+            <Text className="text-xs text-neutral-800 flex-1">{entryNotes(row).join(' · ')}</Text>
+          </View>
+        ))
+      )}
     </Pressable>
   );
 }
@@ -137,13 +219,13 @@ export default function ActivityReportScreen() {
     try {
       setError(null);
       setLoading(true);
-      setReport(await fetchDprActivityReport(selectedProjectId, range));
+      setReport(await fetchDprActivityReport(selectedProjectId, range, { includeByActualDates: preset === 'month' }));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
-  }, [selectedProjectId, range]);
+  }, [selectedProjectId, range, preset]);
 
   useEffect(() => {
     load();
@@ -198,7 +280,7 @@ export default function ActivityReportScreen() {
             ) : (
               <DateRangeBar range={range} onChange={setRange} />
             )}
-            <Text className="text-xs text-neutral-400 mb-2">
+            <Text className="text-xs text-black mb-2">
               Showing {formatDateLabel(range.from)} – {formatDateLabel(range.to)}
             </Text>
 
@@ -213,23 +295,27 @@ export default function ActivityReportScreen() {
                   <Text className="text-xs font-semibold text-red-600">Retry</Text>
                 </Pressable>
               </View>
-            ) : !report || report.rows.length === 0 ? (
+            ) : !report || report.tasks.length === 0 ? (
               <EmptyState
                 icon="document-text-outline"
                 iconColor="#9CA3AF"
-                title="No DPR activity"
-                subtitle="No daily progress reports were submitted in this window."
+                title={preset === 'month' ? 'No tasks this month' : 'No DPR activity'}
+                subtitle={
+                  preset === 'month'
+                    ? 'No task has actual dates in this month and no DPR was submitted in it.'
+                    : 'No daily progress reports were submitted in this window.'
+                }
               />
             ) : (
               <>
-                <Text className="text-xs font-bold uppercase tracking-wide text-neutral-400 mb-1.5 px-1">
+                <Text className="text-xs font-bold uppercase tracking-wide text-black mb-1.5 px-1">
                   Task-Level Activity ({report.taskCount} task{report.taskCount === 1 ? '' : 's'}) · tap a task for its full report
                 </Text>
-                {report.tasks.map((task) => (
-                  <TaskCard key={task.taskId} task={task} />
-                ))}
+                {report.tasks.map((task) =>
+                  preset === 'month' ? <StatusTaskCard key={task.taskId} task={task} /> : <TaskCard key={task.taskId} task={task} />
+                )}
                 <View className="rounded-xl bg-neutral-900 px-3 py-2.5 mt-1">
-                  <Text className="text-2xs font-bold uppercase tracking-wide text-white/50 mb-0.5">Cumulative Progress</Text>
+                  <Text className="text-2xs font-bold uppercase tracking-wide text-white mb-0.5">Cumulative Progress</Text>
                   <Text className="text-lg font-extrabold text-white">{report.cumulativePercent != null ? `${report.cumulativePercent}%` : '—'}</Text>
                   {report.overallForecast && <ForecastLines f={report.overallForecast} dark />}
                 </View>

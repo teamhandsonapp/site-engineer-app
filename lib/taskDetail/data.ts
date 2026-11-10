@@ -80,6 +80,8 @@ export interface TaskDetailInfo {
   // checklist screen itself, which previously had no date display at all.
   plannedStartDate: string | null;
   dueDate: string | null;
+  actualStartDate: string | null;
+  actualEndDate: string | null;
 }
 
 export interface TaskDetail {
@@ -116,6 +118,7 @@ export async function fetchTaskDetail(taskId: string): Promise<TaskDetail> {
     .select(`
       id, task_id, task_name, description, accountability_type,
       planned_start_date, due_date, current_planned_start_date,
+      actual_start_date, actual_end_date,
       checklist_completed_at, checklist_verification_status, checklist_verified_at, checklist_verification_note,
       work:works(name, code, accountability_type, project_id, project:projects(name)),
       task_type:task_types(default_duration_days),
@@ -141,6 +144,8 @@ export async function fetchTaskDetail(taskId: string): Promise<TaskDetail> {
     planned_start_date: string | null;
     due_date: string | null;
     current_planned_start_date: string | null;
+    actual_start_date: string | null;
+    actual_end_date: string | null;
     checklist_completed_at: string | null;
     checklist_verification_status: ChecklistVerificationStatus | null;
     checklist_verified_at: string | null;
@@ -198,6 +203,8 @@ export async function fetchTaskDetail(taskId: string): Promise<TaskDetail> {
       referenceStartDateISO: raw.current_planned_start_date ?? raw.planned_start_date,
       plannedStartDate: raw.planned_start_date,
       dueDate: raw.due_date,
+      actualStartDate: raw.actual_start_date,
+      actualEndDate: raw.actual_end_date,
     },
     items,
   };

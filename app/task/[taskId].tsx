@@ -28,7 +28,9 @@ import {
 import { ChecklistItemRow } from '../../components/taskDetail/ChecklistItemRow';
 import { DelayPanel } from '../../components/taskDetail/DelayPanel';
 import { formatCardDateRange } from '../../lib/flowchart/delay';
+import { updateTaskActualDate, updateTaskPlannedDates } from '../../lib/flowchart/data';
 import { Card } from '../../components/ui/Card';
+import { DateField } from '../../components/ui/DateField';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { formatDateLabel, formatTime12h } from '../../lib/formatTime';
@@ -205,6 +207,120 @@ function DependencyGroup({ label, refs }: { label: string; refs: TaskDependencyR
   );
 }
 
+interface TaskDates {
+  plannedStartDate: string | null;
+  dueDate: string | null;
+  actualStartDate: string | null;
+  actualEndDate: string | null;
+}
+
+function datesOf(task: TaskDetailInfo): TaskDates {
+  return { plannedStartDate: task.plannedStartDate, dueDate: task.dueDate, actualStartDate: task.actualStartDate, actualEndDate: task.actualEndDate };
+}
+
+// Planned and Actual dates, editable here by staff (same writes as the
+// flowchart's Edit Task sheet). Only changed fields are saved. Like that
+// sheet, an actual-date change updates this task only; the downstream delay
+// cascade still runs from admin-web.
+function TaskDatesCard({ task, canEdit, onSaved }: { task: TaskDetailInfo; canEdit: boolean; onSaved: (dates: TaskDates) => void }) {
+  const [form, setForm] = useState<TaskDates>(() => datesOf(task));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [savedNote, setSavedNote] = useState(false);
+  const original = datesOf(task);
+  const dirty = (Object.keys(form) as (keyof TaskDates)[]).some((k) => form[k] !== original[k]);
+
+  useEffect(() => setForm(datesOf(task)), [task.id, task.plannedStartDate, task.dueDate, task.actualStartDate, task.actualEndDate]);
+
+  function set(field: keyof TaskDates, value: string | null) {
+    setForm((f) => ({ ...f, [field]: value }));
+    setError(null);
+    setSavedNote(false);
+  }
+
+  async function save() {
+    if (form.plannedStartDate && form.dueDate && form.dueDate < form.plannedStartDate) {
+      setError('Planned End cannot be before Planned Start.');
+      return;
+    }
+    if (form.actualStartDate && form.actualEndDate && form.actualEndDate < form.actualStartDate) {
+      setError('Actual End cannot be before Actual Start.');
+      return;
+    }
+    if (form.actualEndDate && !form.actualStartDate) {
+      setError('Set Actual Start before Actual End.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      if (form.plannedStartDate !== original.plannedStartDate || form.dueDate !== original.dueDate) {
+        await updateTaskPlannedDates(task.id, form.plannedStartDate, form.dueDate);
+      }
+      if (form.actualStartDate !== original.actualStartDate) await updateTaskActualDate(task.id, 'actual_start_date', form.actualStartDate);
+      if (form.actualEndDate !== original.actualEndDate) await updateTaskActualDate(task.id, 'actual_end_date', form.actualEndDate);
+      onSaved(form);
+      setSavedNote(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save dates');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function clearLink(field: keyof TaskDates) {
+    if (!canEdit || !form[field]) return null;
+    return (
+      <Pressable onPress={() => set(field, null)} hitSlop={6} accessibilityRole="button" accessibilityLabel="Clear date" className="mt-1 self-start">
+        <Text className="text-2xs font-semibold text-neutral-400">Clear</Text>
+      </Pressable>
+    );
+  }
+
+  return (
+    <Card className="mt-3.5 p-3.5">
+      <Text className="text-sm font-bold text-neutral-900 mb-2.5">Dates</Text>
+      <View className="flex-row gap-2 mb-2">
+        <View className="flex-1">
+          <DateField label="Planned Start" value={form.plannedStartDate} editable={canEdit} onChange={(iso) => set('plannedStartDate', iso)} />
+          {clearLink('plannedStartDate')}
+        </View>
+        <View className="flex-1">
+          <DateField label="Planned End" value={form.dueDate} minDate={form.plannedStartDate} editable={canEdit} onChange={(iso) => set('dueDate', iso)} />
+          {clearLink('dueDate')}
+        </View>
+      </View>
+      <View className="flex-row gap-2 pt-2 border-t border-neutral-100">
+        <View className="flex-1 pt-1">
+          <DateField label="Actual Start" value={form.actualStartDate} editable={canEdit} onChange={(iso) => set('actualStartDate', iso)} />
+          {clearLink('actualStartDate')}
+        </View>
+        <View className="flex-1 pt-1">
+          <DateField label="Actual End" value={form.actualEndDate} minDate={form.actualStartDate} editable={canEdit} onChange={(iso) => set('actualEndDate', iso)} />
+          {clearLink('actualEndDate')}
+        </View>
+      </View>
+      {error && <Text className="text-xs text-red-600 mt-2.5">{error}</Text>}
+      {savedNote && !dirty && <Text className="text-xs font-semibold text-green-700 mt-2.5">Dates saved</Text>}
+      {canEdit ? (
+        dirty && (
+          <View className="flex-row gap-2 mt-3">
+            <Pressable onPress={() => { setForm(original); setError(null); }} disabled={saving} accessibilityRole="button" className="flex-1 items-center py-2.5 rounded-xl border border-neutral-200 bg-white">
+              <Text className="text-sm font-semibold text-neutral-600">Cancel</Text>
+            </Pressable>
+            <Pressable onPress={save} disabled={saving} accessibilityRole="button" className="flex-1 flex-row items-center justify-center gap-1.5 py-2.5 rounded-xl bg-brand-navy" style={{ opacity: saving ? 0.6 : 1 }}>
+              {saving && <ActivityIndicator size="small" color="#fff" />}
+              <Text className="text-sm font-bold text-white">Save dates</Text>
+            </Pressable>
+          </View>
+        )
+      ) : (
+        <Text className="text-2xs text-neutral-400 mt-2.5">Only staff can change these dates.</Text>
+      )}
+    </Card>
+  );
+}
+
 // Mirrors admin-web's TrelloTaskDetail — the full checklist-by-department
 // view reached via the flowchart's task action menu "Open" (Part 6),
 // distinct from TaskDetailSheet (which is the quick Edit-fields form).
@@ -354,6 +470,8 @@ export default function TaskDetailScreen() {
             <Text className="text-2xs font-bold text-amber-900">{formatCardDateRange(task.plannedStartDate, task.dueDate)}</Text>
           </View>
           {task.description && <Text className="text-xs text-neutral-500 mt-2 mb-1">{task.description}</Text>}
+
+          <TaskDatesCard task={task} canEdit={canEdit} onSaved={(dates) => setTask((t) => (t ? { ...t, ...dates } : t))} />
 
           <VerificationBanner task={task} isAdminOrManager={isAdminOrManager} onOpenAction={setVerifyAction} />
           <ProcurementLeadTimeCard task={task} />

@@ -116,7 +116,8 @@ export interface GeneralParameterReportData {
   // Actual End to SHOW: the real tasks.actual_end_date when set; otherwise,
   // once the DPRs add up to 100%, the last DPR's day on the actual-start
   // timeline (DPR N = Actual Start + (N-1) working days), by explicit
-  // request — e.g. started 8 Sep, 4 DPRs at 25% -> 11 Sep. Null = not done.
+  // request — e.g. started 8 Sep, 4 DPRs at 25% -> 11 Sep. Every calendar
+  // day counts (no Sundays/holidays off). Null = not done.
   effectiveActualEndDate: string | null;
 }
 
@@ -315,12 +316,10 @@ export async function fetchGeneralParameterReport(taskId: string, projectId: str
 
   let effectiveActualEndDate: string | null = base.actualEndDate;
   if (!effectiveActualEndDate && cumulativePercentComplete >= 100 && base.actualStartDate && dailyProgress.length > 0) {
+    // Every calendar day is a working day (by request, 2026-11-10), so DPR N
+    // falls on Actual Start + (N-1) calendar days.
     const cursor = parseDateKeyUtc(base.actualStartDate);
-    let remaining = dailyProgress.length - 1;
-    while (remaining > 0) {
-      cursor.setUTCDate(cursor.getUTCDate() + 1);
-      if (cursor.getUTCDay() !== 0 && cursor.getUTCDay() !== 6) remaining--;
-    }
+    cursor.setUTCDate(cursor.getUTCDate() + (dailyProgress.length - 1));
     effectiveActualEndDate = toDateKeyUtc(cursor);
   }
 

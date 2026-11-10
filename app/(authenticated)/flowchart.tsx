@@ -6,6 +6,7 @@ import { appRoleFor, useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
 import { fetchFlowchartData, type FlowchartData } from '../../lib/flowchart/data';
 import { exportFilteredTasksPdf, printFilteredTasks } from '../../lib/flowchart/filterExport';
+import { exportFlowchartExcel } from '../../lib/flowchart/excelExport';
 import { fetchMilestones, type Milestone } from '../../lib/flowchart/milestones';
 import { CANVAS_THEMES, type CanvasTheme } from '../../components/flowchart/GridBackground';
 import { matchesPlannedDateFilter, PLANNED_DATE_MODE_LABEL, type PlannedDateMode } from '../../lib/flowchart/plannedDateFilter';
@@ -45,9 +46,13 @@ function FlowchartScreenContent() {
   const { state } = useAuth();
   const profile = state.status === 'signed-in' ? state.profile : null;
   const isStaff = profile ? appRoleFor(profile.role) === 'staff' : false;
-  const { selectedProjectId } = useProject();
+  const { selectedProjectId, projects } = useProject();
+  const projectName = projects.find((p) => p.id === selectedProjectId)?.name ?? 'Project';
 
   const [data, setData] = useState<FlowchartData | null>(null);
+  // Excel download (Task ID / dates / Delayed By / empty Delay Reason).
+  const [excelExporting, setExcelExporting] = useState(false);
+  const [excelNote, setExcelNote] = useState<{ text: string; isError: boolean } | null>(null);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -175,6 +180,21 @@ function FlowchartScreenContent() {
     }
   }
 
+  // Every task the flowchart is currently showing (the filtered set when a
+  // filter is on). Feedback is shown inline — Alert does nothing on web.
+  async function handleDownloadExcel() {
+    setExcelExporting(true);
+    setExcelNote(null);
+    try {
+      const note = await exportFlowchartExcel(filteredTasks, projectName);
+      setExcelNote({ text: note || `Excel file with ${filteredTasks.length} task${filteredTasks.length === 1 ? '' : 's'} downloaded`, isError: false });
+    } catch (err) {
+      setExcelNote({ text: `Could not create the Excel file: ${err instanceof Error ? err.message : String(err)}`, isError: true });
+    } finally {
+      setExcelExporting(false);
+    }
+  }
+
   async function handlePrint() {
     setPrinting(true);
     try {
@@ -257,19 +277,32 @@ function FlowchartScreenContent() {
             className="flex-row items-center justify-between px-4 py-2 border-b"
             style={{ backgroundColor: CANVAS_THEMES[canvasTheme].bg, borderColor: isDark ? '#242424' : '#F5F5F5' }}
           >
-            <Pressable
-              onPress={() => setFilterModalOpen(true)}
-              className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-full border"
-              style={{
-                backgroundColor: hasActiveFilter ? '#0F1F33' : isDark ? '#141414' : '#fff',
-                borderColor: hasActiveFilter ? '#0F1F33' : isDark ? '#242424' : '#E5E5E5',
-              }}
-            >
-              <Ionicons name="filter-outline" size={14} color={hasActiveFilter ? '#fff' : isDark ? '#E5E5E5' : '#374151'} />
-              <Text className="text-xs font-bold" style={{ color: hasActiveFilter ? '#fff' : isDark ? '#E5E5E5' : '#374151' }}>
-                Filter{hasActiveFilter ? ` (${filteredTasks.length})` : ''}
-              </Text>
-            </Pressable>
+            <View className="flex-row items-center gap-2">
+              <Pressable
+                onPress={() => setFilterModalOpen(true)}
+                className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-full border"
+                style={{
+                  backgroundColor: hasActiveFilter ? '#0F1F33' : isDark ? '#141414' : '#fff',
+                  borderColor: hasActiveFilter ? '#0F1F33' : isDark ? '#242424' : '#E5E5E5',
+                }}
+              >
+                <Ionicons name="filter-outline" size={14} color={hasActiveFilter ? '#fff' : isDark ? '#E5E5E5' : '#374151'} />
+                <Text className="text-xs font-bold" style={{ color: hasActiveFilter ? '#fff' : isDark ? '#E5E5E5' : '#374151' }}>
+                  Filter{hasActiveFilter ? ` (${filteredTasks.length})` : ''}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={handleDownloadExcel}
+                disabled={excelExporting || filteredTasks.length === 0}
+                accessibilityRole="button"
+                accessibilityLabel="Download tasks as Excel"
+                className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-full"
+                style={{ backgroundColor: '#15803D', opacity: excelExporting || filteredTasks.length === 0 ? 0.5 : 1 }}
+              >
+                {excelExporting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="document-text-outline" size={14} color="#fff" />}
+                <Text className="text-xs font-bold text-white">{excelExporting ? 'Preparing…' : 'Excel'}</Text>
+              </Pressable>
+            </View>
 
             {hasActiveFilter && (
               <View className="flex-row items-center gap-1.5">
@@ -301,6 +334,20 @@ function FlowchartScreenContent() {
               </View>
             )}
           </View>
+
+          {excelNote && (
+            <Pressable
+              onPress={() => setExcelNote(null)}
+              className="flex-row items-center gap-2 px-4 py-2"
+              style={{ backgroundColor: excelNote.isError ? '#FEE2E2' : '#DCFCE7' }}
+            >
+              <Ionicons name={excelNote.isError ? 'alert-circle' : 'checkmark-circle'} size={15} color={excelNote.isError ? '#B91C1C' : '#15803D'} />
+              <Text className="flex-1 text-xs font-semibold" style={{ color: excelNote.isError ? '#B91C1C' : '#15803D' }}>
+                {excelNote.text}
+              </Text>
+              <Ionicons name="close" size={14} color={excelNote.isError ? '#B91C1C' : '#15803D'} />
+            </Pressable>
+          )}
 
           {hasActiveFilter && viewMode === 'list' ? (
             <FilteredTaskList tasks={filteredTasks} />

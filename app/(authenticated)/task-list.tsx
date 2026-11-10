@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, Text, TextInput, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { appRoleFor, useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
 import { fetchFlowchartData, type FlowchartData } from '../../lib/flowchart/data';
@@ -129,7 +129,12 @@ export default function TaskListScreen() {
     }
   }, []);
 
+  // Skips the focus reload that fires right after the initial load below.
+  const skipNextFocusReload = useRef(true);
+  const [refreshing, setRefreshing] = useState(false);
+
   useEffect(() => {
+    skipNextFocusReload.current = true;
     if (!selectedProjectId) {
       setLoading(false);
       return;
@@ -137,6 +142,29 @@ export default function TaskListScreen() {
     setLoading(true);
     load(selectedProjectId).finally(() => setLoading(false));
   }, [selectedProjectId, load]);
+
+  // Drawer screens stay mounted, so without this a task created (or its
+  // dates edited) elsewhere never showed here until an app restart. Reloads
+  // quietly (no spinner) every time the screen is opened again.
+  useFocusEffect(
+    useCallback(() => {
+      if (skipNextFocusReload.current) {
+        skipNextFocusReload.current = false;
+        return;
+      }
+      if (selectedProjectId) void load(selectedProjectId);
+    }, [selectedProjectId, load])
+  );
+
+  async function pullToRefresh() {
+    if (!selectedProjectId) return;
+    setRefreshing(true);
+    try {
+      await load(selectedProjectId);
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   useEffect(() => {
     if (!selectedProjectId || !isAdminOrManager) return;
@@ -259,7 +287,12 @@ export default function TaskListScreen() {
           <ActivityIndicator color="#0F1F33" />
         </View>
       ) : !data || data.tasks.length === 0 ? (
-        <EmptyState icon="list-outline" iconColor="#9CA3AF" title="No tasks yet" subtitle="This project doesn't have any tasks yet." />
+        <View className="flex-1">
+          <EmptyState icon="list-outline" iconColor="#9CA3AF" title="No tasks yet" subtitle="This project doesn't have any tasks yet." />
+          <Pressable onPress={pullToRefresh} disabled={refreshing} className="self-center mt-3 px-4 py-2 rounded-lg bg-white border border-neutral-200">
+            <Text className="text-xs font-semibold text-neutral-700">{refreshing ? 'Refreshing…' : 'Refresh'}</Text>
+          </Pressable>
+        </View>
       ) : (
         <>
           <View className="px-4 pt-4 pb-2">
@@ -288,6 +321,7 @@ export default function TaskListScreen() {
               keyExtractor={(t) => t.id}
               renderItem={({ item }) => <TaskRow task={item} />}
               contentContainerClassName="px-4 pb-8"
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={pullToRefresh} tintColor="#0F1F33" />}
               ListHeaderComponent={
                 <Text className="text-2xs text-neutral-400 mb-2">
                   {filteredTasks.length} of {data.tasks.length} task{data.tasks.length === 1 ? '' : 's'}

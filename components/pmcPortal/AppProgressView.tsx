@@ -10,7 +10,7 @@ import { APP_PROGRESS, type ProgressFrom, type ScreenProgress } from '../../lib/
 // add / edit / delete / move made here is saved on this phone (AsyncStorage)
 // and survives app restarts. "Reset" goes back to the list in the code.
 
-const STORAGE_KEY = 'pmc.appProgress.v1';
+const STORAGE_KEY = 'pmc.appProgress.v2';
 const FROMS: ProgressFrom[] = ['Client', 'Prakash', 'Development', 'Phone update'];
 
 const FROM_COLOR: Record<ProgressFrom, { fg: string; bg: string }> = {

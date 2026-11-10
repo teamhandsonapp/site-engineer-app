@@ -8,7 +8,7 @@ import { FilePreview, type DrawingBox, type FilePreviewSpec } from '../../compon
 import { useProject } from '../../lib/ProjectContext';
 import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
 import { SitePhotosBrowser } from '../../components/files/SitePhotosBrowser';
-import { useSitePhotos } from '../../lib/sitePhotos';
+import { LOCATION_TREE, WALLS, roomsFor, useSitePhotos } from '../../lib/sitePhotos';
 
 // Files — project documents organised into folders (Drawings, Transmittal,
 // RA Bills, Quotes -> Comparative/Finalised). DUMMY DATA ONLY for now, by
@@ -32,12 +32,34 @@ interface DummyFile {
   // Drawings + RA Bills — drive the Department / Floor filters in those folders.
   department?: string;
   floor?: string;
+  // Set on uploads: where on site the document belongs.
+  room?: string;
+  wall?: string;
+  ceiling?: string;
   preview: FilePreviewSpec;
 }
 
 // Filter options for the Drawings and RA Bills folders, in display order.
 const DRAWING_DEPARTMENTS = ['Architectural', 'Structural', 'Electrical', 'Plumbing', 'HVAC', 'Interior'];
 const DRAWING_FLOORS = ['Foundation', 'Ground Floor', 'First Floor', 'Second Floor', 'Terrace', 'All Floors'];
+
+// Upload form: every upload must say where it belongs before a file can be
+// picked. DUMMY options for now (client to confirm the real lists). Floor →
+// Room reuses the Site Photos location tree so both stay in step.
+interface UploadMeta {
+  department: string;
+  floor: string;
+  room: string;
+  wall: string;
+  ceiling: string;
+}
+const EMPTY_META: UploadMeta = { department: '', floor: '', room: '', wall: '', ceiling: '' };
+const UPLOAD_FLOORS = LOCATION_TREE.map((l) => l.floor);
+const UPLOAD_WALLS = WALLS.filter((w) => w !== 'Ceiling' && w !== 'Floor');
+const UPLOAD_CEILINGS = ['False Ceiling', 'Gypsum Board', 'Grid Ceiling', 'Wooden Ceiling', 'Slab (no false ceiling)'];
+// Drawings take PDF or AutoCAD only. Checked by file extension, because
+// phones often report AutoCAD files with a generic file type.
+const DRAWING_EXTENSIONS = ['pdf', 'dwg', 'dxf'];
 
 interface Folder {
   id: string;
@@ -371,7 +393,7 @@ function kindFromName(name: string, mimeType: string | null | undefined): FileKi
   const ext = name.split('.').pop()?.toLowerCase() ?? '';
   if (mimeType?.startsWith('image/')) return 'img';
   if (ext === 'pdf') return 'pdf';
-  if (ext === 'dwg') return 'dwg';
+  if (ext === 'dwg' || ext === 'dxf') return 'dwg';
   if (ext === 'xlsx' || ext === 'xls' || ext === 'csv') return 'xlsx';
   if (ext === 'docx' || ext === 'doc') return 'docx';
   return 'other';
@@ -433,7 +455,7 @@ function FileRow({ file, onPress }: { file: DummyFile; onPress: () => void }) {
           {kind.label} · {file.size} · {file.date} · {file.by}
         </Text>
         {file.note && <Text className="text-2xs font-semibold text-brand-navy mt-0.5">{file.note}</Text>}
-        {(file.department || file.floor) && (
+        {(file.department || file.floor || file.room || file.wall || file.ceiling) && (
           <View className="flex-row flex-wrap gap-1 mt-1">
             {file.department && (
               <View className="px-1.5 py-0.5 rounded" style={{ backgroundColor: '#EEF2FF' }}>
@@ -445,6 +467,11 @@ function FileRow({ file, onPress }: { file: DummyFile; onPress: () => void }) {
                 <Text className="text-2xs font-semibold" style={{ color: '#92400E' }}>{file.floor}</Text>
               </View>
             )}
+            {[file.room, file.wall, file.ceiling].filter(Boolean).map((t) => (
+              <View key={t} className="px-1.5 py-0.5 rounded" style={{ backgroundColor: '#F1F5F9' }}>
+                <Text className="text-2xs font-semibold" style={{ color: '#334155' }}>{t}</Text>
+              </View>
+            ))}
           </View>
         )}
       </View>
@@ -516,6 +543,57 @@ function FilterChips({ label, options, value, onChange }: { label: string; optio
   );
 }
 
+// A simple dropdown: tap to open the option list below it, tap an option to
+// choose it. Works the same on phone and web.
+function Dropdown({ label, value, options, open, disabled, placeholder, onOpen, onSelect }: {
+  label: string;
+  value: string;
+  options: string[];
+  open: boolean;
+  disabled?: boolean;
+  placeholder?: string;
+  onOpen: () => void;
+  onSelect: (v: string) => void;
+}) {
+  return (
+    <View className="mb-2.5">
+      <Text className="text-2xs font-bold uppercase tracking-wide text-neutral-400 mb-1">{label}</Text>
+      <Pressable
+        onPress={onOpen}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={`${label}: ${value || 'not selected'}`}
+        accessibilityState={{ expanded: open, disabled }}
+        className="flex-row items-center px-3 py-2.5 rounded-xl border bg-white"
+        style={{ borderColor: open ? '#0F1F33' : '#E5E7EB', opacity: disabled ? 0.5 : 1 }}
+      >
+        <Text className={`flex-1 text-sm ${value ? 'text-neutral-900 font-semibold' : 'text-neutral-400'}`}>{value || placeholder || `Select ${label.toLowerCase()}`}</Text>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color="#6B7280" />
+      </Pressable>
+      {open && (
+        <View className="mt-1 rounded-xl border border-neutral-200 bg-white overflow-hidden">
+          {options.map((opt, i) => {
+            const active = opt === value;
+            return (
+              <Pressable
+                key={opt}
+                onPress={() => onSelect(opt)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                className={`flex-row items-center px-3 py-2.5 ${i < options.length - 1 ? 'border-b border-neutral-100' : ''}`}
+                style={{ backgroundColor: active ? '#EEF2FF' : '#fff' }}
+              >
+                <Text className={`flex-1 text-sm ${active ? 'font-bold text-brand-navy' : 'text-neutral-800'}`}>{opt}</Text>
+                {active && <Ionicons name="checkmark" size={16} color="#0F1F33" />}
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
+    </View>
+  );
+}
+
 export default function FilesScreen() {
   // Folder navigation stack — empty = root. Kept in-screen (not separate
   // routes) since it's all static dummy data for now.
@@ -537,6 +615,8 @@ export default function FilesScreen() {
     setPath([]);
     setOpenFile(null);
     setSitePhotosOpen(false);
+    setUploadTarget(null);
+    setChooseFolderOpen(false);
   }, [params.projectId, isClient, contextProjectId]);
   const projectName = projects.find((p) => p.id === projectId)?.name ?? (isClient ? 'Your Project' : 'Project');
   // Uploaded files, per folder id — in memory for this session only (dummy
@@ -545,6 +625,33 @@ export default function FilesScreen() {
   const [uploading, setUploading] = useState(false);
   const [chooseFolderOpen, setChooseFolderOpen] = useState(false);
   const [uploadBanner, setUploadBanner] = useState<string | null>(null);
+  // Upload form: which folder it goes to, the location answers, and which
+  // dropdown is open (one at a time).
+  const [uploadTarget, setUploadTarget] = useState<Folder | null>(null);
+  const [meta, setMeta] = useState<UploadMeta>(EMPTY_META);
+  const [openDropdown, setOpenDropdown] = useState<keyof UploadMeta | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const metaComplete = Object.values(meta).every((v) => v !== '');
+
+  function startUpload(target: Folder) {
+    setChooseFolderOpen(false);
+    setUploadTarget(target);
+    setMeta(EMPTY_META);
+    setOpenDropdown(null);
+    setUploadError(null);
+  }
+
+  function closeUploadForm() {
+    setUploadTarget(null);
+    setOpenDropdown(null);
+    setUploadError(null);
+  }
+
+  function pick(field: keyof UploadMeta, value: string) {
+    // A new floor has different rooms, so the room choice is cleared.
+    setMeta((m) => (field === 'floor' && m.floor !== value ? { ...m, floor: value, room: '' } : { ...m, [field]: value }));
+    setOpenDropdown(null);
+  }
   const projectUploads = uploads[projectId ?? ''] ?? {};
   const { photos: sitePhotos } = useSitePhotos(projectId);
   const allFiles = current ? [...(projectUploads[current.id] ?? []), ...(current.files ?? [])] : [];
@@ -562,13 +669,18 @@ export default function FilesScreen() {
     : allFiles;
   const canUploadHere = current != null && current.subfolders == null;
 
-  async function handleUpload(target: Folder) {
-    setChooseFolderOpen(false);
+  async function handleUpload(target: Folder, location: UploadMeta) {
+    setUploadError(null);
     setUploading(true);
     try {
       const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true, multiple: false });
       if (result.canceled || !result.assets?.[0]) return;
       const asset = result.assets[0];
+      const ext = asset.name.split('.').pop()?.toLowerCase() ?? '';
+      if (target.id === 'drawings' && !DRAWING_EXTENSIONS.includes(ext)) {
+        setUploadError('Drawings must be a PDF or AutoCAD file (.pdf, .dwg, .dxf).');
+        return;
+      }
       const today = new Date();
       const date = `${String(today.getDate()).padStart(2, '0')} ${today.toLocaleString('en-US', { month: 'short' })} ${today.getFullYear()}`;
       const file: DummyFile = {
@@ -578,6 +690,7 @@ export default function FilesScreen() {
         date,
         by: 'You',
         note: 'Uploaded just now',
+        ...location,
         preview: { type: 'uploaded', uri: asset.uri, mimeType: asset.mimeType ?? null, folderName: target.name },
       };
       const pid = projectId ?? '';
@@ -585,7 +698,8 @@ export default function FilesScreen() {
       // Jump into the destination folder so the new file is visible right away.
       const parent = FOLDERS.find((f) => f.subfolders?.some((sf) => sf.id === target.id));
       setPath(parent ? [parent, target] : [target]);
-      setUploadBanner(`"${asset.name}" uploaded to ${target.name}`);
+      closeUploadForm();
+      setUploadBanner(`"${asset.name}" uploaded to ${target.name} · ${location.floor} › ${location.room}`);
       setTimeout(() => setUploadBanner(null), 3000);
     } finally {
       setUploading(false);
@@ -680,7 +794,13 @@ export default function FilesScreen() {
         {/* Upload — straight into this folder when inside one; from the
             root (or Quotes, which only holds folders) pick a destination. */}
         <Pressable
-          onPress={() => (canUploadHere && current ? void handleUpload(current) : setChooseFolderOpen((v) => !v))}
+          onPress={() => {
+            if (canUploadHere && current) startUpload(current);
+            else {
+              setUploadTarget(null);
+              setChooseFolderOpen((v) => !v);
+            }
+          }}
           disabled={uploading}
           className="flex-row items-center gap-1.5 px-3 py-2 rounded-xl bg-brand-navy"
           style={{ opacity: uploading ? 0.6 : 1 }}
@@ -697,7 +817,7 @@ export default function FilesScreen() {
             {(current?.subfolders ?? LEAF_FOLDERS).map((f) => (
               <Pressable
                 key={f.id}
-                onPress={() => void handleUpload(f)}
+                onPress={() => startUpload(f)}
                 className="flex-row items-center gap-1.5 px-3 py-2 rounded-lg border border-neutral-200 bg-white"
               >
                 <Ionicons name="folder" size={14} color={f.color} />
@@ -705,6 +825,54 @@ export default function FilesScreen() {
               </Pressable>
             ))}
           </View>
+        </Card>
+      )}
+
+      {uploadTarget && (
+        <Card className="mb-3">
+          <View className="flex-row items-center mb-1">
+            <Ionicons name="folder" size={16} color={uploadTarget.color} />
+            <Text className="flex-1 text-sm font-bold text-neutral-900 ml-1.5">Upload to {uploadTarget.name}</Text>
+            <Pressable onPress={closeUploadForm} accessibilityRole="button" accessibilityLabel="Cancel upload" hitSlop={8}>
+              <Ionicons name="close" size={20} color="#6B7280" />
+            </Pressable>
+          </View>
+          <Text className="text-2xs text-neutral-500 mb-3">
+            Choose where this document belongs. All five are needed before you can pick the file.
+            {uploadTarget.id === 'drawings' ? ' Drawings: PDF or AutoCAD (.dwg, .dxf) only.' : ''}
+          </Text>
+          <Dropdown label="Department" value={meta.department} options={DRAWING_DEPARTMENTS} open={openDropdown === 'department'} onOpen={() => setOpenDropdown((d) => (d === 'department' ? null : 'department'))} onSelect={(v) => pick('department', v)} />
+          <Dropdown label="Floor" value={meta.floor} options={UPLOAD_FLOORS} open={openDropdown === 'floor'} onOpen={() => setOpenDropdown((d) => (d === 'floor' ? null : 'floor'))} onSelect={(v) => pick('floor', v)} />
+          <Dropdown
+            label="Room"
+            value={meta.room}
+            options={meta.floor ? roomsFor(meta.floor) : []}
+            disabled={!meta.floor}
+            placeholder={meta.floor ? undefined : 'Select a floor first'}
+            open={openDropdown === 'room'}
+            onOpen={() => setOpenDropdown((d) => (d === 'room' ? null : 'room'))}
+            onSelect={(v) => pick('room', v)}
+          />
+          <Dropdown label="Wall" value={meta.wall} options={UPLOAD_WALLS} open={openDropdown === 'wall'} onOpen={() => setOpenDropdown((d) => (d === 'wall' ? null : 'wall'))} onSelect={(v) => pick('wall', v)} />
+          <Dropdown label="Ceiling" value={meta.ceiling} options={UPLOAD_CEILINGS} open={openDropdown === 'ceiling'} onOpen={() => setOpenDropdown((d) => (d === 'ceiling' ? null : 'ceiling'))} onSelect={(v) => pick('ceiling', v)} />
+          {uploadError && (
+            <View className="flex-row items-center gap-2 mb-2 px-3 py-2 rounded-xl" style={{ backgroundColor: '#FEE2E2' }}>
+              <Ionicons name="alert-circle" size={16} color="#B91C1C" />
+              <Text className="text-xs font-semibold flex-1" style={{ color: '#B91C1C' }}>
+                {uploadError}
+              </Text>
+            </View>
+          )}
+          <Pressable
+            onPress={() => void handleUpload(uploadTarget, meta)}
+            disabled={!metaComplete || uploading}
+            accessibilityRole="button"
+            className="flex-row items-center justify-center gap-1.5 mt-1 py-3 rounded-xl"
+            style={{ backgroundColor: metaComplete ? '#0F1F33' : '#CBD5E1' }}
+          >
+            {uploading ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="cloud-upload-outline" size={16} color="#fff" />}
+            <Text className="text-sm font-bold text-white">{metaComplete ? 'Choose file & upload' : 'Fill in all five to upload'}</Text>
+          </Pressable>
         </Card>
       )}
 

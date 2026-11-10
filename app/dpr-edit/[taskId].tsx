@@ -203,17 +203,12 @@ export default function DprEditScreen() {
   // DPR day N is labelled Actual Start + (N-1) working days once the task
   // has an actual start (e.g. started 8 Sep, 4 DPRs -> 8, 9, 10, 11 Sep), by
   // explicit correction; before that, the planned day it's stored under.
-  // Same weekday rule as the report's Projected End Date, so they agree.
+  // Every calendar day is a working day (by request, 2026-11-10: no Sundays
+  // or holidays off), same rule as the report's Projected End Date.
   function dprDayDate(dayIndex: number, reportDate: string): Date {
     if (!task?.actualStartDate) return new Date(`${reportDate}T00:00:00Z`);
     const [y, m, d] = task.actualStartDate.split('-').map(Number);
-    const cursor = new Date(Date.UTC(y, m - 1, d));
-    let remaining = dayIndex;
-    while (remaining > 0) {
-      cursor.setUTCDate(cursor.getUTCDate() + 1);
-      if (cursor.getUTCDay() !== 0 && cursor.getUTCDay() !== 6) remaining--;
-    }
-    return cursor;
+    return new Date(Date.UTC(y, m - 1, d + Math.max(0, dayIndex)));
   }
 
   // Current day's editable copy — reset whenever the pager moves.

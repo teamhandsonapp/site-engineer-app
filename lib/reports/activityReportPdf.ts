@@ -38,7 +38,11 @@ export function forecastLines(f: ProgressForecast): { text: string; tone: Foreca
 
 export function entryNotes(row: DprActivityRow): string[] {
   return [
-    ...row.dependencyCategories.map((c) => DPR_DEPENDENCY_LABEL[c]),
+    // Each reason with the comment typed for it, e.g. "Architect: drawings pending".
+    ...row.dependencyCategories.map((c) => {
+      const comment = row.reasonComments?.[c]?.trim();
+      return comment ? `${DPR_DEPENDENCY_LABEL[c]}: ${comment}` : DPR_DEPENDENCY_LABEL[c];
+    }),
     ...(row.commentPreset ? [row.commentPreset === 'other' ? (row.commentText ?? 'Other') : DPR_COMMENT_LABEL[row.commentPreset]] : []),
   ];
 }

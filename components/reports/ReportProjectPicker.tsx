@@ -18,15 +18,15 @@ export function ReportProjectPicker() {
 
   return (
     <Card className="mb-3">
-      <Text className="text-2xs text-neutral-400 mb-1">Project</Text>
+      <Text className="text-2xs text-black mb-1">Project</Text>
       <Pressable
         onPress={() => setOpen((v) => !v)}
         className="flex-row items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5 bg-white"
       >
-        <Text className={`text-sm ${selectedName ? 'text-neutral-900 font-medium' : 'text-neutral-400'}`}>
+        <Text className={`text-sm ${selectedName ? 'text-neutral-900 font-medium' : 'text-black'}`}>
           {selectedName ?? 'Select a project'}
         </Text>
-        <Text className="text-neutral-400">{open ? '▲' : '▼'}</Text>
+        <Text className="text-black">{open ? '▲' : '▼'}</Text>
       </Pressable>
       {open && (
         <View className="mt-2">

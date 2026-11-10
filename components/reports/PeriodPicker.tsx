@@ -64,7 +64,7 @@ export function PeriodPicker({ mode, range, onChange }: PeriodPickerProps) {
               style={{ minWidth: mode === 'week' ? '18%' : '22%', flexGrow: 1 }}
             >
               <Text className={`text-xs font-bold ${selected ? 'text-white' : 'text-neutral-800'}`}>{p.label}</Text>
-              {p.sub && <Text className={`text-2xs ${selected ? 'text-white/70' : 'text-neutral-400'}`}>{p.sub}</Text>}
+              {p.sub && <Text className={`text-2xs ${selected ? 'text-white' : 'text-black'}`}>{p.sub}</Text>}
             </Pressable>
           );
         })}

@@ -250,8 +250,18 @@ export function buildFlowchartAxisMaps(tasks: FlowchartTask[]): FlowchartAxisMap
   return buildAxisMapsGeneric(tasks);
 }
 
+// Tasks without a saved position are stacked in a column; by request
+// (2026-11-10) that column is ordered by Actual Start date (no date last),
+// so a newly added task lands in date order instead of database order.
+function byActualStart(a: FlowchartTask, b: FlowchartTask): number {
+  if (a.actualStartDate === b.actualStartDate) return a.taskName.localeCompare(b.taskName, undefined, { numeric: true });
+  if (!a.actualStartDate) return 1;
+  if (!b.actualStartDate) return -1;
+  return a.actualStartDate.localeCompare(b.actualStartDate);
+}
+
 export function layoutTasks(tasks: FlowchartTask[]): PositionedTask[] {
-  return layoutGeneric(tasks);
+  return layoutGeneric([...tasks].sort(byActualStart));
 }
 
 // Was 220 — shrunk further on real feedback that the box still read as too

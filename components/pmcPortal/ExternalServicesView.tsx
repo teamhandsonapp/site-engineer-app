@@ -32,6 +32,9 @@ function ServiceCard({ s, open, onToggle }: { s: ExternalService; open: boolean;
           <Text className="text-xs text-neutral-500 mt-0.5" numberOfLines={open ? undefined : 1}>
             {s.usedFor}
           </Text>
+          <Text className="text-xs font-semibold text-neutral-800 mt-1">
+            {s.billing} · {s.cost}
+          </Text>
         </View>
         <View className="rounded-full px-2.5 py-1" style={{ backgroundColor: tone.bg }}>
           <Text className="text-2xs font-bold" style={{ color: tone.fg }}>
@@ -43,6 +46,8 @@ function ServiceCard({ s, open, onToggle }: { s: ExternalService; open: boolean;
       {open && (
         <View className="px-4 pb-3 border-t border-neutral-100 pt-2">
           <Field label="Cost" value={s.cost} />
+          <Field label="Billing" value={s.billing} />
+          <Field label="Renewal" value={s.renewal} />
           <Field label="Used by" value={s.usedBy.join(', ')} />
           <Field label="Account" value={s.account} />
           <Field label="Keys kept in" value={s.keysIn} />
@@ -57,11 +62,26 @@ export function ExternalServicesView() {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const paidCount = EXTERNAL_SERVICES.filter((s) => s.paid === 'Paid').length;
   const tierCount = EXTERNAL_SERVICES.filter((s) => s.paid === 'Free tier, paid if usage grows').length;
+  const fixed = EXTERNAL_SERVICES.filter((s) => s.paid === 'Paid');
   return (
     <ScrollView className="flex-1 bg-neutral-50" contentContainerClassName="px-4 pt-4 pb-10">
       <Text className="text-xs text-neutral-500 mb-3">
         {EXTERNAL_SERVICES.length} services · {paidCount} paid · {tierCount} on free tier
       </Text>
+      <Card style={{ marginBottom: 16, padding: 16 }}>
+        <Text className="text-sm font-bold text-neutral-900 mb-2">Renewals and fixed costs</Text>
+        {fixed.map((s) => (
+          <View key={s.name} className="flex-row py-1">
+            <Text className="flex-1 text-sm text-neutral-800">{s.name}</Text>
+            <Text className="text-sm font-semibold text-neutral-900 text-right" style={{ maxWidth: '55%' }}>
+              {s.cost}
+            </Text>
+          </View>
+        ))}
+        <Text className="text-2xs text-neutral-500 mt-2">
+          Other services are free today and bill monthly only if usage grows. Tap a service for renewal details.
+        </Text>
+      </Card>
       {EXTERNAL_SERVICES.map((s) => (
         <ServiceCard key={s.name} s={s} open={!!open[s.name]} onToggle={() => setOpen((o) => ({ ...o, [s.name]: !o[s.name] }))} />
       ))}
