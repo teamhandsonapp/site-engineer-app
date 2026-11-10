@@ -167,6 +167,7 @@ function StatusTaskCard({ task }: { task: DprActivityTask }) {
         Planned {task.plannedStartDate ? formatDayLabel(task.plannedStartDate) : '—'} – {task.plannedEndDate ? formatDayLabel(task.plannedEndDate) : '—'} · Actual{' '}
         {task.actualStartDate ? formatDayLabel(task.actualStartDate) : '—'} – {task.actualEndDate ? formatDayLabel(task.actualEndDate) : 'ongoing'}
       </Text>
+      {!task.actualStartDate && <Text className="text-xs font-semibold text-black mt-1">Not started yet — {plannedEnd}</Text>}
       {delay != null &&
         (delay > 0 ? (
           <Text className="text-xs font-semibold text-red-600 mt-1">

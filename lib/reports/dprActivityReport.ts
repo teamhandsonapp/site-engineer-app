@@ -224,6 +224,22 @@ export async function fetchDprActivityReport(
     for (const r of (data ?? []) as unknown as RawTaskRow[]) {
       if (isPilotVisible(r.task_id, normalizeToOne(r.work)?.code)) dated.push(r);
     }
+    // Not started yet (no Actual Start): listed by their PLANNED window
+    // instead (2026-11-10), so planned-only tasks show in the month they're
+    // due. A task with only a Planned End counts on that one day.
+    const { data: planned, error: plannedErr } = await supabase
+      .from('tasks')
+      .select(DATED_TASK_SELECT)
+      .eq('work.project_id', projectId)
+      .is('deleted_at', null)
+      .is('actual_start_date', null)
+      .not('due_date', 'is', null)
+      .gte('due_date', range.from);
+    if (plannedErr) throw new Error(plannedErr.message);
+    for (const r of (planned ?? []) as unknown as RawTaskRow[]) {
+      const start = r.planned_start_date ?? r.due_date;
+      if (start && start <= range.to && isPilotVisible(r.task_id, normalizeToOne(r.work)?.code)) dated.push(r);
+    }
   }
 
   const rawById = new Map<string, RawTaskRow>([...dated, ...all].map((r) => [r.id, r]));

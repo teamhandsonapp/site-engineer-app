@@ -82,6 +82,9 @@ const VERTICAL_TARGET_GAP = 42;
 // — a fully correct fix would only merge two x-values when their tasks'
 // y-ranges are actually contiguous, not just "close in x."
 const AXIS_GROUP_EPSILON = 70;
+// See buildAxisMap: a stored gap this large is a deliberate section break.
+const SECTION_BREAK_MIN_GAP = 1500;
+const SECTION_BREAK_EXTRA_PX = 90;
 
 export interface AxisBreakpoint {
   orig: number;
@@ -134,8 +137,14 @@ export function buildAxisMap(values: number[], boxSize: number, targetGapPx: num
   for (let i = 1; i < bucketOriginals.length; i++) {
     const origGap = bucketOriginals[i] - bucketOriginals[i - 1];
     // Never grow a gap that was already tighter than the target — only
-    // ever shrinks a roomier-than-needed one.
-    const newGap = Math.min(origGap, boxSize + targetGapPx);
+    // ever shrinks a roomier-than-needed one. Exception (2026-11-10): a
+    // deliberate SECTION BREAK — a stored gap of SECTION_BREAK_MIN_GAP or
+    // more, far beyond anything a normal dragged layout produces — keeps
+    // SECTION_BREAK_EXTRA_PX of visible space, so a separate group (e.g. a
+    // row of parallel tasks placed below the main chart) reads as its own
+    // block instead of being squeezed flush against the chart above it.
+    const newGap =
+      origGap >= SECTION_BREAK_MIN_GAP ? boxSize + targetGapPx + SECTION_BREAK_EXTRA_PX : Math.min(origGap, boxSize + targetGapPx);
     compressedPos.push(compressedPos[i - 1] + newGap);
   }
   return bucketOriginals.map((orig, i) => ({ orig, compressed: compressedPos[i] }));
@@ -251,13 +260,22 @@ export function buildFlowchartAxisMaps(tasks: FlowchartTask[]): FlowchartAxisMap
 }
 
 // Tasks without a saved position are stacked in a column; by request
-// (2026-11-10) that column is ordered by Actual Start date (no date last),
-// so a newly added task lands in date order instead of database order.
+// (2026-11-10) that column is in date order instead of database order:
+// started tasks by Actual Start, then not-started tasks by Planned End,
+// then tasks with no dates at all. Name breaks ties.
+function cmpDateKey(a: string | null, b: string | null): number {
+  if (a === b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return a.localeCompare(b);
+}
+
 function byActualStart(a: FlowchartTask, b: FlowchartTask): number {
-  if (a.actualStartDate === b.actualStartDate) return a.taskName.localeCompare(b.taskName, undefined, { numeric: true });
-  if (!a.actualStartDate) return 1;
-  if (!b.actualStartDate) return -1;
-  return a.actualStartDate.localeCompare(b.actualStartDate);
+  const aStarted = !!a.actualStartDate;
+  const bStarted = !!b.actualStartDate;
+  if (aStarted !== bStarted) return aStarted ? -1 : 1;
+  const byDate = aStarted ? cmpDateKey(a.actualStartDate, b.actualStartDate) : cmpDateKey(a.dueDate, b.dueDate);
+  return byDate || a.taskName.localeCompare(b.taskName, undefined, { numeric: true });
 }
 
 export function layoutTasks(tasks: FlowchartTask[]): PositionedTask[] {

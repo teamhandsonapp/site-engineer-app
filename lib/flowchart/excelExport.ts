@@ -53,11 +53,29 @@ function numberCell(n: number | undefined): XLSX.CellObject {
   return n == null ? { t: 's', v: '' } : { t: 'n', v: n };
 }
 
+// Rows follow the flowchart as drawn: top to bottom, then left to right — so
+// the main column comes first (already in Actual Start / Planned End order)
+// and a separate row of parallel tasks below it comes after, left to right.
+// Tasks with no saved position go last, by date.
+function cmpDateKey(a: string | null, b: string | null): number {
+  if (a === b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return a.localeCompare(b);
+}
+
 function byActualStart(a: FlowchartTask, b: FlowchartTask): number {
-  if (a.actualStartDate === b.actualStartDate) return a.taskName.localeCompare(b.taskName, undefined, { numeric: true });
-  if (!a.actualStartDate) return 1;
-  if (!b.actualStartDate) return -1;
-  return a.actualStartDate.localeCompare(b.actualStartDate);
+  const ay = a.manualPositionY ?? Number.MAX_SAFE_INTEGER;
+  const by = b.manualPositionY ?? Number.MAX_SAFE_INTEGER;
+  if (ay !== by) return ay - by;
+  const ax = a.manualPositionX ?? Number.MAX_SAFE_INTEGER;
+  const bx = b.manualPositionX ?? Number.MAX_SAFE_INTEGER;
+  if (ax !== bx) return ax - bx;
+  const aStarted = !!a.actualStartDate;
+  const bStarted = !!b.actualStartDate;
+  if (aStarted !== bStarted) return aStarted ? -1 : 1;
+  const byDate = aStarted ? cmpDateKey(a.actualStartDate, b.actualStartDate) : cmpDateKey(a.dueDate, b.dueDate);
+  return byDate || a.taskName.localeCompare(b.taskName, undefined, { numeric: true });
 }
 
 // A real date cell (sorts/filters as a date in Excel and Google Sheets),
