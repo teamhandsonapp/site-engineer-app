@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { router } from 'expo-router';
-import { Pressable, View } from 'react-native';
+import { Pressable, Switch, View } from 'react-native';
 import { Text } from '../ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
@@ -18,11 +18,9 @@ import {
   formatDateLong,
   formatDuration,
   formatTime12,
-  googleCalendarUrl,
   inviteMessage,
   meetingEnd,
   meetingStart,
-  openLink,
 } from '../../lib/mom/share';
 import { todayIST } from '../../lib/mom/taskData';
 import { AGENDA_MAX, type AttendanceMark, type DiscussionItem, type Meeting, type MomProjectData, type Recipient, type SendChannel } from '../../lib/mom/types';
@@ -87,7 +85,7 @@ export function MeetingTab({
             ...d,
             meetings: d.meetings.some((x) => x.id === m.id) ? d.meetings.map((x) => (x.id === m.id ? m : x)) : [...d.meetings, m],
           }));
-          setBanner(view.editing ? 'Meeting updated.' : 'Meeting created. Next: send the invites and add it to Google Calendar.');
+          setBanner(view.editing ? 'Meeting updated.' : 'Meeting created. Next: send the invites.');
           setView({ kind: 'detail', id: m.id });
           // No automatic WhatsApp send on save: invites go out only from the
           // Invite card's button (one send path, no duplicate messages).
@@ -232,6 +230,7 @@ function MeetingForm({
   const [notes, setNotes] = useState(initial?.notes ?? '');
   const [invitees, setInvitees] = useState<Recipient[]>(initial?.invitees ?? []);
   const [agenda, setAgenda] = useState(initial?.agenda ?? '');
+  const [addToCalendar, setAddToCalendar] = useState(initial?.addToCalendar ?? true);
   const [items, setItems] = useState<DiscussionItem[]>(initial?.discussionItems ?? []);
   const [agendaError, setAgendaError] = useState<string | null>(null);
   const [itemsError, setItemsError] = useState<string | null>(null);
@@ -301,6 +300,7 @@ function MeetingForm({
       notes: notes.trim(),
       invitees,
       agenda: agenda.trim(),
+      addToCalendar,
       // Keep minutes already written against items that are still there.
       discussionItems: items.map((i) => ({ ...(base.discussionItems ?? []).find((o) => o.id === i.id), ...i })),
       attendance: Object.fromEntries(Object.entries(base.attendance).filter(([k]) => keep.has(k))),
@@ -341,6 +341,25 @@ function MeetingForm({
             ))}
           </Row>
         </View>
+        {/* Google Calendar — chosen while creating. Placeholder: saves the choice only. */}
+        <Pressable
+          testID="meeting-calendar-toggle"
+          onPress={() => setAddToCalendar((v) => !v)}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: addToCalendar }}
+          className="flex-row items-center gap-3 pt-3 border-t border-neutral-100"
+          style={{ minHeight: 44 }}
+        >
+          <Ionicons name="calendar-outline" size={18} color={NAVY} />
+          <View className="flex-1">
+            <Text className="text-sm font-semibold text-neutral-900">Add to Google Calendar</Text>
+            <Text className="text-2xs text-neutral-500">Calendar sync is coming soon — your choice is saved with the meeting.</Text>
+          </View>
+          {/* The whole row is the toggle; the switch is display-only so one tap = one change. */}
+          <View pointerEvents="none">
+            <Switch value={addToCalendar} trackColor={{ false: '#D1D5DB', true: '#16A34A' }} thumbColor="#FFFFFF" />
+          </View>
+        </Pressable>
       </Card>
 
       <Card className="mb-3 gap-3">
@@ -512,22 +531,13 @@ function MeetingDetail({
           </Text>
         </View>
         <DiscussionList items={m.discussionItems ?? []} />
-        <View className="flex-row gap-2 mt-3">
-          <View className="flex-1">
-            <Button
-              small
-              label={m.calendarAddedAtISO ? 'Added to Calendar ✓' : 'Add to Google Calendar'}
-              icon="calendar-outline"
-              variant="secondary"
-              onPress={async () => {
-                try {
-                  await openLink(googleCalendarUrl(m, projectName));
-                } catch {
-                  return; // no browser / Calendar app — nothing was added
-                }
-                await onChange(() => ({ calendarAddedAtISO: new Date().toISOString() }));
-              }}
-            />
+        <View className="flex-row items-center gap-2 mt-3">
+          {/* Google Calendar is chosen in the Create/Edit form (placeholder until the integration lands). */}
+          <View testID="meeting-detail-calendar" className="flex-1 flex-row items-center gap-1.5">
+            <Ionicons name="calendar-outline" size={14} color={m.addToCalendar ? '#16A34A' : '#9CA3AF'} />
+            <Text className="text-2xs" style={{ color: m.addToCalendar ? '#15803D' : '#6B7280' }} numberOfLines={2}>
+              {m.addToCalendar ? 'Google Calendar: on (sync coming soon)' : 'Google Calendar: off'}
+            </Text>
           </View>
           <Button small label="Edit" icon="create-outline" variant="secondary" onPress={onEdit} />
         </View>

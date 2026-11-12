@@ -74,6 +74,9 @@ export interface Meeting {
   // Added 2026-11-13. Optional: meetings saved before have neither and still open.
   agenda?: string;
   discussionItems?: DiscussionItem[];
+  // Chosen in the Create/Edit form. Placeholder only for now — the real
+  // Google Calendar integration will read this flag later.
+  addToCalendar?: boolean;
   projectId: string;
   title: string;
   date: string; // 'YYYY-MM-DD'
