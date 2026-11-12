@@ -7,7 +7,7 @@ import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';
 import { EmptyState } from '../ui/EmptyState';
 import { ErrorState, SkeletonList } from '../ui/States';
-import { colors, radius, space } from '../../lib/theme';
+import { colors, radius, shadow, space } from '../../lib/theme';
 import { fetchDepartments, type Department } from '../../lib/departments';
 import {
   fetchDrawingFiles,
@@ -23,12 +23,50 @@ import { DrawingUploadSheet } from './DrawingUploadSheet';
 import { Chip, KindBadge } from './parts';
 
 // File Manager › Drawings. Two views of the same files:
-//   By department — department folders (with counts) → files grouped by location
-//   By location   — floor → room → wall folders with a breadcrumb; files at
-//                   each level, optional "include rooms and walls inside"
-// Search covers name, department and location path.
+//   By department — department folders (with counts) → drawings, each showing
+//                   its floor › room › wall under the name
+//   By floor      — same look as Site Photos: Floor › Room › Wall folder rows;
+//                   the drawings tagged at a level are listed under its folders
+// Search covers name, department and floor/room path.
 
 const PAGE = 30;
+const NO_FLOOR = '__no_floor__';
+
+function FloorFolderRow({ name, count, icon, onPress }: { name: string; count: number; icon: keyof typeof Ionicons.glyphMap; onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${name}, ${count} drawing${count === 1 ? '' : 's'}`}
+      onPress={onPress}
+      style={({ pressed }) => [
+        {
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: space.md,
+          minHeight: 60,
+          paddingHorizontal: space.lg,
+          backgroundColor: pressed ? colors.surfaceMuted : colors.surface,
+          borderRadius: radius.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          marginBottom: space.sm,
+        },
+        shadow.card,
+      ]}
+    >
+      <View style={{ width: 40, height: 40, borderRadius: radius.sm, backgroundColor: count > 0 ? colors.amberSoft : colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name={icon} size={20} color={count > 0 ? '#B7791F' : colors.textMuted} />
+      </View>
+      <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: colors.text }} numberOfLines={1}>
+        {name}
+      </Text>
+      <Text style={{ fontSize: 12, color: colors.textMuted }}>
+        {count} drawing{count === 1 ? '' : 's'}
+      </Text>
+      <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+    </Pressable>
+  );
+}
 type View_ = 'department' | 'location';
 
 function fmtDate(iso: string): string {
@@ -64,10 +102,8 @@ export function DrawingsManager({
   // By department
   const [deptId, setDeptId] = useState<string | null>(null);
   const [floorFilter, setFloorFilter] = useState<string | null>(null);
-  // By location
+  // By floor (a project_locations id, NO_FLOOR, or null = list of floors)
   const [locId, setLocId] = useState<string | null>(null);
-  const [includeInside, setIncludeInside] = useState(false);
-  const [deptFilter, setDeptFilter] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -86,7 +122,7 @@ export function DrawingsManager({
     void load();
   }, [load]);
 
-  useEffect(() => setLimit(PAGE), [view, deptId, locId, floorFilter, deptFilter, includeInside, query]);
+  useEffect(() => setLimit(PAGE), [view, deptId, locId, floorFilter, query]);
 
   const byId = useMemo(() => new Map(locations.map((l) => [l.id, l])), [locations]);
   const deptById = useMemo(() => new Map(departments.map((d) => [d.id, d])), [departments]);
@@ -115,14 +151,14 @@ export function DrawingsManager({
       let list = all.filter((f) => f.departmentId === deptId);
       if (floorFilter === 'none') list = list.filter((f) => !f.locationId);
       else if (floorFilter) list = list.filter((f) => locationChain(byId, f.locationId)[0]?.id === floorFilter);
-      // Grouped by location path.
-      return [...list].sort((a, b) => locationPathLabel(byId, a.locationId).localeCompare(locationPathLabel(byId, b.locationId)) || b.createdAtISO.localeCompare(a.createdAtISO));
+      return list;
     }
-    const scope = locId ? (includeInside ? locationSubtree(locations, locId) : new Set([locId])) : null;
-    let list = scope ? all.filter((f) => f.locationId && scope.has(f.locationId)) : all.filter((f) => !f.locationId);
-    if (deptFilter) list = list.filter((f) => f.departmentId === deptFilter);
-    return list;
-  }, [files, q, searchHit, view, deptId, floorFilter, byId, locId, includeInside, locations, deptFilter]);
+    // By floor: only the drawings tagged exactly at this level (the folder list shows the deeper ones).
+    if (!locId) return [];
+    if (locId === NO_FLOOR) return all.filter((f) => !f.locationId);
+    return all.filter((f) => f.locationId === locId);
+  }, [files, q, searchHit, view, deptId, floorFilter, byId, locId]);
+  const unplacedCount = useMemo(() => (files ?? []).filter((f) => !f.locationId).length, [files]);
 
   const onLocationAdded = (l: ProjectLocation) => setLocations((prev) => [...prev, l]);
 
@@ -147,8 +183,8 @@ export function DrawingsManager({
   }
 
   const currentDept = deptId ? deptById.get(deptId) ?? null : null;
-  const locPath = locationChain(byId, locId);
-  const subLocations = locations.filter((l) => l.parentId === locId);
+  const locPath = locId === NO_FLOOR ? [] : locationChain(byId, locId);
+  const subLocations = locId === NO_FLOOR ? [] : locations.filter((l) => l.parentId === locId);
   const fileCountIn = (id: string) => {
     const s = locationSubtree(locations, id);
     return (files ?? []).filter((f) => f.locationId && s.has(f.locationId)).length;
@@ -173,7 +209,12 @@ export function DrawingsManager({
                   <Text className="text-2xs font-semibold text-neutral-700">{d.name}</Text>
                 </View>
               ) : null}
-              {showPath ? <Text className="text-2xs text-neutral-500" numberOfLines={1}>{path || 'No location'}</Text> : null}
+              {showPath ? (
+                <View className="flex-row items-center" style={{ gap: 3 }}>
+                  <Ionicons name="location-outline" size={11} color={colors.textMuted} />
+                  <Text className="text-2xs text-neutral-500" numberOfLines={1}>{path || 'No floor set'}</Text>
+                </View>
+              ) : null}
             </View>
             <Text className="text-2xs text-neutral-400 mt-0.5">
               {f.uploadedByName ?? '—'} · {fmtDate(f.createdAtISO)}
@@ -209,18 +250,8 @@ export function DrawingsManager({
   }
 
   const list = shown.slice(0, limit);
-  const listWithHeaders: ({ header: string } | { file: DrawingFile })[] = [];
-  if (view === 'department' && !q) {
-    let last: string | null = null;
-    for (const f of list) {
-      const h = locationPathLabel(byId, f.locationId) || 'No location';
-      if (h !== last) listWithHeaders.push({ header: h });
-      last = h;
-      listWithHeaders.push({ file: f });
-    }
-  } else for (const f of list) listWithHeaders.push({ file: f });
-
-  const atRoot = !q && ((view === 'department' && !deptId) || false);
+  // Folder-only screens: department list, the floor list, or a floor/room that has sub-folders but no drawings of its own.
+  const atRoot = !q && ((view === 'department' && !deptId) || (view === 'location' && (!locId || (subLocations.length > 0 && shown.length === 0))));
 
   return (
     <View className="flex-1 bg-neutral-50">
@@ -262,7 +293,7 @@ export function DrawingsManager({
               style={{ flex: 1, minHeight: 36, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: view === v ? colors.surface : 'transparent' }}
             >
               <Text className="text-xs font-bold" style={{ color: view === v ? colors.navy : colors.textMuted }}>
-                {v === 'department' ? 'By department' : 'By location'}
+                {v === 'department' ? 'By department' : 'By floor'}
               </Text>
             </Pressable>
           ))}
@@ -274,7 +305,7 @@ export function DrawingsManager({
           <TextInput
             value={query}
             onChangeText={setQuery}
-            placeholder="Search name, department or location"
+            placeholder="Search name, department or floor"
             placeholderTextColor={colors.placeholder}
             style={{ flex: 1, fontSize: 14, color: colors.text, paddingVertical: 8 }}
           />
@@ -322,70 +353,49 @@ export function DrawingsManager({
               </>
             ) : null}
 
-            {/* By location: breadcrumb + subfolders + dept chips */}
+            {/* By floor: Site Photos style — Floor › Room › Wall folder rows, then the drawings at this level. */}
             {view === 'location' && !q ? (
               <>
-                <View className="flex-row flex-wrap items-center mb-2" style={{ gap: 4 }}>
-                  <Pressable onPress={() => setLocId(null)} disabled={!locId}>
-                    <Text className="text-xs font-bold" style={{ color: locId ? colors.info : colors.text }}>All locations</Text>
+                <View className="flex-row flex-wrap items-center mb-3" style={{ gap: 4 }}>
+                  <Pressable onPress={() => setLocId(null)} disabled={!locId} hitSlop={6}>
+                    <Text className="text-xs font-semibold" style={{ color: locId ? colors.navy : colors.textMuted }}>All floors</Text>
                   </Pressable>
                   {locPath.map((l, i) => (
                     <View key={l.id} className="flex-row items-center" style={{ gap: 4 }}>
                       <Ionicons name="chevron-forward" size={12} color={colors.textMuted} />
-                      <Pressable onPress={() => setLocId(l.id)} disabled={i === locPath.length - 1}>
-                        <Text className="text-xs font-bold" style={{ color: i === locPath.length - 1 ? colors.text : colors.info }}>{l.name}</Text>
+                      <Pressable onPress={() => setLocId(l.id)} disabled={i === locPath.length - 1} hitSlop={6}>
+                        <Text className="text-xs font-semibold" style={{ color: i === locPath.length - 1 ? colors.textMuted : colors.navy }}>{l.name}</Text>
                       </Pressable>
                     </View>
                   ))}
                 </View>
-                {subLocations.length > 0 ? (
-                  <View className="flex-row flex-wrap mb-3" style={{ gap: space.sm }}>
-                    {subLocations.map((l) => (
-                      <FolderTile
-                        key={l.id}
-                        label={l.name}
-                        sub={`${l.level === 'floor' ? 'Floor' : l.level === 'room' ? 'Room' : 'Wall'} · ${fileCountIn(l.id)} files`}
-                        color={l.level === 'floor' ? colors.navy : l.level === 'room' ? '#B7791F' : '#0E7490'}
-                        icon={l.level === 'floor' ? 'layers' : l.level === 'room' ? 'cube-outline' : 'square-outline'}
-                        onPress={() => setLocId(l.id)}
-                      />
-                    ))}
-                  </View>
+                {subLocations.map((l) => (
+                  <FloorFolderRow
+                    key={l.id}
+                    name={l.name}
+                    count={fileCountIn(l.id)}
+                    icon={l.level === 'floor' ? 'layers-outline' : l.level === 'room' ? 'cube-outline' : 'folder'}
+                    onPress={() => setLocId(l.id)}
+                  />
+                ))}
+                {!locId && unplacedCount > 0 ? (
+                  <FloorFolderRow name="No floor set" count={unplacedCount} icon="help-circle-outline" onPress={() => setLocId(NO_FLOOR)} />
                 ) : null}
                 {!locId && locations.length === 0 ? (
                   <Text className="text-xs text-neutral-500 mb-3">No floors yet — add them while uploading (Where? › + Add).</Text>
                 ) : null}
-                {locId && locPath[locPath.length - 1]?.level !== 'wall' ? (
-                  <Pressable onPress={() => setIncludeInside((v) => !v)} className="flex-row items-center mb-2" style={{ gap: 6 }} accessibilityRole="checkbox" accessibilityState={{ checked: includeInside }}>
-                    <Ionicons name={includeInside ? 'checkbox' : 'square-outline'} size={18} color={includeInside ? colors.navy : colors.borderStrong} />
-                    <Text className="text-xs text-neutral-700">Include files from {locPath[locPath.length - 1]?.level === 'floor' ? 'rooms and walls' : 'walls'} inside</Text>
-                  </Pressable>
+                {locId && shown.length > 0 ? (
+                  <Text className="text-2xs font-semibold text-neutral-500 mt-2 mb-2">
+                    Drawings {locId === NO_FLOOR ? 'with no floor' : `for ${locPath[locPath.length - 1]?.name}`} · {shown.length}
+                  </Text>
                 ) : null}
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mb-3" contentContainerStyle={{ gap: 6 }}>
-                  <Chip label="All departments" selected={!deptFilter} onPress={() => setDeptFilter(null)} />
-                  {departments.filter((d) => countByDept.get(d.id)).map((d) => (
-                    <Chip key={d.id} label={d.name} color={d.color} selected={deptFilter === d.id} onPress={() => setDeptFilter(deptFilter === d.id ? null : d.id)} />
-                  ))}
-                </ScrollView>
-                <Text className="text-2xs font-semibold text-neutral-500 mb-2">
-                  {locId ? `Files in ${locPath[locPath.length - 1]?.name}` : 'Files with no location'} · {shown.length}
-                </Text>
               </>
             ) : null}
 
             {q ? <Text className="text-2xs font-semibold text-neutral-500 mb-2">{shown.length} result{shown.length === 1 ? '' : 's'} for “{query}”</Text> : null}
 
             {/* Files */}
-            {!atRoot &&
-              listWithHeaders.map((row, i) =>
-                'header' in row ? (
-                  <Text key={`h-${i}`} className="text-2xs font-bold text-neutral-600 mt-2 mb-1.5">
-                    {row.header}
-                  </Text>
-                ) : (
-                  <FileRow key={row.file.id} f={row.file} showPath={view === 'location' || !!q} />
-                )
-              )}
+            {!atRoot && list.map((f) => <FileRow key={f.id} f={f} />)}
             {!atRoot && shown.length > limit ? (
               <Button label={`Show more (${shown.length - limit})`} variant="secondary" onPress={() => setLimit((n) => n + PAGE)} fullWidth />
             ) : null}
