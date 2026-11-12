@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, Text, View } from 'react-native';
+import { KeyboardAvoider } from '../../components/ui/KeyboardAvoider';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
@@ -126,7 +127,7 @@ export default function NotificationsScreen() {
   }
 
   return (
-    <View className="flex-1 bg-neutral-50">
+    <KeyboardAvoider style={{ backgroundColor: '#FAFAFA' }}>
       <ScrollView contentContainerClassName="px-4 pt-4 pb-8" keyboardShouldPersistTaps="handled">
         <Text className="text-2xs text-neutral-400 mb-3">{DUMMY_NOTIFICATIONS.length} across all categories</Text>
         {CATEGORIES.map((category) => (
@@ -152,7 +153,7 @@ export default function NotificationsScreen() {
           <Text className="text-xs text-neutral-400 mb-3">Pick a project to send a critical alert.</Text>
         )}
       </ScrollView>
-    </View>
+    </KeyboardAvoider>
   );
 }
 

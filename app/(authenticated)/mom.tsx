@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { KeyboardAvoider } from '../../components/ui/KeyboardAvoider';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Card } from '../../components/ui/Card';
@@ -84,7 +85,7 @@ export default function MomScreen() {
   const activeTab: MomTab = tab === 'email' && !isAdmin ? 'meeting' : tab;
 
   return (
-    <View className="flex-1 bg-neutral-50">
+    <KeyboardAvoider style={{ backgroundColor: '#FAFAFA' }}>
       <View className="bg-white border-b border-neutral-100 px-4 pt-3">
         <Text className="text-2xs font-bold uppercase tracking-wider text-neutral-400">{projectName}</Text>
         <View className="flex-row mt-2">
@@ -115,7 +116,7 @@ export default function MomScreen() {
           <CustomAlertsTab projectId={selectedProjectId} projectName={projectName} update={update} me={me} />
         )}
       </ScrollView>
-    </View>
+    </KeyboardAvoider>
   );
 }
 

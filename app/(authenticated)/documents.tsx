@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { FormModal } from '../../components/ui/FormModal';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { appRoleFor, useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
@@ -78,8 +79,7 @@ function UploadDocumentModal({
   }
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
+    <FormModal visible={visible} onRequestClose={onClose}>
         <Pressable onPress={() => {}} className="bg-white rounded-2xl p-4 w-full" style={{ maxWidth: 400, maxHeight: '85%' }}>
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-md font-bold text-neutral-900">Upload Document</Text>
@@ -88,7 +88,7 @@ function UploadDocumentModal({
             </Pressable>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <Pressable
               onPress={handlePickFile}
               className="flex-row items-center gap-2 border border-dashed border-neutral-300 rounded-lg px-3 py-3 mb-3"
@@ -135,8 +135,7 @@ function UploadDocumentModal({
             <Text className="text-sm font-bold text-white">{uploading ? 'Uploading…' : 'Upload'}</Text>
           </Pressable>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }
 
@@ -184,8 +183,7 @@ function AssignTaskPicker({
   }
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
+    <FormModal visible onRequestClose={onClose}>
         <Pressable onPress={() => {}} className="bg-white rounded-2xl p-4 w-full" style={{ maxWidth: 400, maxHeight: '75%' }}>
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-md font-bold text-neutral-900">Assign to Task</Text>
@@ -210,7 +208,7 @@ function AssignTaskPicker({
           ) : filtered.length === 0 ? (
             <Text className="text-xs text-neutral-400">No matching tasks.</Text>
           ) : (
-            <ScrollView style={{ maxHeight: 320 }}>
+            <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ maxHeight: 320 }}>
               {filtered.map((task) => (
                 <Pressable
                   key={task.id}
@@ -228,8 +226,7 @@ function AssignTaskPicker({
             </ScrollView>
           )}
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }
 
@@ -312,8 +309,7 @@ function DocumentDetailModal({
 
   return (
     <>
-      <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-        <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
+      <FormModal visible onRequestClose={onClose}>
           <Pressable onPress={() => {}} className="bg-white rounded-2xl p-4 w-full" style={{ maxWidth: 400, maxHeight: '80%' }}>
             <View className="flex-row items-center justify-between mb-1">
               <Text className="text-md font-bold text-neutral-900 flex-1 pr-2" numberOfLines={2}>{document.title}</Text>
@@ -341,7 +337,7 @@ function DocumentDetailModal({
             ) : links.length === 0 ? (
               <Text className="text-xs text-neutral-400 mb-3">Not assigned to any task yet.</Text>
             ) : (
-              <ScrollView style={{ maxHeight: 160 }} className="mb-3">
+              <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ maxHeight: 160 }} className="mb-3">
                 {links.map((link) => (
                   <View key={link.linkId} className="flex-row items-center justify-between px-3 py-2 rounded-lg bg-neutral-50 mb-1">
                     <Text className="text-xs font-semibold text-neutral-800 flex-1 pr-2" numberOfLines={1}>
@@ -367,8 +363,7 @@ function DocumentDetailModal({
               </Pressable>
             )}
           </Pressable>
-        </Pressable>
-      </Modal>
+      </FormModal>
 
       {assignOpen && (
         <AssignTaskPicker

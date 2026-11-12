@@ -8,6 +8,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { KeyboardAvoider } from '../../components/ui/KeyboardAvoider';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useAuth } from '../../lib/AuthContext';
@@ -459,7 +460,7 @@ export default function SettingsScreen() {
   const mapRadius = Number.isFinite(Number(radiusInput)) && radiusInput.trim() !== '' ? Number(radiusInput) : null;
 
   return (
-    <View className="flex-1 bg-neutral-50">
+    <KeyboardAvoider style={{ backgroundColor: '#FAFAFA' }}>
       <View className="px-5 pt-4 pb-3 bg-white border-b border-neutral-100">
         <Text className="text-lg font-bold text-neutral-900">Settings</Text>
         {projectName && <Text className="text-xs text-neutral-400 mt-0.5">{projectName}</Text>}
@@ -780,7 +781,7 @@ export default function SettingsScreen() {
         </ScrollView>
       )}
       <Toast toast={toast} />
-    </View>
+    </KeyboardAvoider>
   );
 }
 

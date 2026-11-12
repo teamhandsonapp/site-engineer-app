@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { FormModal } from '../ui/FormModal';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { fetchApprovalRounds, recordApprovalRound, type ApprovalRoundRow } from '../../lib/taskDetail/data';
 import type { ApprovalOutcome } from '../../lib/taskDetail/constants';
@@ -68,8 +69,7 @@ export function ApprovalHistoryDrawer({
   }
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
+    <FormModal visible onRequestClose={onClose}>
         <Pressable onPress={() => {}} className="bg-white rounded-2xl p-4" style={{ width: '100%', maxWidth: 400, maxHeight: '75%' }}>
           <Text className="text-sm font-bold text-neutral-900">Approval history</Text>
           <Text className="text-xs text-neutral-400 mb-3">{itemLabel}</Text>
@@ -109,7 +109,7 @@ export function ApprovalHistoryDrawer({
           {loading ? (
             <ActivityIndicator color="#0F1F33" />
           ) : (
-            <ScrollView style={{ maxHeight: 260 }}>
+            <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ maxHeight: 260 }}>
               {rounds.length === 0 ? (
                 <Text className="text-xs text-neutral-400 py-2">No approval rounds recorded yet.</Text>
               ) : (
@@ -142,7 +142,6 @@ export function ApprovalHistoryDrawer({
             <Text className="text-xs font-semibold text-neutral-600">Close</Text>
           </Pressable>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { FormModal } from '../ui/FormModal';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 
@@ -73,8 +74,7 @@ function AddNamePromptModal({
   const [name, setName] = useState('');
   const trimmed = name.trim();
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onCancel}>
+    <FormModal visible onRequestClose={onCancel}>
         <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 380 }}>
           <Card>
             <Text className="text-sm font-bold text-neutral-900 mb-3">{title}</Text>
@@ -100,8 +100,7 @@ function AddNamePromptModal({
             </View>
           </Card>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }
 

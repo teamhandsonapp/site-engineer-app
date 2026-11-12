@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { FormModal } from '../../components/ui/FormModal';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
@@ -104,8 +105,7 @@ function ContactFormModal({
   }
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
+    <FormModal visible={visible} onRequestClose={onClose}>
         <Pressable onPress={() => {}} className="bg-white rounded-2xl p-4 w-full" style={{ maxWidth: 400, maxHeight: '85%' }}>
           <View className="flex-row items-center justify-between mb-3">
             <Text className="text-md font-bold text-neutral-900">{editingContact ? 'Edit Contact' : 'Add Contact'}</Text>
@@ -114,7 +114,7 @@ function ContactFormModal({
             </Pressable>
           </View>
 
-          <ScrollView showsVerticalScrollIndicator={false}>
+          <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             <Text className="text-2xs font-bold uppercase tracking-wide text-neutral-400 mb-1.5">
               Name<Text style={{ color: '#DC2626' }}> *</Text>
             </Text>
@@ -234,8 +234,7 @@ function ContactFormModal({
             <Text className="text-sm font-bold text-white">{saving ? 'Saving…' : 'Save'}</Text>
           </Pressable>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }
 
@@ -259,8 +258,7 @@ function ContactActionMenu({
   onCancel: () => void;
 }) {
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onCancel}>
+    <FormModal visible onRequestClose={onCancel}>
         <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 340 }}>
           <Card>
             <Text className="text-sm font-bold text-neutral-900 mb-0.5">{contact.name}</Text>
@@ -300,8 +298,7 @@ function ContactActionMenu({
             </View>
           </Card>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
+import { FormModal } from '../ui/FormModal';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 // The name prompt at the end of FlowchartCanvas's milestoneMode (after
@@ -29,8 +30,7 @@ export function MilestoneNameModal({
   }, [visible, suggestedName]);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onCancel}>
+    <FormModal visible={visible} onRequestClose={onCancel}>
         <Pressable onPress={() => {}} className="bg-white rounded-2xl p-4 w-full" style={{ maxWidth: 360 }}>
           <View className="flex-row items-center justify-between mb-1">
             <Text className="text-md font-bold text-neutral-900">Name this Milestone</Text>
@@ -59,7 +59,6 @@ export function MilestoneNameModal({
             <Text className="text-sm font-bold text-white">{saving ? 'Saving…' : 'Create Milestone'}</Text>
           </Pressable>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }

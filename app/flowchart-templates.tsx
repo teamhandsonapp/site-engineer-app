@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { FormModal } from '../components/ui/FormModal';
 import { router, Stack, useFocusEffect } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { appRoleFor, useAuth } from '../lib/AuthContext';
@@ -28,8 +29,7 @@ function CreateTemplateModal({
   const trimmed = name.trim();
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onCancel}>
+    <FormModal visible onRequestClose={onCancel}>
         <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 400 }}>
           <Card>
             <Text className="text-sm font-bold text-neutral-900 mb-3">Name this template</Text>
@@ -58,8 +58,7 @@ function CreateTemplateModal({
             </View>
           </Card>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoider } from '../../../components/ui/KeyboardAvoider';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { appRoleFor, useAuth } from '../../../lib/AuthContext';
@@ -189,7 +190,7 @@ export default function ApplyFlowchartTemplateScreen() {
   }
 
   return (
-    <View className="flex-1 bg-neutral-50">
+    <KeyboardAvoider style={{ backgroundColor: '#FAFAFA' }}>
       <Stack.Screen options={{ headerShown: true, title: template?.name ?? 'Apply Template', headerStyle: { backgroundColor: '#0F1F33' }, headerTintColor: '#fff', headerTitleStyle: { fontWeight: '600' } }} />
 
       {loading ? (
@@ -205,7 +206,7 @@ export default function ApplyFlowchartTemplateScreen() {
           <StepHeader step={step} />
 
           {step === 'setup' && (
-            <ScrollView contentContainerClassName="px-4 pt-1 pb-10">
+            <ScrollView contentContainerClassName="px-4 pt-1 pb-10" keyboardShouldPersistTaps="handled">
               <Card className="mb-4">
                 <Text className="text-sm font-semibold text-neutral-900">{template.name}</Text>
                 {template.description && <Text className="text-xs text-neutral-500 mt-1">{template.description}</Text>}
@@ -262,7 +263,7 @@ export default function ApplyFlowchartTemplateScreen() {
           )}
 
           {step === 'works' && (
-            <ScrollView contentContainerClassName="px-4 pt-1 pb-10">
+            <ScrollView contentContainerClassName="px-4 pt-1 pb-10" keyboardShouldPersistTaps="handled">
               <Pressable onPress={() => setStep('setup')} className="flex-row items-center gap-1 mb-3">
                 <Ionicons name="chevron-back" size={16} color="#0F1F33" />
                 <Text className="text-xs font-semibold text-brand-navy">Back</Text>
@@ -375,7 +376,7 @@ export default function ApplyFlowchartTemplateScreen() {
           )}
 
           {step === 'preview' && (
-            <ScrollView contentContainerClassName="px-4 pt-1 pb-10">
+            <ScrollView contentContainerClassName="px-4 pt-1 pb-10" keyboardShouldPersistTaps="handled">
               <Pressable onPress={() => setStep(workMatches.some((m) => !m.matchedWorkId) ? 'works' : 'setup')} className="flex-row items-center gap-1 mb-3">
                 <Ionicons name="chevron-back" size={16} color="#0F1F33" />
                 <Text className="text-xs font-semibold text-brand-navy">Back</Text>
@@ -432,7 +433,7 @@ export default function ApplyFlowchartTemplateScreen() {
           )}
         </>
       )}
-    </View>
+    </KeyboardAvoider>
   );
 }
 

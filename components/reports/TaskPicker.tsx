@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { FormModal } from '../ui/FormModal';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
@@ -61,8 +62,7 @@ export function TaskPicker({ options, selectedTaskId, onSelect }: TaskPickerProp
         </Card>
       </Pressable>
 
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable className="flex-1 bg-black/40 justify-end" onPress={() => setOpen(false)}>
+      <FormModal visible={open} onRequestClose={() => setOpen(false)} position="bottom">
           <Pressable onPress={() => {}} className="bg-white rounded-t-2xl" style={{ maxHeight: '80%' }}>
             <View className="p-4 border-b border-neutral-100">
               <Text className="text-md font-bold text-neutral-900 mb-3">Select a task</Text>
@@ -77,7 +77,7 @@ export function TaskPicker({ options, selectedTaskId, onSelect }: TaskPickerProp
                 />
               </View>
             </View>
-            <ScrollView contentContainerClassName="p-2" contentContainerStyle={{ paddingBottom: bottomPadding }}>
+            <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" contentContainerClassName="p-2" contentContainerStyle={{ paddingBottom: bottomPadding }}>
               {filtered.length === 0 ? (
                 <Text className="text-center text-sm text-neutral-400 py-8">No matching tasks</Text>
               ) : (
@@ -101,8 +101,7 @@ export function TaskPicker({ options, selectedTaskId, onSelect }: TaskPickerProp
               )}
             </ScrollView>
           </Pressable>
-        </Pressable>
-      </Modal>
+      </FormModal>
     </>
   );
 }

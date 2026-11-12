@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { FormModal } from '../ui/FormModal';
 import { Card } from '../ui/Card';
 import { DateField } from '../ui/DateField';
 import { SubtaskDepartmentPicker } from '../dpr/SubtaskDepartmentPicker';
@@ -178,12 +179,11 @@ export function CreateTaskSheet({
   }
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
+    <FormModal visible onRequestClose={onClose}>
         <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 400, maxHeight: '88%', overflow: 'hidden' }}>
           {/* Card + list may shrink (minHeight 0) so the buttons stay inside the box on small phones / large text. */}
           <Card style={{ flexShrink: 1, minHeight: 0 }}>
-            <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
+            <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
               <Text className="text-sm font-bold text-neutral-900 mb-3">New Task</Text>
 
               {error && (
@@ -322,7 +322,7 @@ export function CreateTaskSheet({
                 <Text className="text-neutral-400">{linkTaskOpen ? '▲' : '▼'}</Text>
               </Pressable>
               {linkTaskOpen && (
-                <ScrollView style={{ maxHeight: 160 }} className="mb-2 border border-neutral-100 rounded-lg">
+                <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ maxHeight: 160 }} className="mb-2 border border-neutral-100 rounded-lg">
                   {existingTasks.map((t) => {
                     const active = linkTaskId === t.id;
                     return (
@@ -374,7 +374,6 @@ export function CreateTaskSheet({
             </View>
           </Card>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }

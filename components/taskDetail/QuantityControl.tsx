@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Modal, Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
+import { FormModal } from '../ui/FormModal';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { QUANTITY_UNIT_OPTIONS, type QuantityUnit } from '../../lib/taskDetail/constants';
 
@@ -51,8 +52,7 @@ export function QuantityControl({
       </Pressable>
 
       {open && (
-        <Modal visible transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-          <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={() => setOpen(false)}>
+        <FormModal visible onRequestClose={() => setOpen(false)}>
             <Pressable onPress={() => {}} className="bg-white rounded-2xl p-4" style={{ width: '100%', maxWidth: 340 }}>
               <Text className="text-xs font-bold text-neutral-700 mb-2">Quantity of work</Text>
               {error && <Text className="text-xs text-red-600 mb-2">{error}</Text>}
@@ -86,8 +86,7 @@ export function QuantityControl({
                 </Pressable>
               </View>
             </Pressable>
-          </Pressable>
-        </Modal>
+        </FormModal>
       )}
     </>
   );

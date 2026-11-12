@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { FormModal } from '../ui/FormModal';
 import { Card } from '../ui/Card';
 import { DateField } from '../ui/DateField';
 import { ChecklistItemRow } from '../taskDetail/ChecklistItemRow';
@@ -375,8 +376,7 @@ export function TaskDetailSheet({
   }
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
+    <FormModal visible onRequestClose={onClose}>
         {/* overflow:'hidden' + minHeight:0 down this whole chain — by
             explicit request ("save button is not there when I scroll"). On
             React Native Web, a flex child defaults to min-height:auto (its
@@ -391,7 +391,7 @@ export function TaskDetailSheet({
             instead of growing to fit all their content. */}
         <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 380, maxHeight: '85%', overflow: 'hidden' }}>
           <Card style={{ flexShrink: 1, minHeight: 0 }}>
-            <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
+            <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
 
               <View className="flex-row items-center gap-2 my-1.5">
                 <View className="px-2 py-0.5 rounded-full bg-yellow-100">
@@ -680,7 +680,6 @@ export function TaskDetailSheet({
             </View>
           </Card>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }

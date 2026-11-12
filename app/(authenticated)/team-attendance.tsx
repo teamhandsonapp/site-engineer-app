@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { KeyboardAvoider } from '../../components/ui/KeyboardAvoider';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
@@ -86,9 +87,11 @@ export default function TeamAttendanceScreen() {
   const availableWorks = works.filter((w) => !folderWorkIds.has(w.id));
 
   return (
+    <KeyboardAvoider>
     <ScrollView
       className="flex-1 bg-neutral-50"
       contentContainerClassName="px-4 pt-4 pb-10"
+      keyboardShouldPersistTaps="handled"
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} tintColor="#0F1F33" />}
     >
       <Text className="text-xs font-bold uppercase tracking-wide text-neutral-400 mb-2">Workers Attendance</Text>
@@ -168,6 +171,7 @@ export default function TeamAttendanceScreen() {
         ))
       )}
     </ScrollView>
+    </KeyboardAvoider>
   );
 }
 

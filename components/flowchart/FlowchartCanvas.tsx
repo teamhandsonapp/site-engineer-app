@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, LayoutChangeEvent, Modal, PixelRatio, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, LayoutChangeEvent, PixelRatio, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { FormModal } from '../ui/FormModal';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -1480,8 +1481,7 @@ export function FlowchartCanvas({
       </View>
 
       {searchOpen && (
-        <Modal visible transparent animationType="fade" onRequestClose={() => setSearchOpen(false)}>
-          <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={() => setSearchOpen(false)}>
+        <FormModal visible onRequestClose={() => setSearchOpen(false)}>
             <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 360 }}>
               <View className="bg-white rounded-2xl p-4" style={{ maxHeight: '70%' }}>
                 <Text className="text-sm font-bold text-neutral-900 mb-3">Jump to task</Text>
@@ -1501,7 +1501,7 @@ export function FlowchartCanvas({
                     </Pressable>
                   )}
                 </View>
-                <ScrollView style={{ maxHeight: 320 }} keyboardShouldPersistTaps="handled">
+                <ScrollView nestedScrollEnabled style={{ maxHeight: 320 }} keyboardShouldPersistTaps="handled">
                   {searchResults.length === 0 ? (
                     <Text className="text-xs text-neutral-400 text-center py-4">No matching tasks</Text>
                   ) : (
@@ -1521,8 +1521,7 @@ export function FlowchartCanvas({
                 </Pressable>
               </View>
             </Pressable>
-          </Pressable>
-        </Modal>
+        </FormModal>
       )}
 
       {actionMenuTask && (

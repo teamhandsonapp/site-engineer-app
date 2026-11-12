@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Modal, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from 'react-native';
+import { FormModal } from '../ui/FormModal';
 import { createItemComment, fetchItemComments, type ItemComment } from '../../lib/taskDetail/data';
 
 function formatRelative(iso: string): string {
@@ -60,8 +61,7 @@ export function CommentThreadModal({
   }
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
+    <FormModal visible onRequestClose={onClose}>
         <Pressable onPress={() => {}} className="bg-white rounded-2xl p-4" style={{ width: '100%', maxWidth: 400, maxHeight: '75%' }}>
           <Text className="text-sm font-bold text-neutral-900">Comments</Text>
           <Text className="text-xs text-neutral-400 mb-3">{itemLabel}</Text>
@@ -73,7 +73,7 @@ export function CommentThreadModal({
             // no query limit (a long-lived task item's thread is never
             // silently truncated), so only the comments actually visible in
             // this 280px window should render.
-            <FlatList
+            <FlatList nestedScrollEnabled keyboardShouldPersistTaps="handled"
               data={comments}
               keyExtractor={(c) => c.id}
               style={{ maxHeight: 280 }}
@@ -115,7 +115,6 @@ export function CommentThreadModal({
             <Text className="text-xs font-semibold text-neutral-600">Close</Text>
           </Pressable>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }

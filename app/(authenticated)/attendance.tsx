@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { FormModal } from '../../components/ui/FormModal';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   AttendanceSessionError,
@@ -91,13 +92,12 @@ function LeaveReasonSheet({
   }
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={handleClose}>
+    <FormModal visible={visible} onRequestClose={handleClose}>
         {/* Reasons + note scroll inside the card so Confirm Leave stays on
             screen on small phones / large text. */}
         <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 380, maxHeight: '90%' }}>
           <Card style={{ flexShrink: 1, minHeight: 0 }}>
-            <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="handled">
+            <ScrollView nestedScrollEnabled style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="handled">
             <Text className="text-md font-bold text-neutral-900 mb-1">Why are you leaving?</Text>
             <Text className="text-xs text-neutral-400 mb-3">Your check-in stays open while you&apos;re out.</Text>
 
@@ -143,8 +143,7 @@ function LeaveReasonSheet({
             </View>
           </Card>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }
 

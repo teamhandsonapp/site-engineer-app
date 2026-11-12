@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { KEYBOARD_BEHAVIOR } from '../ui/KeyboardAvoider';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Card } from '../ui/Card';
@@ -170,7 +171,7 @@ function EditorSheet({ editing, setEditing, onSave, onDelete }: {
   const canSave = editing.text.trim().length > 0;
   return (
     <Modal visible transparent animationType="fade" onRequestClose={() => setEditing(null)}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={KEYBOARD_BEHAVIOR} style={{ flex: 1 }}>
         <Pressable style={{ flex: 1, backgroundColor: 'rgba(15,31,51,0.35)', justifyContent: 'flex-end' }} onPress={() => setEditing(null)} accessibilityLabel="Close">
           <Pressable onPress={() => {}} className="bg-white rounded-t-2xl px-5 pt-5 pb-8">
             <Text className="text-lg font-bold text-neutral-900 mb-3">{title}</Text>

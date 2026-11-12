@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { ActivityIndicator, Modal, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { FormModal } from './FormModal';
 import { Card } from './Card';
 
 // One shared confirm dialog — used by both link-deletion (series links only;
@@ -32,8 +33,7 @@ export function ConfirmDialog({
   onCancel: () => void;
 }) {
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onCancel}>
+    <FormModal visible onRequestClose={onCancel}>
         <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 360 }}>
           <Card>
             <Text className="text-sm font-bold text-neutral-900 mb-1.5">{title}</Text>
@@ -54,7 +54,6 @@ export function ConfirmDialog({
             </View>
           </Card>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }

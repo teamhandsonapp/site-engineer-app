@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { KeyboardAvoider } from '../../components/ui/KeyboardAvoider';
 import { isFieldRole, useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
 import { Card } from '../../components/ui/Card';
@@ -256,7 +257,7 @@ export default function DailyUpdatesLandingScreen() {
   }
 
   return (
-    <View className="flex-1 bg-neutral-50">
+    <KeyboardAvoider style={{ backgroundColor: '#FAFAFA' }}>
       <View className="px-4 pt-4 pb-2">
         <Text className="text-lg font-extrabold text-neutral-900">{formatHeaderDate(todayKey)}</Text>
         <Text className="text-xs text-neutral-400 mt-0.5">{weekLabel}</Text>
@@ -269,6 +270,7 @@ export default function DailyUpdatesLandingScreen() {
       ) : (
         <ScrollView
           contentContainerClassName="px-4 pb-8 flex-grow"
+          keyboardShouldPersistTaps="handled"
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#0F1F33" />}
         >
           {error && (
@@ -440,7 +442,7 @@ export default function DailyUpdatesLandingScreen() {
           )}
         </ScrollView>
       )}
-    </View>
+    </KeyboardAvoider>
   );
 }
 

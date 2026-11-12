@@ -1,15 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  FlatList,
-  Modal,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from 'react-native';
+import { FormModal } from '../../components/ui/FormModal';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../../lib/AuthContext';
 import { fetchAllUsers, type ManagedUser } from '../../lib/accessRoles';
@@ -78,12 +69,11 @@ function InvoicePreview({
   sendError: string | null;
 }) {
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
+    <FormModal visible onRequestClose={onClose}>
         <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 380, maxHeight: '88%', overflow: 'hidden' }}>
           {/* Scrolls on small phones / large text so every button stays reachable. */}
           <Card style={{ flexShrink: 1, minHeight: 0 }}>
-            <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
+            <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
             <View className="items-center border-b border-neutral-100 pb-3 mb-3">
               <Text className="text-lg font-bold text-neutral-900">PMC Portal</Text>
               <Text className="text-xs text-neutral-400 mt-0.5">Invoice</Text>
@@ -135,8 +125,7 @@ function InvoicePreview({
             </ScrollView>
           </Card>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }
 
@@ -196,12 +185,11 @@ function CreateInvoiceSheet({
   }
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={() => { reset(); onClose(); }}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={() => { reset(); onClose(); }}>
+    <FormModal visible={visible} onRequestClose={() => { reset(); onClose(); }}>
         <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 380, maxHeight: '85%', overflow: 'hidden' }}>
           {/* Card + list may shrink (minHeight 0) so the buttons stay inside the box on small phones / large text. */}
           <Card style={{ flexShrink: 1, minHeight: 0 }}>
-            <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
+            <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
               <Text className="text-md font-bold text-neutral-900 mb-3">Create Invoice</Text>
               {error && (
                 <View className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 mb-2">
@@ -285,8 +273,7 @@ function CreateInvoiceSheet({
             </ScrollView>
           </Card>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { FormModal } from '../ui/FormModal';
 import { Card } from '../ui/Card';
 import { DateField } from '../ui/DateField';
 import type { TemplateTask } from '../../lib/flowchart/templateTypes';
@@ -151,12 +152,11 @@ export function TemplateTaskSheet({
   }
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
+    <FormModal visible onRequestClose={onClose}>
         <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 400, maxHeight: '88%', overflow: 'hidden' }}>
           {/* Card + list may shrink (minHeight 0) so the buttons stay inside the box on small phones / large text. */}
           <Card style={{ flexShrink: 1, minHeight: 0 }}>
-            <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
+            <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
               <Text className="text-sm font-bold text-neutral-900 mb-3">{task ? 'Edit Template Task' : 'New Template Task'}</Text>
 
               {error && (
@@ -182,7 +182,7 @@ export function TemplateTaskSheet({
                 <Text className="text-neutral-400">{categoryOpen ? '▲' : '▼'}</Text>
               </Pressable>
               {categoryOpen && (
-                <ScrollView style={{ maxHeight: 180 }} className="mb-3 border border-neutral-100 rounded-lg">
+                <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ maxHeight: 180 }} className="mb-3 border border-neutral-100 rounded-lg">
                   {WORK_CATEGORIES.map((c) => {
                     const active = workName === c;
                     return (
@@ -309,7 +309,6 @@ export function TemplateTaskSheet({
             </View>
           </Card>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }

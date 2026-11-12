@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { KEYBOARD_BEHAVIOR } from '../ui/KeyboardAvoider';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors } from '../../lib/theme';
 import { useModalBottomPadding } from '../../lib/useSafeBottomOffset';
@@ -24,7 +25,7 @@ export function BottomSheet({
   const bottomPad = useModalBottomPadding(footer ? 8 : 24);
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={KEYBOARD_BEHAVIOR} style={{ flex: 1 }}>
         <Pressable className="flex-1 bg-black/40" onPress={onClose} />
         <View className="bg-white rounded-t-2xl" style={{ maxHeight: '88%' }}>
           <View className="items-center pt-2">
