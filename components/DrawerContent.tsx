@@ -32,15 +32,15 @@ const STAFF_ONLY_ROUTES = new Set(['critical-alerts', 'documents', 'project-cont
 // admin editing it is the same record a site engineer filled in).
 const FIELD_ROLE_ONLY_ROUTES = new Set(['attendance', 'day-timeline', 'daily-updates', 'completed-tasks']);
 
-// Access & Roles and Invoices are admin/manager-only (Part 3.5's own words:
+// Access & Roles is admin/manager-only (Part 3.5's own words:
 // "only users with sufficient access... should be able to reach this
 // screen at all") — hidden here for everyone else, same defense-in-depth
 // reasoning as STAFF_ONLY_ROUTES above. The real enforcement is server-side
-// in the manage-user/send-invoice Edge Functions (which check the caller's
+// in the manage-user Edge Function (which check the caller's
 // role themselves), not this filter — this just keeps the menu itself from
 // offering a screen/action a lower-access account would get rejected from
 // anyway.
-const ADMIN_MANAGER_ONLY_ROUTES = new Set(['app-progress', 'mom', 'access-roles', 'invoices', 'settings', 'devices', 'team-attendance', 'engineer-attendance', 'leave-log', 'notifications']);
+const ADMIN_MANAGER_ONLY_ROUTES = new Set(['app-progress', 'mom', 'access-roles', 'settings', 'devices', 'team-attendance', 'engineer-attendance', 'leave-log', 'notifications']);
 
 // Stricter than ADMIN_MANAGER_ONLY_ROUTES above — Contact Book is
 // admin-only per its own requirement, explicitly excluding manager/site
@@ -126,7 +126,6 @@ const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   'team-attendance': 'finger-print-outline',
   'leave-log': 'airplane-outline',
   'access-roles': 'people-outline',
-  invoices: 'receipt-outline',
   settings: 'settings-outline',
   devices: 'phone-portrait-outline',
   contacts: 'call-outline',

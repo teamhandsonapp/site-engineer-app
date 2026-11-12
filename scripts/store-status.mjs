@@ -15,11 +15,30 @@ const PORT = 4477;
 const APP_ID = '23496903-a9cc-44b2-8c89-724e265c34f1';
 const EXPO_BUILDS = 'https://expo.dev/accounts/kabilan404/projects/mobile-portal/builds';
 
-function session() {
-  const state = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.expo/state.json'), 'utf8'));
-  const secret = state?.auth?.sessionSecret;
-  if (!secret) throw new Error('Not logged in to Expo — run `eas login` first.');
-  return secret;
+// Auth: an `eas login` session (~/.expo/state.json), or an Expo access token
+// from EXPO_TOKEN (environment variable, or the project's git-ignored .env).
+function expoToken() {
+  if (process.env.EXPO_TOKEN) return process.env.EXPO_TOKEN;
+  try {
+    const env = fs.readFileSync(path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..', '.env'), 'utf8');
+    return env.match(/^EXPO_TOKEN=(.+)$/m)?.[1]?.trim() ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function authHeaders() {
+  const token = expoToken();
+  if (token) return { Authorization: `Bearer ${token}` };
+  let secret = null;
+  try {
+    const state = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.expo/state.json'), 'utf8'));
+    secret = state?.auth?.sessionSecret ?? null;
+  } catch {
+    // no local eas session
+  }
+  if (!secret) throw new Error('Not logged in to Expo — run `eas login` or set EXPO_TOKEN in .env.');
+  return { 'expo-session': secret };
 }
 
 async function fetchStatus() {
@@ -29,7 +48,7 @@ async function fetchStatus() {
   } } }`;
   const res = await fetch('https://api.expo.dev/graphql', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'expo-session': session() },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ query }),
   });
   const json = await res.json();

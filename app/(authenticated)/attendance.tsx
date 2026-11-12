@@ -66,8 +66,7 @@ function LiveClock() {
 
 // The reason form shown after the "are you sure?" confirmation — a preset
 // dropdown (rendered as a vertical pressable list, same pattern this app
-// already uses for pickers elsewhere, e.g. invoices.tsx's project/client
-// selection, rather than a native <Picker>) plus an always-available
+// already uses for pickers elsewhere, rather than a native <Picker>) plus an always-available
 // optional free-text note, not just for 'Other'. Submitting does NOT end
 // the check-in session — see this screen's own handleSubmitLeave, which
 // only inserts a leave_events row; tracking/geofencing/the check-in itself

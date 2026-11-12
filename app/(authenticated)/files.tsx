@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { router, useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { Text } from '../../components/ui/AppText';
 import * as DocumentPicker from 'expo-document-picker';
@@ -10,6 +10,7 @@ import { useProject } from '../../lib/ProjectContext';
 import { useAuth } from '../../lib/AuthContext';
 import { fetchProjectFiles, getProjectFileUrl, uploadProjectFile } from '../../lib/projectFiles';
 import { SitePhotosBrowser } from '../../components/files/SitePhotosBrowser';
+import { DrawingsManager } from '../../components/drawingFiles/DrawingsManager';
 import { LOCATION_TREE, WALLS, roomsFor, useSitePhotos } from '../../lib/sitePhotos';
 
 // Files — project documents organised into folders (Drawings, Transmittal,
@@ -612,6 +613,8 @@ export default function FilesScreen() {
   const [openFile, setOpenFile] = useState<DummyFile | null>(null);
   // Files › Site Photos (Floor › Room › Wall), its own browser.
   const [sitePhotosOpen, setSitePhotosOpen] = useState(false);
+  // Files › Drawings (department + location + task links); 'upload' opens the upload sheet straight away.
+  const [drawingsOpen, setDrawingsOpen] = useState<false | 'browse' | 'upload'>(false);
   const params = useLocalSearchParams<{ projectId?: string }>();
   const { projects, selectedProjectId: contextProjectId, isClient } = useProject();
   // A client only ever has their one project, so they skip the picker.
@@ -623,6 +626,7 @@ export default function FilesScreen() {
     setPath([]);
     setOpenFile(null);
     setSitePhotosOpen(false);
+    setDrawingsOpen(false);
     setUploadTarget(null);
     setChooseFolderOpen(false);
   }, [params.projectId, isClient, contextProjectId]);
@@ -692,6 +696,11 @@ export default function FilesScreen() {
 
   function startUpload(target: Folder) {
     setChooseFolderOpen(false);
+    // Drawings have their own quick upload (department + location + tasks).
+    if (target.id === 'drawings') {
+      setDrawingsOpen('upload');
+      return;
+    }
     setUploadTarget(target);
     setMeta(EMPTY_META);
     setOpenDropdown(null);
@@ -771,6 +780,19 @@ export default function FilesScreen() {
         spec={openFile.preview}
         projectName={projectName}
         onClose={() => setOpenFile(null)}
+      />
+    );
+  }
+
+  if (projectId && drawingsOpen) {
+    return (
+      <DrawingsManager
+        projectId={projectId}
+        projectName={projectName}
+        userId={userId}
+        canEdit={!isClient}
+        startWithUpload={drawingsOpen === 'upload'}
+        onExit={() => setDrawingsOpen(false)}
       />
     );
   }
@@ -979,10 +1001,10 @@ export default function FilesScreen() {
       {folders.map((f) => (
         <FolderRow
           key={f.id}
-          folder={f.id === 'drawings' && !current ? { ...f, description: 'Architect & consultant sheets, revisions, layers and tagged areas' } : f}
+          folder={f.id === 'drawings' && !current ? { ...f, description: 'By department or floor › room › wall, linked to tasks' } : f}
           count={f.id === 'drawings' && !current ? 'Open' : itemCount(f, projectUploads)}
-          // Drawings opens the real drawing register (same data as admin-web).
-          onPress={() => (f.id === 'drawings' && !current ? router.push({ pathname: '/drawings', params: projectId ? { projectId } : {} } as never) : setPath([...path, f]))}
+          // Drawings opens the department/location browser (the drawing register is linked from inside it).
+          onPress={() => (f.id === 'drawings' && !current ? setDrawingsOpen('browse') : setPath([...path, f]))}
         />
       ))}
       {showDrawingFilters && (

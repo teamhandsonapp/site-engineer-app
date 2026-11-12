@@ -6,6 +6,7 @@ import { Card } from '../ui/Card';
 import { DateField } from '../ui/DateField';
 import { ChecklistItemRow } from '../taskDetail/ChecklistItemRow';
 import { SubtaskListEditor } from '../dpr/SubtaskListEditor';
+import { TaskDrawingsSection } from '../drawingFiles/TaskDrawingsSection';
 import { resolveDelayChip, formatCardDateRange, splitTaskName } from '../../lib/flowchart/delay';
 import { applyTaskFieldChanges, editableFieldsEqual, type EditableTaskFields } from '../../lib/flowchart/undo';
 import { fetchWorksForProject, type WorkOption } from '../../lib/flowchart/data';
@@ -563,6 +564,8 @@ export function TaskDetailSheet({
                   />
                 </View>
               </View>
+              {/* Drawings linked from File Manager › Drawings (+ register sheets tagged to this task). */}
+              <TaskDrawingsSection projectId={projectId} taskId={task.id} workId={task.workId} canEdit={canEditChecklist} userId={userId} />
               </>
               )}
 
