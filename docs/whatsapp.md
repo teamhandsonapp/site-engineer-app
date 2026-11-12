@@ -2,17 +2,19 @@
 
 ## MoM meeting invites — Meta Cloud API test (dev only)
 
-When `EXPO_PUBLIC_WA_TEST=true`, creating a **new** meeting in **MoM › Meeting**
-with invitees sends each invitee a WhatsApp template message from the Meta
-test number. This is a test before meetings move to Supabase. It does not
-touch the Site Groups / Whapi number.
+When `EXPO_PUBLIC_WA_TEST=true`, the **Send WhatsApp** button on a meeting's
+**Invite** card (MoM › Meeting › open a meeting › Invite) sends the invite
+from the Meta test number straight away — no WhatsApp window opens. This is a
+test before meetings move to Supabase. It does not touch the Site Groups /
+Whapi number.
 
 ### How it works
 
-1. The meeting is saved on the phone exactly as before.
-2. Only then, in the background, the app calls the Supabase Edge Function
-   `send-meeting-whatsapp` with the title, project, date, time, venue and the
-   invitees (name + phone). Saving never waits for or fails because of WhatsApp.
+1. Saving a meeting only saves it (nothing is sent on save — one send path,
+   so nobody gets the same invite twice).
+2. On the Invite card, tick the people to message and tap **Send WhatsApp to N
+   people**. The app calls the Supabase Edge Function `send-meeting-whatsapp`
+   with the title, project, date, time, venue and the ticked invitees.
 3. The function (logged-in users only):
    - turns phones into digits with country code (`+91 81110 41101` → `918111041101`;
      a bare 10-digit number is treated as +91);
@@ -22,10 +24,14 @@ touch the Site Groups / Whapi number.
    - returns sent / failed / skipped per person with a plain-English error
      (190 token expired, 131030 not in allowed list, 132001 template missing
      or not approved, 132000 wrong parameter count).
-4. The meeting page shows "WhatsApp: sent N, failed N, skipped N" — tap it for
-   each person's result.
+4. Each person's row then shows **Sent 10:42 AM**, **Failed — reason** or
+   **Skipped — not in test list**. Sent ones are added to the card's SENT
+   history as "WhatsApp API (test number)" (old link sends just say "WhatsApp").
+5. **Open in my WhatsApp** (small link under the button) still opens the old
+   wa.me chats, for when the API fails.
 
-With the flag off (or missing) nothing is called and nothing changes.
+With the flag off (or missing) the card works exactly as before (wa.me chats only).
+After changing `.env.local`, restart Expo with `npx expo start -c`.
 
 ### Files
 
@@ -33,7 +39,7 @@ With the flag off (or missing) nothing is called and nothing changes.
 |---|---|
 | Edge Function | `supabase/functions/send-meeting-whatsapp/index.ts` |
 | App call + flag | `lib/mom/whatsappTest.ts`, `components/mom/MeetingTab.tsx` |
-| Result card | `components/mom/WhatsAppTestSummary.tsx` |
+| Invite card (button, per-person result) | `components/mom/SendPanel.tsx` |
 | Secrets (git-ignored) | `.env.meta.local` |
 | App flag (git-ignored) | `.env.local` → `EXPO_PUBLIC_WA_TEST=true` |
 

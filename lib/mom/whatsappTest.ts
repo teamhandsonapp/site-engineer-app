@@ -25,7 +25,11 @@ export interface WaSendSummary {
   error: string | null; // whole call failed (not signed in, not deployed, offline…)
 }
 
-export async function sendMeetingWhatsAppTest(meeting: Meeting, projectName: string): Promise<WaSendSummary> {
+export async function sendMeetingWhatsAppTest(
+  meeting: Meeting,
+  projectName: string,
+  invitees: { name: string; phone: string | null }[] = meeting.invitees
+): Promise<WaSendSummary> {
   const base = { meetingId: meeting.id, template: null, sent: 0, failed: 0, skipped: 0, results: [] as WaInviteResult[] };
   try {
     const { data, error } = await supabase.functions.invoke('send-meeting-whatsapp', {
@@ -35,7 +39,7 @@ export async function sendMeetingWhatsAppTest(meeting: Meeting, projectName: str
         date: meeting.date,
         time: meeting.time,
         venue: meeting.venue,
-        invitees: meeting.invitees.map((i) => ({ name: i.name, phone: i.phone })),
+        invitees: invitees.map((i) => ({ name: i.name, phone: i.phone })),
       },
     });
     if (error) {

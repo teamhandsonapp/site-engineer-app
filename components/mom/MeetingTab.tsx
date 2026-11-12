@@ -25,9 +25,8 @@ import {
 } from '../../lib/mom/share';
 import { todayIST } from '../../lib/mom/taskData';
 import type { AttendanceMark, Meeting, MomProjectData, Recipient, SendChannel } from '../../lib/mom/types';
-import { sendMeetingWhatsAppTest, WA_TEST_ENABLED, type WaSendSummary } from '../../lib/mom/whatsappTest';
+import { sendMeetingWhatsAppTest, WA_TEST_ENABLED } from '../../lib/mom/whatsappTest';
 import { MeetingRecorder } from './MeetingRecorder';
-import { WhatsAppTestSummary } from './WhatsAppTestSummary';
 import { RecipientPicker } from './RecipientPicker';
 import { SendPanel } from './SendPanel';
 import { Banner, Button, Chip, Field, NAVY, Row, SectionTitle, TimeField } from './ui';
@@ -62,8 +61,6 @@ export function MeetingTab({
   const [view, setView] = useState<{ kind: 'list' } | { kind: 'form'; editing: Meeting | null } | { kind: 'detail'; id: string }>({ kind: 'list' });
   const [banner, setBanner] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  // DEV TEST (EXPO_PUBLIC_WA_TEST): result of the background WhatsApp send for a just-created meeting.
-  const [waSummary, setWaSummary] = useState<{ meetingId: string; value: WaSendSummary | 'sending' } | null>(null);
   // Re-sorted into Upcoming / Past once a minute, not on every render.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -89,12 +86,8 @@ export function MeetingTab({
           }));
           setBanner(view.editing ? 'Meeting updated.' : 'Meeting created. Next: send the invites and add it to Google Calendar.');
           setView({ kind: 'detail', id: m.id });
-          // DEV TEST: WhatsApp invites via the Meta test number, in the background —
-          // the meeting is already saved; this never blocks or fails the save.
-          if (WA_TEST_ENABLED && !view.editing && m.invitees.length > 0) {
-            setWaSummary({ meetingId: m.id, value: 'sending' });
-            void sendMeetingWhatsAppTest(m, projectName).then((value) => setWaSummary({ meetingId: m.id, value }));
-          }
+          // No automatic WhatsApp send on save: invites go out only from the
+          // Invite card's button (one send path, no duplicate messages).
         }}
         me={me}
       />
@@ -112,8 +105,6 @@ export function MeetingTab({
       );
     }
     return (
-      <View>
-      {waSummary && waSummary.meetingId === m.id ? <WhatsAppTestSummary summary={waSummary.value} onClose={() => setWaSummary(null)} /> : null}
       <MeetingDetail
         meeting={m}
         projectName={projectName}
@@ -145,7 +136,6 @@ export function MeetingTab({
         saveError={saveError}
         clearSaveError={() => setSaveError(null)}
       />
-      </View>
     );
   }
 
@@ -408,9 +398,9 @@ function MeetingDetail({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const s = statusOf(m);
 
-  function logSend(what: 'invite' | 'agenda-request' | 'final-agenda', channel: SendChannel, keys: string[]): Promise<boolean> {
+  function logSend(what: 'invite' | 'agenda-request' | 'final-agenda', channel: SendChannel, keys: string[], via?: 'api' | 'link'): Promise<boolean> {
     return onChange((x) => ({
-      sendLog: [...x.sendLog, { what, channel, recipientKeys: keys, atISO: new Date().toISOString() }],
+      sendLog: [...x.sendLog, { what, channel, ...(via ? { via } : {}), recipientKeys: keys, atISO: new Date().toISOString() }],
       ...(what === 'final-agenda' ? { finalAgendaSentAtISO: new Date().toISOString() } : {}),
     }));
   }
@@ -492,7 +482,8 @@ function MeetingDetail({
             subject={`Meeting: ${m.title} — ${formatDateLong(m.date)}`}
             message={inviteMessage(m, projectName)}
             sentKeys={sentFor('invite')}
-            onSent={(c, keys) => logSend('invite', c, keys)}
+            onSent={(c, keys, via) => logSend('invite', c, keys, via)}
+            apiSend={WA_TEST_ENABLED ? (people) => sendMeetingWhatsAppTest(m, projectName, people) : undefined}
           />
           <SendLog meeting={m} what="invite" />
         </Card>
@@ -544,7 +535,7 @@ function SendLog({ meeting, what }: { meeting: Meeting; what: 'invite' | 'agenda
         .map((l, i) => (
           <Text key={i} className="text-2xs text-neutral-500">
             {new Date(l.atISO).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} ·{' '}
-            {l.channel === 'whatsapp' ? 'WhatsApp' : 'Email'} → {l.recipientKeys.map((k) => names.get(k) ?? '—').join(', ')}
+            {l.channel === 'whatsapp' ? (l.via === 'api' ? 'WhatsApp API (test number)' : 'WhatsApp') : 'Email'} →{l.recipientKeys.map((k) => names.get(k) ?? '—').join(', ')}
           </Text>
         ))}
     </View>

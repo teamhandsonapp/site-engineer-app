@@ -41,6 +41,9 @@ export interface MeetingRecording {
 
 export interface SendLogEntry {
   channel: SendChannel;
+  // WhatsApp only: 'api' = sent by the Meta Cloud API test number,
+  // missing/'link' = opened a wa.me chat for the person to press Send.
+  via?: 'api' | 'link';
   what: 'invite' | 'agenda-request' | 'final-agenda';
   recipientKeys: string[];
   atISO: string;
