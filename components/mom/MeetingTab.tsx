@@ -4,7 +4,8 @@
 // agenda points from invitees and send the final agenda, record the
 // meeting from the mic, and mark attendance.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { router } from 'expo-router';
 import { Pressable, View } from 'react-native';
 import { Text } from '../ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -24,7 +25,9 @@ import {
   openLink,
 } from '../../lib/mom/share';
 import { todayIST } from '../../lib/mom/taskData';
-import type { AttendanceMark, Meeting, MomProjectData, Recipient, SendChannel } from '../../lib/mom/types';
+import { AGENDA_MAX, type AttendanceMark, type DiscussionItem, type Meeting, type MomProjectData, type Recipient, type SendChannel } from '../../lib/mom/types';
+import { DiscussionItemsEditor } from './DiscussionItemsEditor';
+import { useMomScrollTo } from './scrollContext';
 import { sendMeetingWhatsAppTest, WA_TEST_ENABLED } from '../../lib/mom/whatsappTest';
 import { MeetingRecorder } from './MeetingRecorder';
 import { RecipientPicker } from './RecipientPicker';
@@ -228,16 +231,41 @@ function MeetingForm({
   const [venue, setVenue] = useState(initial?.venue ?? '');
   const [notes, setNotes] = useState(initial?.notes ?? '');
   const [invitees, setInvitees] = useState<Recipient[]>(initial?.invitees ?? []);
+  const [agenda, setAgenda] = useState(initial?.agenda ?? '');
+  const [items, setItems] = useState<DiscussionItem[]>(initial?.discussionItems ?? []);
+  const [agendaError, setAgendaError] = useState<string | null>(null);
+  const [itemsError, setItemsError] = useState<string | null>(null);
   const [picker, setPicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Where each section sits inside the form (for "scroll to the first error").
+  const scrollTo = useMomScrollTo();
+  const layoutY = useRef({ form: 0, agenda: 0, items: 0 });
+  const FORM_PAD = 16; // MoM screen's ScrollView padding
 
   async function save() {
-    if (!title.trim()) return setError('Enter a meeting title.');
-    if (!date) return setError('Pick the meeting date.');
-    if (!time) return setError('Pick the meeting time.');
-    if (!venue.trim()) return setError('Enter where the meeting will be held.');
-    if (invitees.length === 0) return setError('Invite at least one person.');
+    // Every problem at once; scroll to the first one (top banner, agenda, then items).
+    const basic = !title.trim()
+      ? 'Enter a meeting title.'
+      : !date
+        ? 'Pick the meeting date.'
+        : !time
+          ? 'Pick the meeting time.'
+          : !venue.trim()
+            ? 'Enter where the meeting will be held.'
+            : invitees.length === 0
+              ? 'Invite at least one person.'
+              : null;
+    const aErr = agenda.trim() ? null : 'Please add the meeting agenda';
+    const iErr = items.length > 0 ? null : 'Add at least one task or topic to discuss';
+    setError(basic);
+    setAgendaError(aErr);
+    setItemsError(iErr);
+    if (basic || aErr || iErr) {
+      scrollTo(basic ? 0 : FORM_PAD + layoutY.current.form + (aErr ? layoutY.current.agenda : layoutY.current.items) - 12);
+      return;
+    }
+    if (!date || !time) return; // narrowed above; keeps TypeScript happy
     setSaving(true);
     try {
     const base: Meeting = initial ?? {
@@ -272,6 +300,9 @@ function MeetingForm({
       venue: venue.trim(),
       notes: notes.trim(),
       invitees,
+      agenda: agenda.trim(),
+      // Keep minutes already written against items that are still there.
+      discussionItems: items.map((i) => ({ ...(base.discussionItems ?? []).find((o) => o.id === i.id), ...i })),
       attendance: Object.fromEntries(Object.entries(base.attendance).filter(([k]) => keep.has(k))),
     });
     } catch (err) {
@@ -282,7 +313,7 @@ function MeetingForm({
   }
 
   return (
-    <View>
+    <View onLayout={(e) => (layoutY.current.form = e.nativeEvent.layout.y)}>
       <Pressable onPress={onCancel} className="flex-row items-center gap-1 mb-3">
         <Ionicons name="chevron-back" size={16} color={NAVY} />
         <Text className="text-sm font-semibold" style={{ color: NAVY }}>
@@ -293,7 +324,7 @@ function MeetingForm({
       {error && <Banner tone="error" onClose={() => setError(null)}>{error}</Banner>}
 
       <Card className="mb-3 gap-3">
-        <Field label="Meeting title" value={title} onChangeText={setTitle} placeholder="e.g. Weekly site review" />
+        <Field testID="meeting-title-input" label="Meeting title" value={title} onChangeText={setTitle} placeholder="e.g. Weekly site review" />
         <View className="flex-row gap-3">
           <View className="flex-1">
             <DateField label="Date" value={date} minDate={initial ? null : todayIST()} onChange={setDate} />
@@ -322,9 +353,51 @@ function MeetingForm({
             <Chip key={v} label={v} active={venue === v} onPress={() => setVenue(v)} />
           ))}
         </Row>
-        <Field value={venue} onChangeText={setVenue} placeholder="Or type the address / room" />
+        <Field testID="meeting-venue-input" value={venue} onChangeText={setVenue} placeholder="Or type the address / room" />
         <Field label="Notes for invitees (optional)" value={notes} onChangeText={setNotes} multiline placeholder="Anything people should bring or know" />
       </Card>
+
+      {/* Agenda (required) */}
+      <View onLayout={(e) => (layoutY.current.agenda = e.nativeEvent.layout.y)}>
+        <Card className="mb-3">
+          <Text className="text-sm font-bold text-neutral-900 mb-1.5">Agenda</Text>
+          <Field
+            testID="meeting-agenda-input"
+            value={agenda}
+            onChangeText={(v) => {
+              setAgenda(v.slice(0, AGENDA_MAX));
+              if (agendaError && v.trim()) setAgendaError(null);
+            }}
+            maxLength={AGENDA_MAX}
+            multiline
+            placeholder="What is this meeting about?"
+          />
+          <View className="flex-row items-start mt-1">
+            <Text testID="meeting-agenda-error" className="flex-1 text-xs font-semibold" style={{ color: '#DC2626' }}>
+              {agendaError ?? ''}
+            </Text>
+            <Text className="text-2xs text-neutral-400">
+              {agenda.length}/{AGENDA_MAX}
+            </Text>
+          </View>
+        </Card>
+      </View>
+
+      {/* What will be discussed (at least one item) */}
+      <View onLayout={(e) => (layoutY.current.items = e.nativeEvent.layout.y)}>
+        <Card className="mb-3">
+          <Text className="text-sm font-bold text-neutral-900 mb-2">What will be discussed</Text>
+          <DiscussionItemsEditor
+            projectId={projectId}
+            items={items}
+            onChange={(next) => {
+              setItems(next);
+              if (itemsError && next.length) setItemsError(null);
+            }}
+            error={itemsError}
+          />
+        </Card>
+      </View>
 
       <Card className="mb-4">
         <SectionTitle right={<Button small label="Add from Contact Book" icon="person-add-outline" variant="secondary" onPress={() => setPicker(true)} />}>
@@ -344,7 +417,9 @@ function MeetingForm({
         ))}
       </Card>
 
-      <Button label={initial ? 'Save changes' : 'Create meeting'} icon="checkmark" busy={saving} onPress={save} />
+      <View testID="meeting-save">
+        <Button label={initial ? 'Save changes' : 'Create meeting'} icon="checkmark" busy={saving} onPress={save} />
+      </View>
 
       <RecipientPicker
         visible={picker}
@@ -430,6 +505,13 @@ function MeetingDetail({
         </Text>
         <Text className="text-xs text-neutral-600">📍 {m.venue}</Text>
         {m.notes ? <Text className="text-xs text-neutral-500 mt-1">{m.notes}</Text> : null}
+        <View className="mt-3 pt-3 border-t border-neutral-100">
+          <Text className="text-2xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Agenda</Text>
+          <Text testID="meeting-detail-agenda" className={`text-sm ${m.agenda ? 'text-neutral-800' : 'text-neutral-400 italic'}`}>
+            {m.agenda || 'No agenda added'}
+          </Text>
+        </View>
+        <DiscussionList items={m.discussionItems ?? []} />
         <View className="flex-row gap-2 mt-3">
           <View className="flex-1">
             <Button
@@ -491,6 +573,13 @@ function MeetingDetail({
 
       {tab === 'agenda' && <AgendaSection meeting={m} projectName={projectName} me={me} onChange={onChange} logSend={logSend} sentFor={sentFor} />}
 
+      {tab === 'record' && (m.discussionItems?.length ?? 0) > 0 && (
+        <MinutesChecklist
+          items={m.discussionItems ?? []}
+          onSave={(next) => onChange(() => ({ discussionItems: next }))}
+        />
+      )}
+
       {tab === 'record' && (
         <Card className="mb-3">
           <SectionTitle>Meeting recording</SectionTitle>
@@ -519,6 +608,92 @@ function MeetingDetail({
         )}
       </View>
     </View>
+  );
+}
+
+// Read-only list on the meeting page. Tasks open their Task Detail; the
+// saved title copy is shown even if the task was renamed or deleted since.
+function DiscussionList({ items }: { items: DiscussionItem[] }) {
+  return (
+    <View className="mt-3">
+      <Text className="text-2xs font-bold uppercase tracking-wider text-neutral-500 mb-1">
+        What will be discussed{items.length ? ` (${items.length})` : ''}
+      </Text>
+      {items.length === 0 ? <Text className="text-sm text-neutral-400 italic">No discussion items added</Text> : null}
+      {items.map((i) => {
+        const content = (
+          <View className="flex-row items-center gap-2 py-1.5">
+            <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: i.type === 'task' ? '#EEF2F7' : '#F3E8FF', maxWidth: 110 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: i.type === 'task' ? NAVY : '#7C3AED' }} numberOfLines={1}>
+                {i.type === 'task' ? (i.departmentName ?? 'Task') : 'Topic'}
+              </Text>
+            </View>
+            <Text className={`flex-1 text-sm ${i.type === 'task' ? 'text-brand-navy font-semibold' : 'text-neutral-800'}`} numberOfLines={2}>
+              {i.title}
+            </Text>
+            {i.type === 'task' ? <Ionicons name="chevron-forward" size={14} color="#9CA3AF" /> : null}
+          </View>
+        );
+        return i.type === 'task' && i.taskId ? (
+          <Pressable
+            key={i.id}
+            testID="meeting-detail-task"
+            accessibilityRole="link"
+            onPress={() => router.push({ pathname: '/task/[taskId]', params: { taskId: i.taskId as string } } as never)}
+          >
+            {content}
+          </Pressable>
+        ) : (
+          <View key={i.id}>{content}</View>
+        );
+      })}
+    </View>
+  );
+}
+
+// Record tab: the discussion items as a checklist at the top, with a note
+// against each, while writing the minutes. Saved on the meeting.
+function MinutesChecklist({ items, onSave }: { items: DiscussionItem[]; onSave: (next: DiscussionItem[]) => Promise<boolean> }) {
+  const [drafts, setDrafts] = useState<Record<string, string>>(() => Object.fromEntries(items.map((i) => [i.id, i.note ?? ''])));
+  const done = items.filter((i) => i.discussed).length;
+  const save = (id: string, patch: Partial<DiscussionItem>) => onSave(items.map((i) => (i.id === id ? { ...i, ...patch } : i)));
+  return (
+    <Card className="mb-3">
+      <SectionTitle>
+        Minutes · discussed {done}/{items.length}
+      </SectionTitle>
+      {items.map((i, idx) => (
+        <View key={i.id} className={`py-2 ${idx > 0 ? 'border-t border-neutral-100' : ''}`}>
+          <Pressable
+            testID="minutes-item-toggle"
+            onPress={() => void save(i.id, { discussed: !i.discussed })}
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: !!i.discussed }}
+            className="flex-row items-center gap-2"
+            style={{ minHeight: 36 }}
+          >
+            <Ionicons name={i.discussed ? 'checkbox' : 'square-outline'} size={20} color={i.discussed ? '#16A34A' : '#D1D5DB'} />
+            <Text className="flex-1 text-sm font-semibold text-neutral-900" numberOfLines={2}>
+              {i.title}
+            </Text>
+            <Text className="text-2xs text-neutral-500" numberOfLines={1} style={{ maxWidth: 100 }}>
+              {i.type === 'task' ? (i.departmentName ?? 'Task') : 'Topic'}
+            </Text>
+          </Pressable>
+          <Field
+            testID="minutes-item-note"
+            value={drafts[i.id] ?? ''}
+            onChangeText={(v) => setDrafts((d) => ({ ...d, [i.id]: v }))}
+            onBlur={() => {
+              if ((drafts[i.id] ?? '') !== (i.note ?? '')) void save(i.id, { note: drafts[i.id] ?? '' });
+            }}
+            placeholder="Notes / decision"
+            multiline
+            style={{ minHeight: 44, textAlignVertical: 'top', marginTop: 4 }}
+          />
+        </View>
+      ))}
+    </Card>
   );
 }
 

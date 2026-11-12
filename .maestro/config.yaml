@@ -1,0 +1,6 @@
+# Maestro workspace config. Shared step files are tagged "subflow" and are
+# only run from inside other flows, never on their own.
+flows:
+  - "mom/*"
+excludeTags:
+  - subflow

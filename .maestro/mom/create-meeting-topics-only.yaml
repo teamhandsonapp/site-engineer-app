@@ -1,0 +1,37 @@
+# Create a meeting with an agenda + custom topics only (no tasks).
+appId: com.pmcportal.mobile
+---
+- runFlow: _new-meeting-basics.yaml
+- scrollUntilVisible:
+    element:
+      id: meeting-agenda-input
+    direction: UP
+- tapOn:
+    id: meeting-agenda-input
+- inputText: Commercial items this week
+- hideKeyboard
+- tapOn:
+    id: discussion-add-topic
+- tapOn:
+    id: discussion-topic-input
+- inputText: Payment schedule discussion
+- tapOn:
+    id: discussion-topic-add
+- tapOn:
+    id: discussion-topic-input
+- inputText: Site safety
+- tapOn:
+    id: discussion-topic-add
+- hideKeyboard
+- assertVisible: 2 items to discuss
+- scrollUntilVisible:
+    element:
+      id: meeting-save
+    direction: DOWN
+- tapOn:
+    id: meeting-save
+- extendedWaitUntil:
+    visible: Meeting created.*
+    timeout: 10000
+- assertVisible: Payment schedule discussion
+- assertVisible: Site safety

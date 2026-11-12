@@ -8,7 +8,7 @@
 //                      upcoming task lists to client & architect.
 // Project-specific (uses the selected project). Admin / manager only.
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { Text } from '../../components/ui/AppText';
 import { KeyboardAvoider } from '../../components/ui/KeyboardAvoider';
@@ -23,6 +23,7 @@ import { ReportsTab } from '../../components/mom/ReportsTab';
 import { CustomAlertsTab } from '../../components/mom/CustomAlertsTab';
 import { EmailReportsTab } from '../../components/mom/EmailReportsTab';
 import { NAVY } from '../../components/mom/ui';
+import { MomScrollContext } from '../../components/mom/scrollContext';
 
 export type MomTab = 'meeting' | 'reports' | 'alerts' | 'email';
 
@@ -44,6 +45,9 @@ export default function MomScreen() {
   const bottomPadding = 48;
   const [tab, setTab] = useState<MomTab>('meeting');
   const { data, update } = useMomData(selectedProjectId);
+  // Lets the meeting form scroll to its first error.
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollTo = useCallback((y: number) => scrollRef.current?.scrollTo({ y: Math.max(0, y), animated: true }), []);
 
   // The drawer's sub-items (Meeting / Reports / Custom Alerts) open this
   // screen with ?tab=…
@@ -106,7 +110,8 @@ export default function MomScreen() {
         </View>
       </View>
 
-      <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: bottomPadding }} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={scrollRef} className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: bottomPadding }} keyboardShouldPersistTaps="handled">
+        <MomScrollContext.Provider value={scrollTo}>
         {activeTab === 'email' ? (
           <EmailReportsTab defaultEmail={profile.email} />
         ) : !data ? (
@@ -118,6 +123,7 @@ export default function MomScreen() {
         ) : (
           <CustomAlertsTab projectId={selectedProjectId} projectName={projectName} update={update} me={me} />
         )}
+        </MomScrollContext.Provider>
       </ScrollView>
     </KeyboardAvoider>
   );
