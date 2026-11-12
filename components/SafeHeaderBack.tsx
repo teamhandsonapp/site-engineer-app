@@ -18,7 +18,7 @@ import { HeaderBackButton } from 'expo-router/react-navigation';
 let lastBackAt = 0;
 
 // Detail screens that sit under a list screen of their own.
-const LIST_PARENTS = new Set(['flowchart-templates', 'checklist-templates', 'reports', 'drawings', 'site-groups']);
+const LIST_PARENTS = new Set(['flowchart-templates', 'checklist-templates', 'reports', 'drawings']);
 
 function fallbackFor(pathname: string): Href {
   const parts = pathname.split('/').filter(Boolean);

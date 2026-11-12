@@ -4,7 +4,13 @@ import { router } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { appRoleFor, useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
-import { fetchFlowchartData, type FlowchartData } from '../../lib/flowchart/data';
+import {
+  fetchFlowchartData,
+  fetchFlowchartSet,
+  FLOWCHART_SET_LABEL,
+  type FlowchartData,
+  type FlowchartSetKey,
+} from '../../lib/flowchart/data';
 import { exportFilteredTasksPdf, printFilteredTasks } from '../../lib/flowchart/filterExport';
 import { exportFlowchartExcel } from '../../lib/flowchart/excelExport';
 import { fetchMilestones, type Milestone } from '../../lib/flowchart/milestones';
@@ -56,6 +62,27 @@ function FlowchartScreenContent() {
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Hidden-sets toggle (top-right corner). null = the normal, editable
+  // flowchart (real tasks). A set key shows that archived flowchart-only set
+  // (tasks.flowchart_set — soft-deleted, so nothing else in the app shows
+  // them) view-only, never linked to DPR/checklists.
+  const [taskSet, setTaskSet] = useState<FlowchartSetKey | null>(null);
+  const [archive, setArchive] = useState<{ data: FlowchartData | null; loading: boolean; error: string | null }>({
+    data: null,
+    loading: false,
+    error: null,
+  });
+
+  useEffect(() => {
+    if (taskSet === null || !selectedProjectId) return;
+    let cancelled = false;
+    setArchive({ data: null, loading: true, error: null });
+    withTimeout(fetchFlowchartSet(selectedProjectId, taskSet), FETCH_TIMEOUT_MS, "Couldn't reach the server — check your connection and try again.")
+      .then((d) => { if (!cancelled) setArchive({ data: d, loading: false, error: null }); })
+      .catch((err) => { if (!cancelled) setArchive({ data: null, loading: false, error: err instanceof Error ? err.message : String(err) }); });
+    return () => { cancelled = true; };
+  }, [taskSet, selectedProjectId]);
 
   // Filter panel — Floor/Department/Room/Milestone, each independently
   // combinable; null means "All" for that dimension. Operates on whatever
@@ -230,7 +257,72 @@ function FlowchartScreenContent() {
         </View>
       )}
 
-      {loading ? (
+      <View
+        className="flex-row items-center justify-end gap-1.5 px-4 pt-2 pb-1"
+        style={{ backgroundColor: CANVAS_THEMES[canvasTheme].bg }}
+      >
+        <Ionicons name="eye-off-outline" size={13} color={isDark ? '#A3A3A3' : '#6B7280'} />
+        <Text className="text-2xs font-bold mr-1" style={{ color: isDark ? '#A3A3A3' : '#6B7280' }}>HIDDEN</Text>
+        {(Object.keys(FLOWCHART_SET_LABEL) as FlowchartSetKey[]).map((key) => {
+          const active = taskSet === key;
+          return (
+            <Pressable
+              key={key}
+              onPress={() => setTaskSet(active ? null : key)}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              className="px-3 py-1 rounded-full border"
+              style={{
+                backgroundColor: active ? '#0F1F33' : isDark ? '#141414' : '#fff',
+                borderColor: active ? '#0F1F33' : isDark ? '#242424' : '#E5E5E5',
+              }}
+            >
+              <Text className="text-xs font-bold" style={{ color: active ? '#fff' : isDark ? '#E5E5E5' : '#374151' }}>
+                {FLOWCHART_SET_LABEL[key]}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {taskSet !== null ? (
+        archive.loading ? (
+          <View className="flex-1 items-center justify-center">
+            <ActivityIndicator color="#0F1F33" />
+          </View>
+        ) : archive.error ? (
+          <View className="mx-4 mt-3 rounded-xl border border-red-200 bg-red-50 px-3.5 py-3">
+            <Text className="text-sm text-red-600">{archive.error}</Text>
+          </View>
+        ) : !archive.data || archive.data.tasks.length === 0 ? (
+          <EmptyState
+            icon="git-network-outline"
+            iconColor="#9CA3AF"
+            title={`No ${FLOWCHART_SET_LABEL[taskSet]} saved yet`}
+            subtitle="This hidden task set hasn't been added to the database yet."
+          />
+        ) : (
+          <View className="flex-1">
+            <View className="px-4 py-1.5" style={{ backgroundColor: isDark ? '#1F1A0A' : '#FEF3C7' }}>
+              <Text className="text-2xs font-semibold" style={{ color: isDark ? '#FCD34D' : '#92400E' }}>
+                Hidden set · view only · {archive.data.tasks.length} tasks · not linked to DPR or checklists
+              </Text>
+            </View>
+            <FlowchartCanvas
+              key={`set-${taskSet}`}
+              projectId={selectedProjectId}
+              initialTasks={archive.data.tasks}
+              seriesEdges={archive.data.seriesEdges}
+              parallelEdges={archive.data.parallelEdges}
+              taskTypes={data?.taskTypes ?? []}
+              canEdit={false}
+              viewOnly
+              canvasTheme={canvasTheme}
+              onCanvasThemeChange={setCanvasTheme}
+            />
+          </View>
+        )
+      ) : loading ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color="#0F1F33" />
         </View>

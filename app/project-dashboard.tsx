@@ -34,15 +34,6 @@ export default function ProjectDashboardScreen() {
   const profile = state.status === 'signed-in' ? state.profile : null;
   const isAdminOrManager = profile != null && (profile.role === 'admin' || profile.role === 'manager');
   const isField = profile != null && isFieldRole(profile.role);
-  // Both routes are conceptually "Attendance," but they're two entirely
-  // different screens gated to disjoint roles (FIELD_ROLE_ONLY_ROUTES vs
-  // ADMIN_MANAGER_ONLY_ROUTES in DrawerContent.tsx) — a site_engineer
-  // tapping a link hardcoded to admin's team-attendance screen landed on
-  // its own "Not available for this account" dead end. Neither route for
-  // a role that's neither (e.g. client) — Quick Links already isn't shown
-  // to them in practice since this screen isn't part of their nav, but
-  // this stays a safe null either way rather than guessing.
-  const attendanceHref = isAdminOrManager ? '/team-attendance' : isField ? '/attendance' : null;
 
   const [stat, setStat] = useState<ProjectStat | null>(null);
   const [loading, setLoading] = useState(true);
@@ -148,10 +139,10 @@ export default function ProjectDashboardScreen() {
           {/* Critical Alerts, Files and DPR pinned to the top, by explicit
               request. Flowchart Template Kit was removed from this screen
               (still in the side menu). */}
-          {/* Site Engineer Attendance pinned at the top for admin/manager.
-              Workforce (workers') Attendance removed on request, 2026-11-09. */}
+          {/* Attendance (Workers Attendance only since 2026-11-11 — site
+              engineer attendance removed) pinned at the top for admin/manager. */}
           {isAdminOrManager && (
-            <QuickLink icon="finger-print-outline" label="Site Engineer Attendance" color="#0891B2" onPress={() => router.push('/engineer-attendance')} />
+            <QuickLink icon="people-outline" label="Attendance" color="#0891B2" onPress={() => router.push('/team-attendance')} />
           )}
           <QuickLink icon="warning-outline" label="Critical Alerts" color="#DC2626" onPress={() => router.push('/critical-alerts')} />
           <QuickLink
@@ -180,11 +171,6 @@ export default function ProjectDashboardScreen() {
           )}
           <QuickLink icon="bar-chart-outline" label="Gantt Chart" color="#1C3358" onPress={() => router.push('/gantt')} />
           <QuickLink icon="git-network-outline" label="Flowchart" color="#F0A227" onPress={() => router.push('/flowchart')} />
-          {/* Field roles' own check-in screen (admin/manager get the two
-              attendance links at the top instead). */}
-          {isField && !isAdminOrManager && attendanceHref && (
-            <QuickLink icon="finger-print-outline" label="Attendance" color="#16A34A" onPress={() => router.push(attendanceHref)} />
-          )}
           {isAdminOrManager && (
             <QuickLink icon="settings-outline" label="Settings" color="#0F1F33" onPress={() => router.push('/settings')} />
           )}

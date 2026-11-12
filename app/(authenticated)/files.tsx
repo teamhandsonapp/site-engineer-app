@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
@@ -6,6 +6,8 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../../components/ui/Card';
 import { FilePreview, type DrawingBox, type FilePreviewSpec } from '../../components/files/FilePreview';
 import { useProject } from '../../lib/ProjectContext';
+import { useAuth } from '../../lib/AuthContext';
+import { fetchProjectFiles, getProjectFileUrl, uploadProjectFile } from '../../lib/projectFiles';
 import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
 import { SitePhotosBrowser } from '../../components/files/SitePhotosBrowser';
 import { LOCATION_TREE, WALLS, roomsFor, useSitePhotos } from '../../lib/sitePhotos';
@@ -37,6 +39,9 @@ interface DummyFile {
   wall?: string;
   ceiling?: string;
   preview: FilePreviewSpec;
+  // Real uploads (project_files, stored in R2): opened through a fresh
+  // 5-minute signed link fetched on tap.
+  fileId?: string;
 }
 
 // Filter options for the Drawings and RA Bills folders, in display order.
@@ -410,7 +415,7 @@ const LEAF_FOLDERS: Folder[] = FOLDERS.flatMap((f) => (f.subfolders ? f.subfolde
 
 function itemCount(folder: Folder, uploads: Record<string, DummyFile[]>): string {
   if (folder.subfolders) return `${folder.subfolders.length} folders`;
-  const n = (folder.files?.length ?? 0) + (uploads[folder.id]?.length ?? 0);
+  const n = uploads[folder.id]?.length ?? 0;
   return `${n} file${n === 1 ? '' : 's'}`;
 }
 
@@ -619,9 +624,58 @@ export default function FilesScreen() {
     setChooseFolderOpen(false);
   }, [params.projectId, isClient, contextProjectId]);
   const projectName = projects.find((p) => p.id === projectId)?.name ?? (isClient ? 'Your Project' : 'Project');
-  // Uploaded files, per folder id — in memory for this session only (dummy
-  // mode, nothing is sent to storage yet).
+  // Real uploaded files (project_files -> Cloudflare R2), per folder id.
+  const { state: authState } = useAuth();
+  const userId = authState.status === 'signed-in' ? authState.profile.id : null;
   const [uploads, setUploads] = useState<Record<string, Record<string, DummyFile[]>>>({});
+  const [filesError, setFilesError] = useState<string | null>(null);
+  const [opening, setOpening] = useState(false);
+  const loadFiles = useCallback(async (pid: string) => {
+    try {
+      setFilesError(null);
+      const rows = await fetchProjectFiles(pid);
+      const byFolder: Record<string, DummyFile[]> = {};
+      for (const r of rows) {
+        const d = new Date(r.createdAtISO);
+        (byFolder[r.folder] ??= []).push({
+          fileId: r.id,
+          name: r.name,
+          kind: kindFromName(r.name, r.mimeType),
+          size: formatSize(r.sizeBytes),
+          date: `${String(d.getDate()).padStart(2, '0')} ${d.toLocaleString('en-US', { month: 'short' })} ${d.getFullYear()}`,
+          by: r.uploadedByName ?? '—',
+          department: r.department ?? undefined,
+          floor: r.floor ?? undefined,
+          room: r.room ?? undefined,
+          wall: r.wall ?? undefined,
+          preview: { type: 'uploaded', uri: '', mimeType: r.mimeType, folderName: r.folder },
+        });
+      }
+      setUploads((prev) => ({ ...prev, [pid]: byFolder }));
+    } catch (err) {
+      setFilesError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+  useEffect(() => {
+    if (projectId) void loadFiles(projectId);
+  }, [projectId, loadFiles]);
+
+  async function openFileRow(f: DummyFile) {
+    if (!f.fileId) {
+      setOpenFile(f);
+      return;
+    }
+    setOpening(true);
+    setFilesError(null);
+    try {
+      const uri = await getProjectFileUrl(f.fileId);
+      setOpenFile({ ...f, preview: { ...(f.preview as Extract<FilePreviewSpec, { type: 'uploaded' }>), uri } });
+    } catch (err) {
+      setFilesError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setOpening(false);
+    }
+  }
   const [uploading, setUploading] = useState(false);
   const [chooseFolderOpen, setChooseFolderOpen] = useState(false);
   const [uploadBanner, setUploadBanner] = useState<string | null>(null);
@@ -654,7 +708,8 @@ export default function FilesScreen() {
   }
   const projectUploads = uploads[projectId ?? ''] ?? {};
   const { photos: sitePhotos } = useSitePhotos(projectId);
-  const allFiles = current ? [...(projectUploads[current.id] ?? []), ...(current.files ?? [])] : [];
+  // Real files only (2026-11-11) — the old demo files are no longer shown.
+  const allFiles = current ? (projectUploads[current.id] ?? []) : [];
   // Department / Floor filters — Drawings folder only; reset on folder change.
   const [deptFilter, setDeptFilter] = useState<string | null>(null);
   const [floorFilter, setFloorFilter] = useState<string | null>(null);
@@ -681,26 +736,24 @@ export default function FilesScreen() {
         setUploadError('Drawings must be a PDF or AutoCAD file (.pdf, .dwg, .dxf).');
         return;
       }
-      const today = new Date();
-      const date = `${String(today.getDate()).padStart(2, '0')} ${today.toLocaleString('en-US', { month: 'short' })} ${today.getFullYear()}`;
-      const file: DummyFile = {
-        name: asset.name,
-        kind: kindFromName(asset.name, asset.mimeType),
-        size: formatSize(asset.size),
-        date,
-        by: 'You',
-        note: 'Uploaded just now',
-        ...location,
-        preview: { type: 'uploaded', uri: asset.uri, mimeType: asset.mimeType ?? null, folderName: target.name },
-      };
-      const pid = projectId ?? '';
-      setUploads((prev) => ({ ...prev, [pid]: { ...(prev[pid] ?? {}), [target.id]: [file, ...(prev[pid]?.[target.id] ?? [])] } }));
+      if (!projectId) return;
+      // Straight to Cloudflare R2 (signed link) + a project_files row.
+      await uploadProjectFile(
+        projectId,
+        target.id,
+        { uri: asset.uri, name: asset.name, mimeType: asset.mimeType ?? null, size: asset.size ?? null },
+        { department: location.department, floor: location.floor, room: location.room, wall: location.wall },
+        userId
+      );
+      await loadFiles(projectId);
       // Jump into the destination folder so the new file is visible right away.
       const parent = FOLDERS.find((f) => f.subfolders?.some((sf) => sf.id === target.id));
       setPath(parent ? [parent, target] : [target]);
       closeUploadForm();
       setUploadBanner(`"${asset.name}" uploaded to ${target.name} · ${location.floor} › ${location.room}`);
       setTimeout(() => setUploadBanner(null), 3000);
+    } catch (err) {
+      setUploadError(`Couldn't upload — ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setUploading(false);
     }
@@ -876,6 +929,18 @@ export default function FilesScreen() {
         </Card>
       )}
 
+      {filesError ? (
+        <View className="rounded-xl border border-red-200 bg-red-50 px-3.5 py-2.5 mb-3">
+          <Text className="text-xs text-red-600">{filesError}</Text>
+        </View>
+      ) : null}
+      {opening ? (
+        <View className="flex-row items-center gap-2 mb-3">
+          <ActivityIndicator size="small" color="#0F1F33" />
+          <Text className="text-xs text-neutral-500">Opening file…</Text>
+        </View>
+      ) : null}
+
       {uploadBanner && (
         <View className="flex-row items-center gap-2 mb-3 px-3 py-2.5 rounded-xl" style={{ backgroundColor: '#DCFCE7' }}>
           <Ionicons name="checkmark-circle" size={16} color="#15803D" />
@@ -889,7 +954,7 @@ export default function FilesScreen() {
         <View className="flex-row gap-2 mb-3">
           {[
             { label: 'Folders', value: String(LEAF_FOLDERS.length + 2) },
-            { label: 'Documents', value: String(LEAF_FOLDERS.reduce((n, f) => n + (f.files?.length ?? 0) + (projectUploads[f.id]?.length ?? 0), 0)) },
+            { label: 'Documents', value: String(LEAF_FOLDERS.reduce((n, f) => n + (projectUploads[f.id]?.length ?? 0), 0)) },
             { label: 'Updated', value: Object.keys(projectUploads).length > 0 ? 'Today' : '23 Sep' },
           ].map((stat) => (
             <Card key={stat.label} className="flex-1 items-center py-3">
@@ -945,7 +1010,7 @@ export default function FilesScreen() {
         </View>
       )}
       {files.map((f, i) => (
-        <FileRow key={`${i}-${f.name}`} file={f} onPress={() => setOpenFile(f)} />
+        <FileRow key={f.fileId ?? `${i}-${f.name}`} file={f} onPress={() => void openFileRow(f)} />
       ))}
     </ScrollView>
   );

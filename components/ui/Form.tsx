@@ -14,6 +14,7 @@ export function FormSection({
   right,
   children,
   style,
+  compact = false,
 }: {
   title: string;
   description?: string;
@@ -21,22 +22,32 @@ export function FormSection({
   right?: ReactNode;
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
+  // Tighter padding/gaps and no description line (dense forms like the DPR).
+  compact?: boolean;
 }) {
   return (
     <View
       style={[
-        { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, padding: space.lg, marginBottom: space.md, gap: space.md },
+        {
+          backgroundColor: colors.surface,
+          borderRadius: radius.md,
+          borderWidth: 1,
+          borderColor: colors.border,
+          padding: compact ? space.md : space.lg,
+          marginBottom: compact ? space.sm : space.md,
+          gap: compact ? space.sm : space.md,
+        },
         shadow.card,
         style,
       ]}
     >
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-        {icon ? <Ionicons name={icon} size={18} color={colors.navy} /> : null}
+        {icon ? <Ionicons name={icon} size={compact ? 16 : 18} color={colors.navy} /> : null}
         <View style={{ flex: 1 }}>
-          <AppText variant="section" accessibilityRole="header">
+          <AppText variant={compact ? 'bodyStrong' : 'section'} accessibilityRole="header">
             {title}
           </AppText>
-          {description ? <AppText variant="caption">{description}</AppText> : null}
+          {description && !compact ? <AppText variant="caption">{description}</AppText> : null}
         </View>
         {right}
       </View>

@@ -147,16 +147,4 @@ export const EXTERNAL_SERVICES: ExternalService[] = [
     keysIn: 'google-services.json',
     status: 'Live',
   },
-  {
-    name: 'Whapi.Cloud (WhatsApp Site Groups)',
-    usedFor: 'Connects one WhatsApp number so site group chats show in the app, and replies go back to WhatsApp',
-    usedBy: ['Site Engineer App'],
-    paid: 'Not live yet',
-    cost: 'Paid monthly per connected number (plan to confirm)',
-    billing: 'Monthly',
-    renewal: 'Will bill every month per WhatsApp number once set up.',
-    account: 'Not set up',
-    keysIn: 'Supabase Edge Function secrets (WHAPI_TOKEN, WHAPI_WEBHOOK_SECRET)',
-    status: 'Not live yet',
-  },
 ];

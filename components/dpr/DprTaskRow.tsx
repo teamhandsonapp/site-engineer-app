@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -8,6 +8,7 @@ import { formatDateTimeLabel } from '../../lib/formatTime';
 import {
   DPR_COMMENT_LABEL,
   dependencyDisplayLabel,
+  inPreconstruction,
   type DprComment,
   type DprDependencyCategory,
   type DprSubtaskItem,
@@ -26,7 +27,7 @@ const STATUS_DISPLAY_LABEL: Record<string, string> = {
   completed: 'Completed',
 };
 
-const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const SHORT_MONTHS =['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 function shortDate(key: string | null): string {
   if (!key) return '—';
   const [y, m, d] = key.split('-').map(Number);
@@ -108,6 +109,7 @@ export function DprTaskRow({
   // approved a "Contact Admin" edit request for this exact (task, day) —
   // see hasApprovedEditGrant's own comment on the prop.
   const isLockedForEngineer = !isAdmin && dprSubmittedAtISO != null && !hasApprovedEditGrant;
+  const [open, setOpen] = useState(false);
   const [requestingEdit, setRequestingEdit] = useState(false);
   const [requestMessage, setRequestMessage] = useState('');
   const [requestSending, setRequestSending] = useState(false);
@@ -134,11 +136,44 @@ export function DprTaskRow({
 
   const commentLabel = comment ? (comment.preset === 'other' ? comment.text : DPR_COMMENT_LABEL[comment.preset]) : null;
 
-  if (isLockedForEngineer) {
+  // Compact folder row (2026-11-11): just the task name + department and a
+  // submitted/pending badge; tap to open planned/actual dates and Edit DPR.
+  // (Workers Attendance is its own section above the list, and inside the
+  // task's DPR page.)
+  // A plain function (not a nested component) so the open body isn't
+  // remounted on every render.
+  function shell(children: ReactNode) {
+    const done = !!dprSubmittedAtISO;
+    const pre = inPreconstruction(task.status);
+    const badge = pre
+      ? { label: 'Checklist pending', bg: '#F3F4F6', fg: '#4B5563' }
+      : done
+        ? { label: 'Submitted', bg: '#DCFCE7', fg: '#15803D' }
+        : { label: 'DPR due', bg: '#FEF3C7', fg: '#B45309' };
     return (
-      <Card className="mb-2" style={{ padding: 12 }}>
-        <Text className="text-2xs text-neutral-400">{task.workName}</Text>
-        <Text className="text-xs font-bold text-neutral-900 mb-1.5">{task.taskName}</Text>
+      <Card className="mb-2" style={{ paddingVertical: 10, paddingHorizontal: 12 }}>
+        <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen((v) => !v)} className="flex-row items-center gap-2">
+          <Ionicons name={open ? 'folder-open-outline' : 'folder-outline'} size={16} color="#0F1F33" />
+          <View className="flex-1">
+            <Text className="text-xs font-bold text-neutral-900" numberOfLines={1}>{task.taskName}</Text>
+            <Text className="text-2xs text-neutral-400 mt-0.5" numberOfLines={1}>
+              {task.workName} · {shortDate(task.plannedStartDate)} → {shortDate(task.plannedEndDate)}
+            </Text>
+          </View>
+          <View className="rounded-full px-2 py-0.5" style={{ backgroundColor: badge.bg }}>
+            <Text className="text-2xs font-bold" style={{ color: badge.fg }}>{badge.label}</Text>
+          </View>
+          <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={14} color="#9CA3AF" />
+        </Pressable>
+        {open ? <View className="mt-2.5">{children}</View> : null}
+      </Card>
+    );
+  }
+
+  if (isLockedForEngineer) {
+    return shell(
+      <>
+        <PlannedActualDates task={task} />
 
         <View className="rounded-lg bg-neutral-50 border border-neutral-100 px-2.5 py-1.5 mb-2">
           <Text className="text-2xs font-semibold text-neutral-500">
@@ -205,14 +240,12 @@ export function DprTaskRow({
             <Text className="text-2xs font-bold text-brand-navy">Contact Admin to Edit</Text>
           </Pressable>
         )}
-      </Card>
+      </>
     );
   }
 
-  return (
-    <Card className="mb-2" style={{ padding: 12 }}>
-      <Text className="text-2xs text-neutral-400">{task.workName}</Text>
-      <Text className="text-xs font-bold text-neutral-900 mb-1.5">{task.taskName}</Text>
+  return shell(
+    <>
       <PlannedActualDates task={task} />
 
       {/* "Submitted by" means dpr_entries.submitted_at (the real "Submit
@@ -269,13 +302,29 @@ export function DprTaskRow({
           be a second button/page here; it's now a lightweight popup reached
           FROM inside Edit DPR (app/dpr-edit/[taskId].tsx's own day pager),
           not a separate destination from this card. */}
-      <Pressable
-        onPress={() => router.push(`/dpr-edit/${task.id}`)}
-        className="flex-row items-center justify-center gap-1 mt-1 py-1.5 rounded-lg border border-neutral-300"
-      >
-        <Ionicons name="create-outline" size={12} color="#0F1F33" />
-        <Text className="text-2xs font-bold text-brand-navy">Edit DPR</Text>
-      </Pressable>
-    </Card>
+      {inPreconstruction(task.status) ? (
+        // Pre-construction gate: the DPR opens once the checklist is done.
+        <>
+          <Text className="text-2xs text-neutral-500 mb-1.5">
+            Pre-construction checklist isn&apos;t complete yet — the DPR opens once it&apos;s all done.
+          </Text>
+          <Pressable
+            onPress={() => router.push(`/task/${task.id}`)}
+            className="flex-row items-center justify-center gap-1 mt-1 py-1.5 rounded-lg bg-brand-navy"
+          >
+            <Ionicons name="checkbox-outline" size={12} color="#fff" />
+            <Text className="text-2xs font-bold text-white">Open checklist</Text>
+          </Pressable>
+        </>
+      ) : (
+        <Pressable
+          onPress={() => router.push(`/dpr-edit/${task.id}`)}
+          className="flex-row items-center justify-center gap-1 mt-1 py-1.5 rounded-lg border border-neutral-300"
+        >
+          <Ionicons name="create-outline" size={12} color="#0F1F33" />
+          <Text className="text-2xs font-bold text-brand-navy">Edit DPR</Text>
+        </Pressable>
+      )}
+    </>
   );
 }

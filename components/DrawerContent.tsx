@@ -6,7 +6,6 @@ import { router } from 'expo-router';
 import { Logo } from './Logo';
 import { NewProjectModal } from './NewProjectModal';
 import { appRoleFor, isFieldRole, roleLabel, useAuth } from '../lib/AuthContext';
-import { useSiteGroupsEnabled } from '../lib/groupChats/access';
 import { useProject } from '../lib/ProjectContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSafeBottomOffset } from '../lib/useSafeBottomOffset';
@@ -61,6 +60,9 @@ const ADMIN_ONLY_ROUTES = new Set(['contacts', 'dpr-edit-requests']);
 // documents: removed from the menu on request (2026-11-06) — drawings now
 // live in Files › Drawings. The screen itself is kept, just not listed.
 const HIDDEN_ROUTES = new Set(['gantt', 'flowchart', 'task-list', 'critical-alerts', 'dpr-edit-requests', 'leave-log', 'engineer-attendance', 'devices', 'documents',
+  // Site engineer attendance removed for everyone (2026-11-11): the field
+  // role's own check-in/out screen and its Day Timeline are hidden too.
+  'attendance', 'day-timeline',
   // Day Timeline is a location map trail — hidden while location features are off.
   ...(LOCATION_FEATURES_ENABLED ? [] : ['day-timeline'])]);
 
@@ -75,9 +77,8 @@ const SUBMENUS: Record<string, { route: string; label: string; params?: { tab: s
     { route: 'mom', label: 'Custom Alerts', params: { tab: 'alerts' } },
     { route: 'mom', label: 'Email Reports', params: { tab: 'email' }, adminOnly: true },
   ],
-  // Attendance itself now opens Site Engineer Attendance (Workforce
-  // Attendance removed 2026-11-09), so it isn't repeated as a sub-item.
-  'team-attendance': [{ route: 'leave-log', label: 'Leave Log' }],
+  // Attendance opens Workers Attendance only (2026-11-11); the site
+  // engineer Leave Log sub-item was removed with the rest of engineer attendance.
 };
 
 // Reports submenu — restructured (by explicit request) into "Report by
@@ -108,7 +109,6 @@ const REPORT_SUBMENU: { label: string; href: string; params?: Record<string, str
   // data rather than a client-facing progress view, so it's filtered out
   // for a client the same way STAFF_ONLY_ROUTES filters top-level routes
   // below (the screen itself also redirects a client as defense-in-depth).
-  { label: 'Site Engineer Status', href: '/reports/site-engineer-report', staffOnly: true },
   { label: 'Task Based Status', href: '/reports/general-parameter-report' },
 ];
 
@@ -116,7 +116,6 @@ const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   home: 'home-outline',
   notifications: 'notifications-outline',
   'app-progress': 'stats-chart-outline',
-  'site-groups': 'chatbubbles-outline',
   'critical-alerts': 'warning-outline',
   'daily-updates': 'document-text-outline',
   'completed-tasks': 'checkmark-done-outline',
@@ -144,8 +143,6 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
   const isAdminOrManager = profile != null && (profile.role === 'admin' || profile.role === 'manager');
   const isAdmin = profile != null && profile.role === 'admin';
   const isField = profile != null && isFieldRole(profile.role);
-  // Site Groups: whatsapp_access row + WHATSAPP_ENABLED; role is irrelevant.
-  const siteGroupsEnabled = useSiteGroupsEnabled();
   const { projects, selectedProjectId, setSelectedProjectId, reload: reloadProjects } = useProject();
   const [newProjectModalVisible, setNewProjectModalVisible] = useState(false);
 
@@ -285,7 +282,6 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
   );
 
   function isRouteVisible(name: string): boolean {
-    if (name === 'site-groups') return siteGroupsEnabled;
     if (isClient && STAFF_ONLY_ROUTES.has(name)) return false;
     if (!isField && !(isAdmin && name === 'daily-updates') && FIELD_ROLE_ONLY_ROUTES.has(name)) return false;
     if (!isAdminOrManager && ADMIN_MANAGER_ONLY_ROUTES.has(name)) return false;

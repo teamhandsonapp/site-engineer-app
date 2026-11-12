@@ -58,6 +58,7 @@ interface RawItemRow {
     id: string;
     task_id: string;
     task_name: string;
+    deleted_at: string | null;
     work: {
       name: string;
       code: string;
@@ -78,15 +79,10 @@ function normalizeCompletion(
 }
 
 function toCriticalAlert(row: RawItemRow): CriticalAlert | null {
-  // tasks is soft-deleted (deletedAt), and this app never reads that
-  // column — a task pulled back at all through the RLS-scoped join is, by
-  // construction, one PostgREST could see, but a bulk-deleted task's row
-  // still physically exists. Filtering here would need deleted_at
-  // selected explicitly; omitted deliberately for this first pass since
-  // soft-deleted tasks are rare and a stale alert is a visible, harmless
-  // false positive rather than a silent miss — flagged for follow-up, not
-  // treated as solved.
-  if (!row.task || !row.task.work || !row.task.work.project) return null;
+  // Soft-deleted tasks (deleted_at set — incl. the archived flowchart-only
+  // sets, tasks.flowchart_set) never count: their checklist rows still
+  // physically exist, and used to inflate the "N pending" badges.
+  if (!row.task || row.task.deleted_at || !row.task.work || !row.task.work.project) return null;
   if (!isPilotVisible(row.task.task_id, row.task.work.code)) return null;
   const completion = normalizeCompletion(row.completion);
   const status = (completion?.status as NeedsAttentionStatus | undefined) ?? 'PENDING';
@@ -111,7 +107,7 @@ function toCriticalAlert(row: RawItemRow): CriticalAlert | null {
 const SELECT = `
   id, item_label, created_at,
   task:tasks!inner(
-    id, task_id, task_name,
+    id, task_id, task_name, deleted_at,
     work:works!inner(name, code, project:projects!inner(id, name))
   ),
   completion:dependency_completions(id, status, updated_at)
@@ -126,6 +122,7 @@ export async function fetchClientCriticalAlerts(): Promise<CriticalAlert[]> {
     .from('dependency_items')
     .select(SELECT)
     .eq('category', 'client')
+    .is('task.deleted_at', null)
     .order('created_at', { ascending: true });
 
   if (error) throw new Error(error.message);
@@ -144,7 +141,8 @@ export async function fetchAllPendingClientAlerts(): Promise<CriticalAlert[]> {
   const { data, error } = await supabase
     .from('dependency_items')
     .select(SELECT)
-    .eq('category', 'client');
+    .eq('category', 'client')
+    .is('task.deleted_at', null);
 
   if (error) throw new Error(error.message);
   return ((data ?? []) as unknown as RawItemRow[])

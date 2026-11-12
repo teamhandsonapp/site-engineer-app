@@ -44,7 +44,6 @@ export const APP_PROGRESS: ScreenProgress[] = [
     pending: ['Test Google Calendar event sync', 'Test WhatsApp meeting reminders'],
     needed: [
       { item: 'Email for Google Calendar event sync', from: 'Client' },
-      { item: 'WhatsApp number to add in Whapi.Cloud for testing', from: 'Client' },
     ],
   },
   {
@@ -76,18 +75,6 @@ export const APP_PROGRESS: ScreenProgress[] = [
       { item: 'Test: link tasks', from: 'Client' },
       { item: 'Test: check tasks and links in the flowchart', from: 'Client' },
     ],
-  },
-  {
-    screen: 'Site Groups',
-    updated: '2026-11-10',
-    done: [],
-    pending: [
-      'Link client number with Whapi.Cloud',
-      'Create test WhatsApp group',
-      'Test sharing media',
-      'Check WhatsApp and app stay in sync',
-    ],
-    needed: [{ item: 'Client WhatsApp number', from: 'Client' }],
   },
   {
     screen: 'Google Play Store',

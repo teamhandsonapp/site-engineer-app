@@ -40,7 +40,7 @@ const TEAM_COUNTS: { label: string; value: number }[] = [
   { label: 'Consultant', value: 6 },
   { label: 'Contractor', value: 9 },
   { label: 'Vendor', value: 15 },
-  { label: 'Site Engineer', value: 22 },
+  // Site Engineer row removed 2026-11-11 — site engineer attendance is off.
 ];
 
 // Each row opens /team/[category] — a project-pick step, then the view

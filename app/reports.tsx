@@ -114,18 +114,8 @@ export default function ReportsHubScreen() {
           color="#2E7D32"
           onPress={() => router.push({ pathname: '/reports/activity-report', params: { preset: 'month', title: 'Monthly Status' } } as never)}
         />
-        {/* Staff-only — internal engineer attendance/performance data, not a
-            client-facing progress view, same gate as the drawer's own
-            REPORT_SUBMENU entry (components/DrawerContent.tsx). */}
-        {!isClient && (
-          <ReportLink
-            icon="person-outline"
-            label="Site Engineer Status"
-            subtitle="One engineer's attendance and DPR submission history"
-            color="#7C3AED"
-            onPress={() => router.push('/reports/site-engineer-report')}
-          />
-        )}
+        {/* Site Engineer Status report removed 2026-11-11 with the rest of
+            site engineer attendance (screen file kept, just not linked). */}
       </View>
     </View>
   );

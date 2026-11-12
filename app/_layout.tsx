@@ -22,7 +22,6 @@ import { ProjectProvider } from '../lib/ProjectContext';
 import { useNavigationLogging } from '../lib/navigationLogging';
 import { useNotificationTapRouting } from '../lib/notificationRouting';
 import { initSentry } from '../lib/sentryInit';
-import { useSiteGroupsAccessSync } from '../lib/groupChats/access';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { RestoreErrorScreen } from '../components/RestoreErrorScreen';
 import { BrandSplash } from '../components/BrandSplash';
@@ -74,14 +73,6 @@ function NotificationTapRouter() {
   const { state } = useAuth();
   const navReady = !!useRootNavigationState()?.key;
   useNotificationTapRouting(navReady && state.status === 'signed-in');
-  return null;
-}
-
-// Site Groups access (my_whatsapp_access): loaded after login / on start,
-// refreshed on foreground, wiped with the chat caches on logout. Renders
-// nothing; does nothing unless WHATSAPP_ENABLED.
-function SiteGroupsAccessSync() {
-  useSiteGroupsAccessSync();
   return null;
 }
 
@@ -138,7 +129,6 @@ function RootLayout() {
             <StatusBar style="light" />
             <NavigationLogger />
             <NotificationTapRouter />
-            <SiteGroupsAccessSync />
             <AuthGate fontsReady={fontsReady}>
               <ProjectProvider>
                   <AppStack />
@@ -159,15 +149,13 @@ function RootLayout() {
 // bar instead of fixing each page. Left out: the two sign-in screens (they
 // pad themselves), the menu screens (the tab bar pads), and pages that pin
 // their own inset-aware bottom bar (DPR entry's Save/Submit footer, the
-// template canvas zoom controls, the group chat composer).
+// template canvas zoom controls).
 const OWN_BOTTOM_INSET = new Set([
   'index',
   'login',
   '(authenticated)',
   'dpr-edit/[taskId]',
   'flowchart-templates/canvas/[templateId]',
-  'site-groups/[groupId]',
-  'site-groups/preview',
 ]);
 
 function AppStack() {

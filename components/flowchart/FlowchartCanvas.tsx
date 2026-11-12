@@ -72,6 +72,7 @@ export function FlowchartCanvas({
   canvasTheme,
   onCanvasThemeChange,
   onTaskCountChange,
+  viewOnly = false,
 }: {
   projectId: string;
   initialTasks: FlowchartTask[];
@@ -90,6 +91,9 @@ export function FlowchartCanvas({
   // Optional: told the live task count whenever it changes (the screen uses
   // it to drop the "add your first task" hint once a task exists).
   onTaskCountChange?: (count: number) => void;
+  // Archived flowchart-only sets (tasks.flowchart_set): picture only — no
+  // task detail sheet, so no checklist/subtask/DPR surface is ever opened.
+  viewOnly?: boolean;
 }) {
   // PixelRatio.get() never changes for a mounted app (not a ref/state — a
   // plain device constant), so this is safe to read directly on every
@@ -856,6 +860,7 @@ export function FlowchartCanvas({
 
   function handleOpenTask(taskId: string) {
     setActionMenuTaskId(null);
+    if (viewOnly) return;
     setDetailTaskId(taskId);
     setDetailEditable(false);
     setDetailInitialTab('prerequisites');
@@ -863,6 +868,7 @@ export function FlowchartCanvas({
 
   function handleEditTask(taskId: string) {
     setActionMenuTaskId(null);
+    if (viewOnly) return;
     setDetailTaskId(taskId);
     setDetailEditable(true);
     setDetailInitialTab('edit');

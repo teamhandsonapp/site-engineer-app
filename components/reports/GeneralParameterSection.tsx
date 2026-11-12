@@ -3,8 +3,6 @@ import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useProject } from '../../lib/ProjectContext';
-import { useAuth } from '../../lib/AuthContext';
-import { supabase } from '../../lib/supabase';
 import { EmptyState } from '../ui/EmptyState';
 import { ReportSection } from './ReportSection';
 import { PieChart } from './charts/PieChart';
@@ -1041,39 +1039,11 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
     fetchTaskTypes().then(setTaskTypes).catch(() => {}); // letter falls back to the raw name below if this fails
   }, []);
 
-  // Report layout for this project (projects.report_format). Admin/manager
-  // can switch it; everyone else just sees the project's choice.
-  const { state: authState } = useAuth();
-  const canChooseFormat = authState.status === 'signed-in' && (authState.profile.role === 'admin' || authState.profile.role === 'manager');
-  const [format, setFormat] = useState<ReportFormat>('type1');
-  const [formatError, setFormatError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!selectedProjectId) return;
-    let cancelled = false;
-    supabase
-      .from('projects')
-      .select('report_format')
-      .eq('id', selectedProjectId)
-      .maybeSingle()
-      .then(({ data: row }) => {
-        const f = (row as { report_format?: string } | null)?.report_format;
-        if (!cancelled && (f === 'type1' || f === 'type2')) setFormat(f);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedProjectId]);
-  async function chooseFormat(next: ReportFormat) {
-    if (next === format || !selectedProjectId) return;
-    const prev = format;
-    setFormat(next);
-    setFormatError(null);
-    const { error } = await supabase.from('projects').update({ report_format: next }).eq('id', selectedProjectId);
-    if (error) {
-      setFormat(prev);
-      setFormatError(`Couldn't save the report format — ${error.message}`);
-    }
-  }
+  // Always Type 1 — the DPR report (2026-11-11). Type 2 (one-page, the PR /
+  // cumulative-% layout) is switched off and its switch removed until PR gets
+  // its own place; Type2Report + the type2 PDF page stay in this file for
+  // then. projects.report_format is no longer read or written here.
+  const format = 'type1' as ReportFormat;
   // 3 tabs for Status of the Work, by explicit request, Pre Construction
   // first — Construction shows the task's own quantity donut; Pre
   // Construction shows Planned Start/End/Actual Start/Task delayed by plus
@@ -1167,38 +1137,6 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
   return (
     <>
       <ReportSection>
-        {canChooseFormat && (
-          // One slim row: label left, small Type 1 / Type 2 switch right.
-          <View className="mb-2">
-            <View className="flex-row items-center justify-between">
-              <Text className="text-2xs font-semibold text-neutral-400">Report format</Text>
-              <View className="flex-row rounded-md bg-neutral-100 p-0.5">
-                {(
-                  [
-                    { key: 'type1', label: 'Type 1' },
-                    { key: 'type2', label: 'Type 2' },
-                  ] as const
-                ).map((opt) => {
-                  const active = format === opt.key;
-                  return (
-                    <Pressable
-                      key={opt.key}
-                      onPress={() => void chooseFormat(opt.key)}
-                      accessibilityRole="button"
-                      accessibilityLabel={opt.key === 'type1' ? 'Type 1, three tabs' : 'Type 2, one page'}
-                      accessibilityState={{ selected: active }}
-                      className="rounded px-2.5 py-1"
-                      style={{ backgroundColor: active ? '#0F1F33' : 'transparent' }}
-                    >
-                      <Text className={`text-2xs font-bold ${active ? 'text-white' : 'text-neutral-500'}`}>{opt.label}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-            {formatError && <Text className="text-2xs text-red-600 mt-1">{formatError}</Text>}
-          </View>
-        )}
         {/* Per-DPR selector, by explicit request — defaults to "All
             (Cumulative)" (the existing tabbed report, unchanged); picking a
             specific real DPR swaps the whole tabbed view below for a

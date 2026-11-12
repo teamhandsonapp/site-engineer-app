@@ -163,6 +163,52 @@ export async function fetchFlowchartData(projectId: string): Promise<FlowchartDa
   return { tasks, seriesEdges, parallelEdges, taskTypes };
 }
 
+// ─── Archived flowchart-only task sets ─────────────────────────────────────
+// tasks.flowchart_set (supabase/flowchart-sets.sql) tags an older task set
+// that was replaced on the flowchart (e.g. the 15 TASK-001..015 tasks). Those
+// rows deliberately STAY soft-deleted (deleted_at set), so DPR, checklists,
+// Task List, reports and admin-web — which all filter deleted_at IS NULL —
+// never see them. Only this function reads them back, and only when the
+// flowchart's set toggle asks for one, shown view-only.
+export type FlowchartSetKey = 'set-56' | 'set-15' | 'set-311';
+
+export const FLOWCHART_SET_LABEL: Record<FlowchartSetKey, string> = {
+  'set-56': '56 tasks',
+  'set-15': '15 tasks',
+  'set-311': '311 tasks',
+};
+
+export async function fetchFlowchartSet(projectId: string, set: FlowchartSetKey): Promise<FlowchartData> {
+  const { data, error } = await supabase
+    .from('tasks')
+    .select(TASK_SELECT)
+    .eq('work.project_id', projectId)
+    .eq('flowchart_set', set);
+  if (error) throw new Error(error.message);
+
+  const rawTasks = (data ?? []) as unknown as RawTaskRow[];
+  const tasks = rawTasks.map(mapRawTaskRow);
+  const ids = tasks.map((t) => t.id);
+  if (ids.length === 0) return { tasks, seriesEdges: [], parallelEdges: [], taskTypes: [] };
+
+  const [depsRes, parallelRes] = await Promise.all([
+    supabase.from('task_dependencies').select('id, task_id, depends_on_task_id, type').in('task_id', ids),
+    supabase.from('task_parallel_links').select('id, task_a_id, task_b_id').in('task_a_id', ids),
+  ]);
+  if (depsRes.error) throw new Error(depsRes.error.message);
+  if (parallelRes.error) throw new Error(parallelRes.error.message);
+
+  const idSet = new Set(ids);
+  const seriesEdges = ((depsRes.data ?? []) as RawDependencyRow[])
+    .filter((d) => idSet.has(d.depends_on_task_id))
+    .map((d) => ({ id: d.id, taskId: d.task_id, dependsOnTaskId: d.depends_on_task_id, type: d.type }));
+  const parallelEdges = ((parallelRes.data ?? []) as RawParallelLinkRow[])
+    .filter((p) => idSet.has(p.task_b_id))
+    .map((p) => ({ id: p.id, taskAId: p.task_a_id, taskBId: p.task_b_id }));
+
+  return { tasks, seriesEdges, parallelEdges, taskTypes: [] };
+}
+
 // Single-row counterpart to fetchFlowchartData's own tasks query — used by
 // the undo/redo stack (lib/flowchart/undo.ts) to re-fetch a task's full,
 // join-resolved shape (workName/workAccountabilityType) right after

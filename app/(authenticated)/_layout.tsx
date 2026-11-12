@@ -9,14 +9,10 @@ import { View } from 'react-native';
 import { NotificationBell } from '../../components/NotificationBell';
 import { CriticalAlertPopup } from '../../components/CriticalAlertPopup';
 import { useDeviceHeartbeat } from '../../lib/deviceActivity';
-import { useSiteGroupChatsSync } from '../../lib/groupChats/chatsStore';
 
 export default function AuthenticatedLayout() {
   const { state } = useAuth();
   useDeviceHeartbeat(state.status === 'signed-in' ? state.profile.id : null);
-  // Site Groups chat list + tab badge for the selected project (one realtime
-  // channel). Does nothing unless WHATSAPP_ENABLED and the user has access.
-  useSiteGroupChatsSync();
 
   // Session-restore loading/error states are already handled by the root
   // AuthGate (app/_layout.tsx) before this layout can ever mount — by the
@@ -68,9 +64,6 @@ export default function AuthenticatedLayout() {
           isn't something a client account should see, same reasoning as
           critical-alerts being staff-only. */}
       <Drawer.Screen name="notifications" options={{ title: 'Notifications', drawerLabel: 'Notifications' }} />
-      {/* Site Groups (WhatsApp groups) — only for people in whatsapp_access and
-          only while WHATSAPP_ENABLED (DrawerContent.tsx / BottomTabBar.tsx). */}
-      <Drawer.Screen name="site-groups" options={{ title: 'Site Groups', drawerLabel: 'Site Groups' }} />
       <Drawer.Screen name="task-list" options={{ title: 'Task List', drawerLabel: 'Task List' }} />
       <Drawer.Screen name="critical-alerts" options={{ title: 'Critical Alerts', drawerLabel: 'Critical Alerts' }} />
       {/* Field-role only (site_engineer/senior_site_engineer, DrawerContent.
@@ -101,7 +94,7 @@ export default function AuthenticatedLayout() {
           exclusive per role (see DrawerContent.tsx's FIELD_ROLE_ONLY_ROUTES
           / ADMIN_MANAGER_ONLY_ROUTES split) and never shown to the same
           account at once. */}
-      <Drawer.Screen name="team-attendance" options={{ title: 'Site Engineer Attendance', drawerLabel: 'Attendance' }} />
+      <Drawer.Screen name="team-attendance" options={{ title: 'Attendance', drawerLabel: 'Attendance' }} />
       {/* Site engineers' own attendance scores — a sub-item under Site
           Attendance in the drawer (DrawerContent.tsx SUBMENUS), admin/
           manager only like team-attendance. */}
