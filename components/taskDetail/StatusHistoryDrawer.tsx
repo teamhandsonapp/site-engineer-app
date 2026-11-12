@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { FormModal } from '../ui/FormModal';
 import { Text } from '../ui/AppText';
 import { fetchStatusHistory, type StatusHistoryEntry } from '../../lib/taskDetail/data';
 import { STATUS_CHIP, type CompletionStatus } from '../../lib/taskDetail/constants';
@@ -52,8 +53,7 @@ export function StatusHistoryDrawer({
   const latest = history[0] ?? null;
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
+    <FormModal visible onRequestClose={onClose}>
         <Pressable onPress={() => {}} className="bg-white rounded-2xl p-4" style={{ width: '100%', maxWidth: 380, maxHeight: '75%' }}>
           <Text className="text-sm font-bold text-neutral-900">Status history</Text>
           <Text className="text-xs text-neutral-400 mb-3">{itemLabel}</Text>
@@ -71,7 +71,7 @@ export function StatusHistoryDrawer({
           ) : history.length === 0 ? (
             <Text className="text-xs text-neutral-400 py-2">No changes yet — this item is still at its default status.</Text>
           ) : (
-            <ScrollView style={{ maxHeight: 260 }}>
+            <ScrollView nestedScrollEnabled style={{ maxHeight: 260, flexShrink: 1 }}>
               {history.map((h) => (
                 <View key={h.id} className="py-2 border-b border-neutral-50">
                   <View className="flex-row items-center gap-1.5">
@@ -89,7 +89,6 @@ export function StatusHistoryDrawer({
             <Text className="text-xs font-semibold text-neutral-600">Close</Text>
           </Pressable>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }

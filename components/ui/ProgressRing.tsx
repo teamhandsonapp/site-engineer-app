@@ -46,7 +46,7 @@ export function ProgressRing({
           />
         )}
       </Svg>
-      <Text className="text-xs font-extrabold text-neutral-800">{label ?? `${clamped}%`}</Text>
+      <Text className="text-xs font-extrabold text-neutral-800" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={{ maxWidth: size - 8 }}>{label ?? `${clamped}%`}</Text>
     </View>
   );
 }

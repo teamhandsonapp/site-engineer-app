@@ -12,6 +12,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { ErrorState, InlineError, SkeletonCard } from '../../components/ui/States';
 import { useToast } from '../../components/ui/Toast';
 import { colors, radius, space } from '../../lib/theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { formatDateLabel } from '../../lib/formatTime';
 import {
   DPR_DEPENDENCY_CATEGORIES,
@@ -35,6 +36,9 @@ const dayLabel = (k: string) => formatDateLabel(new Date(`${k}T00:00:00Z`));
 export default function PrEditScreen() {
   const { taskId } = useLocalSearchParams<{ taskId: string }>();
   const { state } = useAuth();
+  // This page pads its own bottom (app/_layout.tsx OWN_BOTTOM_INSET): StickyFooter when there's a
+  // footer, otherwise this extra end-of-page space keeps content above the nav bar (batch 5).
+  const bottomInset = useSafeAreaInsets().bottom;
   const userId = state.status === 'signed-in' ? state.profile.id : null;
   const toast = useToast();
 
@@ -169,7 +173,7 @@ export default function PrEditScreen() {
       ) : !task ? (
         <EmptyState icon="document-text-outline" iconColor={colors.textMuted} title="Task not found" subtitle="It may have been deleted." />
       ) : (
-        <Screen footer={footer ?? undefined}>
+        <Screen footer={footer ?? undefined} contentStyle={footer ? undefined : { paddingBottom: space.xxxl + bottomInset }}>
           <AppText variant="overline">{task.workName}</AppText>
           <AppText variant="title" accessibilityRole="header" style={{ marginTop: 2, marginBottom: space.md }}>
             {task.taskName}

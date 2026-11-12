@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Pressable, RefreshControl, View } from 'react-native';
+import { Pressable, RefreshControl, useWindowDimensions, View } from 'react-native';
 import { Text } from '../ui/AppText';
 import Animated, { useAnimatedRef, useAnimatedScrollHandler, scrollTo } from 'react-native-reanimated';
 import type { TimelineWork } from '../../lib/projectTimeline';
@@ -61,6 +61,10 @@ export function GanttChart({
   refreshing?: boolean;
   onRefresh?: () => void;
 }) {
+  // Task-name column: 168 on normal phones and up; on narrower phones 40% of
+  // the screen (min 120) so the timeline keeps usable room (batch 5).
+  const { width: screenWidth } = useWindowDimensions();
+  const labelWidth = screenWidth >= 390 ? LABEL_WIDTH : Math.max(120, Math.round(screenWidth * 0.4));
   const headerScrollRef = useAnimatedRef<Animated.ScrollView>();
   const labelScrollRef = useAnimatedRef<Animated.ScrollView>();
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
@@ -156,13 +160,13 @@ export function GanttChart({
       {/* Frozen corner */}
       <View
         className="absolute top-0 left-0 bg-white border-r border-b border-neutral-200"
-        style={{ width: LABEL_WIDTH, height: TIMELINE_HEADER_HEIGHT, zIndex: 3 }}
+        style={{ width: labelWidth, height: TIMELINE_HEADER_HEIGHT, zIndex: 3 }}
       />
 
       {/* Frozen time-axis header — horizontally driven by the body, never scrolls on its own */}
       <View
         className="absolute top-0 bg-white border-b border-neutral-200 overflow-hidden"
-        style={{ left: LABEL_WIDTH, right: 0, height: TIMELINE_HEADER_HEIGHT, zIndex: 2 }}
+        style={{ left: labelWidth, right: 0, height: TIMELINE_HEADER_HEIGHT, zIndex: 2 }}
       >
         <Animated.ScrollView
           ref={headerScrollRef}
@@ -203,7 +207,7 @@ export function GanttChart({
       {/* Frozen trade/task labels — vertically driven by the body, never scrolls on its own */}
       <View
         className="absolute left-0 bg-white border-r border-neutral-200 overflow-hidden"
-        style={{ top: TIMELINE_HEADER_HEIGHT, bottom: 0, width: LABEL_WIDTH, zIndex: 2 }}
+        style={{ top: TIMELINE_HEADER_HEIGHT, bottom: 0, width: labelWidth, zIndex: 2 }}
       >
         <Animated.ScrollView ref={labelScrollRef} style={{ flex: 1 }} scrollEnabled={false} showsVerticalScrollIndicator={false}>
           {works.map((w) => (
@@ -237,7 +241,7 @@ export function GanttChart({
           the header, inner scroll drives the labels (see handlers above). */}
       <View
         className="absolute bg-white"
-        style={{ top: TIMELINE_HEADER_HEIGHT, left: LABEL_WIDTH, right: 0, bottom: 0 }}
+        style={{ top: TIMELINE_HEADER_HEIGHT, left: labelWidth, right: 0, bottom: 0 }}
         onLayout={(e) => setBodyHeight(e.nativeEvent.layout.height)}
       >
         <Animated.ScrollView

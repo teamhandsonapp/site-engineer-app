@@ -21,7 +21,7 @@ interface Props {
 export function SiteLocationMapPicker(_props: Props) {
   return (
     <View
-      style={{ height: 96, borderRadius: 12 }}
+      style={{ minHeight: 96, borderRadius: 12 }}
       className="items-center justify-center bg-neutral-50 border border-neutral-200 px-4"
     >
       <Text className="text-xs text-neutral-500 text-center">

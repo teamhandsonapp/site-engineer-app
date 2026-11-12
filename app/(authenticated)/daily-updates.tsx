@@ -353,7 +353,7 @@ export default function DailyUpdatesLandingScreen() {
                       <Text className="text-xs text-neutral-400 mb-3">No tasks here.</Text>
                     )}
                     {listDepartments.length > 1 && (
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 44 }} contentContainerClassName="flex-row items-center gap-2 mb-3">
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerClassName="flex-row items-center gap-2 mb-3">
                         {[ALL_DEPARTMENTS, ...listDepartments].map((dept) => {
                           const active = dept === listDepartment;
                           const count = dept === ALL_DEPARTMENTS ? statusTasks.length : statusTasks.filter((t) => t.workName === dept).length;

@@ -17,6 +17,7 @@ import { StickyFooter } from '../../components/ui/StickyFooter';
 import { ErrorState, InlineError, SkeletonBlock, SkeletonCard } from '../../components/ui/States';
 import { useToast } from '../../components/ui/Toast';
 import { colors, radius, shadow, space } from '../../lib/theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CommentPicker } from '../../components/dpr/CommentPicker';
 import { DprDelayBreakdown } from '../../components/dpr/DprDelayBreakdown';
 import { DateField } from '../../components/ui/DateField';
@@ -100,6 +101,9 @@ function dayGap(fromKey: string, toKey: string): number {
 export default function DprEditScreen() {
   const { taskId } = useLocalSearchParams<{ taskId: string }>();
   const { state } = useAuth();
+  // This page pads its own bottom (app/_layout.tsx OWN_BOTTOM_INSET): StickyFooter when there's a
+  // footer, otherwise this extra end-of-page space keeps content above the nav bar (batch 5).
+  const bottomInset = useSafeAreaInsets().bottom;
   const profile = state.status === 'signed-in' ? state.profile : null;
   const userId = profile?.id ?? null;
   const toast = useToast();
@@ -668,7 +672,7 @@ export default function DprEditScreen() {
       ) : !task ? (
         <EmptyState icon="document-text-outline" iconColor={colors.textMuted} title="Task not found" subtitle="It may have been deleted." />
       ) : (
-        <Screen footer={locked ? undefined : footer}>
+        <Screen footer={locked ? undefined : footer} contentStyle={locked ? { paddingBottom: space.xxxl + bottomInset } : undefined}>
           <AppText variant="overline">{task.workName}</AppText>
           <AppText variant="title" accessibilityRole="header" style={{ marginTop: 2, marginBottom: space.md }}>
             {task.taskName}

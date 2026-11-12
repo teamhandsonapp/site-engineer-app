@@ -110,7 +110,7 @@ export function ApprovalHistoryDrawer({
           {loading ? (
             <ActivityIndicator color="#0F1F33" />
           ) : (
-            <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ maxHeight: 260 }}>
+            <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ maxHeight: 260, flexShrink: 1 }}>
               {rounds.length === 0 ? (
                 <Text className="text-xs text-neutral-400 py-2">No approval rounds recorded yet.</Text>
               ) : (

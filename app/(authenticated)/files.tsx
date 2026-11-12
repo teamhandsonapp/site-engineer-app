@@ -9,7 +9,6 @@ import { FilePreview, type DrawingBox, type FilePreviewSpec } from '../../compon
 import { useProject } from '../../lib/ProjectContext';
 import { useAuth } from '../../lib/AuthContext';
 import { fetchProjectFiles, getProjectFileUrl, uploadProjectFile } from '../../lib/projectFiles';
-import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
 import { SitePhotosBrowser } from '../../components/files/SitePhotosBrowser';
 import { LOCATION_TREE, WALLS, roomsFor, useSitePhotos } from '../../lib/sitePhotos';
 
@@ -604,7 +603,10 @@ export default function FilesScreen() {
   // Folder navigation stack — empty = root. Kept in-screen (not separate
   // routes) since it's all static dummy data for now.
   const [path, setPath] = useState<Folder[]>([]);
-  const bottomPadding = useSafeBottomOffset(24);
+  // Drawer screen: BottomTabBar already clears the home indicator / nav bar,
+  // so this is plain end-of-list space (was useSafeBottomOffset, which added the
+  // inset a second time on phones — batch 5). Same value as before on web.
+  const bottomPadding = 48;
   const current = path[path.length - 1] ?? null;
   const folders = current ? (current.subfolders ?? []) : FOLDERS;
   const [openFile, setOpenFile] = useState<DummyFile | null>(null);

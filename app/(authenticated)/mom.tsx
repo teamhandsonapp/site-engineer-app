@@ -17,7 +17,6 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { Card } from '../../components/ui/Card';
 import { useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
-import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
 import { useMomData } from '../../lib/mom/store';
 import { MeetingTab } from '../../components/mom/MeetingTab';
 import { ReportsTab } from '../../components/mom/ReportsTab';
@@ -39,7 +38,10 @@ export default function MomScreen() {
   const params = useLocalSearchParams<{ tab?: string }>();
   const { state } = useAuth();
   const { projects, selectedProjectId, setSelectedProjectId } = useProject();
-  const bottomPadding = useSafeBottomOffset(24);
+  // Drawer screen: BottomTabBar already clears the home indicator / nav bar,
+  // so this is plain end-of-list space (was useSafeBottomOffset, which added the
+  // inset a second time on phones — batch 5). Same value as before on web.
+  const bottomPadding = 48;
   const [tab, setTab] = useState<MomTab>('meeting');
   const { data, update } = useMomData(selectedProjectId);
 

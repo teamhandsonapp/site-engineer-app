@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Dimensions, Modal, Pressable, View } from 'react-native';
+import { Modal, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '../ui/AppText';
 import {
   CATEGORY_LABELS,
@@ -30,18 +31,24 @@ interface OpenPopover {
 export function CategoryHealthBoxes({ items }: { items: ChecklistItem[] }) {
   const categories = checklistHealthByCategory(items);
   const [open, setOpen] = useState<OpenPopover | null>(null);
+  // Live window size (follows resize / split screen) and the notch / gesture
+  // bar, since this Modal draws edge-to-edge (batch 5).
+  const screen = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
   if (categories.length === 0) return null;
 
-  const screen = Dimensions.get('window');
-  const estimatedHeight = open ? 56 + open.category.items.length * 40 : 0;
+  const minTop = insets.top + 12;
+  const maxBottom = screen.height - insets.bottom - 12;
+  const maxPopoverHeight = Math.max(120, maxBottom - minTop);
+  const estimatedHeight = open ? Math.min(56 + open.category.items.length * 40, maxPopoverHeight) : 0;
   const left = open
     ? Math.min(Math.max(open.x - POPOVER_WIDTH / 2, 10), screen.width - POPOVER_WIDTH - 10)
     : 0;
-  const wouldOverflowBottom = open ? open.y + 16 + estimatedHeight > screen.height - 20 : false;
+  const wouldOverflowBottom = open ? open.y + 16 + estimatedHeight > maxBottom : false;
   const top = open
     ? wouldOverflowBottom
-      ? Math.max(open.y - estimatedHeight - 12, 20)
+      ? Math.max(open.y - estimatedHeight - 12, minTop)
       : open.y + 16
     : 0;
 
@@ -82,6 +89,7 @@ export function CategoryHealthBoxes({ items }: { items: ChecklistItem[] }) {
                 left,
                 top,
                 width: POPOVER_WIDTH,
+                maxHeight: maxPopoverHeight,
                 elevation: 6,
                 shadowColor: '#000',
                 shadowOpacity: 0.15,
@@ -92,7 +100,7 @@ export function CategoryHealthBoxes({ items }: { items: ChecklistItem[] }) {
               <Text className="text-xs font-bold uppercase tracking-wide text-neutral-400 mb-2">
                 {CATEGORY_LABELS[open.category.category]}
               </Text>
-              <View className="gap-1.5">
+              <ScrollView style={{ flexShrink: 1 }} contentContainerClassName="gap-1.5">
                 {open.category.items.map((item, i) => {
                   const chip = STATUS_CHIP[item.status];
                   return (
@@ -108,7 +116,7 @@ export function CategoryHealthBoxes({ items }: { items: ChecklistItem[] }) {
                     </View>
                   );
                 })}
-              </View>
+              </ScrollView>
             </Pressable>
           )}
         </Pressable>

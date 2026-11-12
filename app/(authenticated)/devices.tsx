@@ -217,7 +217,7 @@ export default function DevicesScreen() {
           </Card>
         </View>
 
-        <View className="flex-row items-center gap-2 rounded-xl bg-white border border-neutral-200 px-3 mb-3" style={{ height: 44 }}>
+        <View className="flex-row items-center gap-2 rounded-xl bg-white border border-neutral-200 px-3 mb-3" style={{ minHeight: 44 }}>
           <Ionicons name="search" size={16} color="#9CA3AF" />
           <TextInput
             value={query}

@@ -75,11 +75,15 @@ function VerticalGrouped({
   const maxValue = Math.max(1, ...categories.flatMap((c) => series.map((s) => c.values[s.key] ?? 0)));
   const effectiveMax = maxValue * 1.15;
 
-  const groupGap = 10;
-  const groupWidth = width > 0 ? (width - groupGap * (categories.length + 1)) / categories.length : 0;
-  const barGap = 4;
+  // Gaps and bars shrink when there are many categories (e.g. a month of
+  // days), so the bars always stay inside the chart. With a normal number of
+  // categories these are the same 10 / 4 / 4+ as before (batch 5).
+  const n = Math.max(1, categories.length);
+  const groupGap = width > 0 ? Math.max(2, Math.min(10, width / (n * 4))) : 10;
+  const groupWidth = width > 0 ? Math.max(1, (width - groupGap * (n + 1)) / n) : 0;
+  const barGap = groupWidth >= 24 ? 4 : 1;
   const rawBarWidth = series.length > 0 ? (groupWidth - barGap * (series.length - 1)) / series.length : groupWidth;
-  const barWidth = Math.max(4, Math.min(28, rawBarWidth));
+  const barWidth = Math.max(Math.min(4, Math.max(1, rawBarWidth)), Math.min(28, rawBarWidth));
   const groupContentWidth = barWidth * series.length + barGap * (series.length - 1);
   const groupOffsetX = Math.max(0, (groupWidth - groupContentWidth) / 2);
 
@@ -175,7 +179,7 @@ function HorizontalRows({
             <Text numberOfLines={1} className="text-xs text-neutral-600" style={{ width: labelColumnWidth }}>
               {cat.label}
             </Text>
-            <View style={{ flex: 1, height: rowHeight }} onLayout={trackWidth === 0 ? onLayout : undefined}>
+            <View style={{ flex: 1, height: rowHeight }} onLayout={onLayout}>
               {trackWidth > 0 &&
                 (total === 0 ? (
                   <View style={{ height: rowHeight, justifyContent: 'center' }}>

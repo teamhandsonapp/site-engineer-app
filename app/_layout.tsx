@@ -155,6 +155,7 @@ const OWN_BOTTOM_INSET = new Set([
   'login',
   '(authenticated)',
   'dpr-edit/[taskId]',
+  'pr-edit/[taskId]',
   'flowchart-templates/canvas/[templateId]',
 ]);
 

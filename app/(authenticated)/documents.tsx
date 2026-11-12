@@ -209,7 +209,7 @@ function AssignTaskPicker({
           ) : filtered.length === 0 ? (
             <Text className="text-xs text-neutral-400">No matching tasks.</Text>
           ) : (
-            <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ maxHeight: 320 }}>
+            <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ maxHeight: 320, flexShrink: 1 }}>
               {filtered.map((task) => (
                 <Pressable
                   key={task.id}
@@ -338,7 +338,7 @@ function DocumentDetailModal({
             ) : links.length === 0 ? (
               <Text className="text-xs text-neutral-400 mb-3">Not assigned to any task yet.</Text>
             ) : (
-              <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ maxHeight: 160 }} className="mb-3">
+              <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ maxHeight: 160, flexShrink: 1 }} className="mb-3">
                 {links.map((link) => (
                   <View key={link.linkId} className="flex-row items-center justify-between px-3 py-2 rounded-lg bg-neutral-50 mb-1">
                     <Text className="text-xs font-semibold text-neutral-800 flex-1 pr-2" numberOfLines={1}>

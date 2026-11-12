@@ -26,7 +26,6 @@ import { buildTaskReportPdfHtml } from '../../components/reports/GeneralParamete
 import { supabase } from '../../lib/supabase';
 import { fetchProjectSettings, updateProjectSettings } from '../../lib/projectSettings';
 import { createDepartment, deleteDepartment, fetchDepartments, renameDepartment, type Department } from '../../lib/departments';
-import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
@@ -48,7 +47,8 @@ const DEFAULT_LNG = 78.9629;
 // itself), distinct from the persistent red banner further down which is
 // reserved for load failures and pre-submit form validation.
 function Toast({ toast }: { toast: { type: 'success' | 'error'; message: string } | null }) {
-  const bottom = useSafeBottomOffset(12);
+  // Sits above BottomTabBar, which already clears the inset (batch 5).
+  const bottom = 36;
   if (!toast) return null;
   const isSuccess = toast.type === 'success';
   return (
@@ -609,7 +609,7 @@ export default function SettingsScreen() {
               <Ionicons name={reportTaskPickerOpen ? 'chevron-up' : 'chevron-down'} size={14} color="#9CA3AF" />
             </Pressable>
             {reportTaskPickerOpen && (
-              <View className="mb-2 border border-neutral-100 rounded-lg overflow-hidden" style={{ maxHeight: 260 }}>
+              <View className="mb-2 border border-neutral-100 rounded-lg overflow-hidden" style={{ maxHeight: 260, flexShrink: 1 }}>
                 <ScrollView nestedScrollEnabled>
                   {reportTasks.map((t) => {
                     const active = t.id === reportTaskId;

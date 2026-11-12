@@ -77,7 +77,7 @@ export function CommentThreadModal({
             <FlatList nestedScrollEnabled keyboardShouldPersistTaps="handled"
               data={comments}
               keyExtractor={(c) => c.id}
-              style={{ maxHeight: 280 }}
+              style={{ maxHeight: 280, flexShrink: 1 }}
               className="mb-2"
               ListEmptyComponent={<Text className="text-xs text-neutral-400 py-3">No comments yet.</Text>}
               renderItem={({ item: c }) => (

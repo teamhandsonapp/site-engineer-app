@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Modal, Pressable, ScrollView, View } from 'react-native';
 import { Text, TextInput } from '../ui/AppText';
 import { KEYBOARD_BEHAVIOR } from '../ui/KeyboardAvoider';
+import { useModalBottomPadding } from '../../lib/useSafeBottomOffset';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Card } from '../ui/Card';
@@ -165,6 +166,8 @@ function EditorSheet({ editing, setEditing, onSave, onDelete }: {
   onDelete: () => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Modals draw edge-to-edge: add the nav-bar / home-indicator height (batch 5).
+  const sheetBottomPadding = useModalBottomPadding(32);
   useEffect(() => setConfirmDelete(false), [editing?.mode, editing?.screen, editing && 'index' in editing ? editing.index : null]);
   if (!editing) return null;
   const isNew = editing.mode === 'item' ? editing.index === null : editing.screen === null;
@@ -174,7 +177,7 @@ function EditorSheet({ editing, setEditing, onSave, onDelete }: {
     <Modal visible transparent animationType="fade" onRequestClose={() => setEditing(null)}>
       <KeyboardAvoidingView behavior={KEYBOARD_BEHAVIOR} style={{ flex: 1 }}>
         <Pressable style={{ flex: 1, backgroundColor: 'rgba(15,31,51,0.35)', justifyContent: 'flex-end' }} onPress={() => setEditing(null)} accessibilityLabel="Close">
-          <Pressable onPress={() => {}} className="bg-white rounded-t-2xl px-5 pt-5 pb-8">
+          <Pressable onPress={() => {}} className="bg-white rounded-t-2xl px-5 pt-5" style={{ paddingBottom: sheetBottomPadding }}>
             <Text className="text-lg font-bold text-neutral-900 mb-3">{title}</Text>
             <TextInput
               value={editing.text}
