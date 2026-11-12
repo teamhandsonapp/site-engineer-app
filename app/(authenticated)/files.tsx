@@ -821,7 +821,7 @@ export default function FilesScreen() {
         <View className="flex-row items-center gap-1">
           <Ionicons name="chevron-forward" size={12} color="#9CA3AF" />
           <Pressable onPress={() => setPath([])} disabled={!current}>
-            <Text className={`text-xs font-bold ${current ? 'text-brand-navy' : 'text-neutral-500'}`} numberOfLines={1}>
+            <Text className={`text-xs font-bold ${current ? 'text-brand-navy' : 'text-neutral-500'}`} numberOfLines={1} style={{ maxWidth: 160 }}>
               {projectName}
             </Text>
           </Pressable>

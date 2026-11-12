@@ -74,13 +74,13 @@ export function Button({
         style,
       ]}
     >
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1, maxWidth: '100%' }}>
         {busy ? (
           <ActivityIndicator size="small" color={p.fg} />
         ) : icon ? (
-          <Ionicons name={icon} size={size === 'sm' ? 16 : 18} color={p.fg} />
+          <Ionicons name={icon} size={size === 'sm' ? 16 : 18} color={p.fg} style={{ flexShrink: 0 }} />
         ) : null}
-        <AppText variant={size === 'sm' ? 'label' : 'bodyStrong'} style={{ color: p.fg }} numberOfLines={1}>
+        <AppText variant={size === 'sm' ? 'label' : 'bodyStrong'} style={{ color: p.fg, flexShrink: 1 }} numberOfLines={1}>
           {label}
         </AppText>
       </View>

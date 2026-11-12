@@ -1336,8 +1336,8 @@ export function FlowchartCanvas({
           className="absolute left-3 right-3 flex-row items-center justify-between bg-white rounded-xl border border-neutral-200 px-3.5 py-3"
           style={{ bottom: zoomBottomOffset, elevation: 4, marginRight: 56 }}
         >
-          <Text className="text-xs font-semibold text-neutral-700">{milestonePickedIds.size} task{milestonePickedIds.size === 1 ? '' : 's'} picked</Text>
-          <View className="flex-row gap-2">
+          <Text className="flex-1 mr-2 text-xs font-semibold text-neutral-700" numberOfLines={1}>{milestonePickedIds.size} task{milestonePickedIds.size === 1 ? '' : 's'} picked</Text>
+          <View className="flex-row gap-2 shrink-0">
             <Pressable onPress={() => setMilestonePickedIds(new Set())} className="px-3 py-2 rounded-lg bg-neutral-100">
               <Text className="text-2xs font-semibold text-neutral-600">Clear</Text>
             </Pressable>
@@ -1357,8 +1357,8 @@ export function FlowchartCanvas({
           className="absolute left-3 right-3 flex-row items-center justify-between bg-white rounded-xl border border-neutral-200 px-3.5 py-3"
           style={{ bottom: zoomBottomOffset, elevation: 4 }}
         >
-          <Text className="text-xs font-semibold text-neutral-700">{selectedTaskIds.size} task{selectedTaskIds.size === 1 ? '' : 's'} selected</Text>
-          <View className="flex-row gap-2">
+          <Text className="flex-1 mr-2 text-xs font-semibold text-neutral-700" numberOfLines={1}>{selectedTaskIds.size} task{selectedTaskIds.size === 1 ? '' : 's'} selected</Text>
+          <View className="flex-row gap-2 shrink-0">
             <Pressable onPress={toggleSelectMode} className="px-3 py-2 rounded-lg bg-neutral-100">
               <Text className="text-2xs font-semibold text-neutral-600">Cancel</Text>
             </Pressable>

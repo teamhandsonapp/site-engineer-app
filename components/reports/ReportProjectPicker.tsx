@@ -24,10 +24,10 @@ export function ReportProjectPicker() {
         onPress={() => setOpen((v) => !v)}
         className="flex-row items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5 bg-white"
       >
-        <Text className={`text-sm ${selectedName ? 'text-neutral-900 font-medium' : 'text-black'}`}>
+        <Text className={`flex-1 mr-2 text-sm ${selectedName ? 'text-neutral-900 font-medium' : 'text-black'}`} numberOfLines={1}>
           {selectedName ?? 'Select a project'}
         </Text>
-        <Text className="text-black">{open ? '▲' : '▼'}</Text>
+        <Text className="shrink-0 text-black">{open ? '▲' : '▼'}</Text>
       </Pressable>
       {open && (
         <View className="mt-2">

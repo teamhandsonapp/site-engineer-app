@@ -440,8 +440,8 @@ function DelayByCategorySection({
   return (
     <View>
       <View className="flex-row items-center justify-between mt-1 mb-0.5">
-        <Text className="text-xs font-extrabold uppercase tracking-wide text-neutral-700">{title}</Text>
-        <Pressable onPress={onToggleSort} className="flex-row items-center gap-1 rounded-lg bg-neutral-100 px-2 py-1">
+        <Text className="flex-1 mr-2 text-xs font-extrabold uppercase tracking-wide text-neutral-700" numberOfLines={2}>{title}</Text>
+        <Pressable onPress={onToggleSort} className="flex-row items-center gap-1 rounded-lg bg-neutral-100 px-2 py-1 shrink-0">
           <Ionicons name={sortAsc ? 'arrow-up' : 'arrow-down'} size={11} color="#6B7280" />
           <Text className="text-2xs font-semibold text-neutral-500">{sortAsc ? 'Low to high' : 'High to low'}</Text>
         </Pressable>

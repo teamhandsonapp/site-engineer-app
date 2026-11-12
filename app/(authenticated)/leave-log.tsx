@@ -37,8 +37,8 @@ function LeaveLogRow({ entry }: { entry: LeaveLogEntry }) {
   return (
     <Card className="mb-2.5">
       <View className="flex-row items-center justify-between mb-1">
-        <Text className="text-sm font-bold text-neutral-900">{entry.userName ?? 'Unknown engineer'}</Text>
-        <Text className="text-xs text-neutral-400">{shortDate(entry.leftAtISO)}, {formatTime12h(new Date(entry.leftAtISO))}</Text>
+        <Text className="flex-1 mr-2 text-sm font-bold text-neutral-900" numberOfLines={1}>{entry.userName ?? 'Unknown engineer'}</Text>
+        <Text className="shrink-0 text-xs text-neutral-400">{shortDate(entry.leftAtISO)}, {formatTime12h(new Date(entry.leftAtISO))}</Text>
       </View>
       {entry.projectName && (
         <Text className="text-xs text-neutral-500 mb-1.5">{entry.projectName}</Text>

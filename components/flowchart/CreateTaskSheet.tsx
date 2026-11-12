@@ -240,12 +240,12 @@ export function CreateTaskSheet({
                 onPress={() => setTaskTypeOpen((v) => !v)}
                 className="flex-row items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5 mb-1"
               >
-                <Text className="text-sm text-neutral-900">
+                <Text className="flex-1 mr-2 text-sm text-neutral-900" numberOfLines={1}>
                   {selectedTaskType
                     ? `Type ${typeLetter(taskTypes.indexOf(selectedTaskType))} — ${selectedTaskType.defaultDurationDays} working days`
                     : 'Select a type'}
                 </Text>
-                <Text className="text-neutral-400">{taskTypeOpen ? '▲' : '▼'}</Text>
+                <Text className="shrink-0 text-neutral-400">{taskTypeOpen ? '▲' : '▼'}</Text>
               </Pressable>
               {taskTypeOpen && (
                 <View className="mb-3 border border-neutral-100 rounded-lg overflow-hidden">
@@ -343,8 +343,8 @@ export function CreateTaskSheet({
                 onPress={() => setLinkTypeOpen((v) => !v)}
                 className="flex-row items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5 mb-1"
               >
-                <Text className="text-sm text-neutral-900">{linkType ? LINK_TYPE_LABEL[linkType] : 'Select relationship type'}</Text>
-                <Text className="text-neutral-400">{linkTypeOpen ? '▲' : '▼'}</Text>
+                <Text className="flex-1 mr-2 text-sm text-neutral-900" numberOfLines={1}>{linkType ? LINK_TYPE_LABEL[linkType] : 'Select relationship type'}</Text>
+                <Text className="shrink-0 text-neutral-400">{linkTypeOpen ? '▲' : '▼'}</Text>
               </Pressable>
               {linkTypeOpen && (
                 <View className="mb-3">

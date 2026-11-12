@@ -107,7 +107,7 @@ export function ComposeCriticalAlertModal({
                         onPress={() => setSelectedEngineerId(eng.id)}
                         className={`flex-row items-center justify-between px-3 py-2.5 rounded-lg mb-1 ${active ? 'bg-neutral-100' : ''}`}
                       >
-                        <Text className="text-sm font-medium text-neutral-800">{eng.fullName}</Text>
+                        <Text className="flex-1 mr-2 text-sm font-medium text-neutral-800" numberOfLines={1}>{eng.fullName}</Text>
                         {active && <Ionicons name="checkmark-circle" size={16} color="#0F1F33" />}
                       </Pressable>
                     );

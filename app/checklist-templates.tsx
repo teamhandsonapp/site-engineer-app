@@ -16,13 +16,13 @@ function TypeCard({ label, sublabel, color, count, onPress }: { label: string; s
   return (
     <Pressable onPress={onPress}>
       <Card className="mb-3 flex-row items-center justify-between">
-        <View className="flex-row items-center gap-3">
-          <View className="w-10 h-10 rounded-xl items-center justify-center" style={{ backgroundColor: `${color}22` }}>
+        <View className="flex-1 flex-row items-center gap-3 mr-2">
+          <View className="w-10 h-10 rounded-xl items-center justify-center shrink-0" style={{ backgroundColor: `${color}22` }}>
             <Ionicons name="list-outline" size={18} color={color} />
           </View>
-          <View>
-            <Text className="text-sm font-bold text-neutral-900">{label}</Text>
-            <Text className="text-xs text-neutral-400 mt-0.5">
+          <View className="flex-1">
+            <Text className="text-sm font-bold text-neutral-900" numberOfLines={1}>{label}</Text>
+            <Text className="text-xs text-neutral-400 mt-0.5" numberOfLines={2}>
               {count == null ? sublabel : `${count} task${count === 1 ? '' : 's'} classified this way`}
             </Text>
           </View>

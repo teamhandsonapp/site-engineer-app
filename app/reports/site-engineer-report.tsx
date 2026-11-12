@@ -98,8 +98,8 @@ function LeaveEventRow({ entry }: { entry: LeaveLogEntry }) {
   return (
     <Card className="mb-2.5">
       <View className="flex-row items-center justify-between mb-1">
-        <Text className="text-sm font-bold text-neutral-900">{leaveReasonLabelFor(entry.reasonPreset, null)}</Text>
-        <Text className="text-2xs text-neutral-400">{formatIstDayLabel(d)} · {formatTime12h(d)}</Text>
+        <Text className="flex-1 mr-2 text-sm font-bold text-neutral-900" numberOfLines={1}>{leaveReasonLabelFor(entry.reasonPreset, null)}</Text>
+        <Text className="shrink-0 text-2xs text-neutral-400">{formatIstDayLabel(d)} · {formatTime12h(d)}</Text>
       </View>
       {entry.reasonNote && <Text className="text-xs text-neutral-500 italic">&quot;{entry.reasonNote}&quot;</Text>}
     </Card>
@@ -669,10 +669,10 @@ export default function SiteEngineerReportScreen() {
                 onPress={() => setPickerOpen((v) => !v)}
                 className="flex-row items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5 bg-white"
               >
-                <Text className={`text-sm ${selectedEngineer ? 'text-neutral-900 font-medium' : 'text-neutral-400'}`}>
+                <Text className={`flex-1 mr-2 text-sm ${selectedEngineer ? 'text-neutral-900 font-medium' : 'text-neutral-400'}`} numberOfLines={1}>
                   {selectedEngineer ? `${selectedEngineer.fullName} · ${roleLabel(selectedEngineer.role as UserRole)}` : 'Select a site engineer'}
                 </Text>
-                <Text className="text-neutral-400">{pickerOpen ? '▲' : '▼'}</Text>
+                <Text className="shrink-0 text-neutral-400">{pickerOpen ? '▲' : '▼'}</Text>
               </Pressable>
               {pickerOpen && (
                 <View className="mt-2">

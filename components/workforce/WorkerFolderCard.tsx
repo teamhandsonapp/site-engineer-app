@@ -35,8 +35,8 @@ function MemberRow({
     <View className="flex-row items-center gap-2 py-2.5 border-t border-neutral-100">
       <View className="flex-1">
         <View className="flex-row items-center gap-1.5">
-          <Text className="text-sm font-semibold text-neutral-800" numberOfLines={1}>{member.name}</Text>
-          <View className={`px-1.5 py-0.5 rounded ${member.role === 'manager' ? 'bg-brand-amber/20' : 'bg-neutral-100'}`}>
+          <Text className="shrink text-sm font-semibold text-neutral-800" numberOfLines={1}>{member.name}</Text>
+          <View className={`px-1.5 py-0.5 rounded shrink-0 ${member.role === 'manager' ? 'bg-brand-amber/20' : 'bg-neutral-100'}`}>
             <Text className={`text-2xs font-bold ${member.role === 'manager' ? 'text-brand-navy' : 'text-neutral-500'}`}>{ROLE_LABEL[member.role]}</Text>
           </View>
         </View>

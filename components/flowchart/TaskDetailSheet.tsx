@@ -80,8 +80,8 @@ function DropdownPicker<T extends string>({
         onPress={() => editable && setOpen((v) => !v)}
         className="flex-row items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5"
       >
-        <Text className="text-sm text-neutral-900">{valueLabel}</Text>
-        {editable && <Text className="text-neutral-400">{open ? '▲' : '▼'}</Text>}
+        <Text className="flex-1 mr-2 text-sm text-neutral-900" numberOfLines={1}>{valueLabel}</Text>
+        {editable && <Text className="shrink-0 text-neutral-400">{open ? '▲' : '▼'}</Text>}
       </Pressable>
       {editable && open && (
         <View className="mt-1 border border-neutral-100 rounded-lg overflow-hidden">

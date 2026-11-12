@@ -35,11 +35,11 @@ function ProjectPickRow({ name, onPress }: { name: string; onPress: () => void }
   return (
     <Pressable onPress={onPress}>
       <Card className="mb-2.5 flex-row items-center justify-between">
-        <View className="flex-row items-center gap-3">
-          <View className="w-9 h-9 rounded-xl items-center justify-center bg-brand-navy/10">
+        <View className="flex-1 flex-row items-center gap-3 mr-2">
+          <View className="w-9 h-9 rounded-xl items-center justify-center bg-brand-navy/10 shrink-0">
             <Ionicons name="briefcase-outline" size={16} color="#0F1F33" />
           </View>
-          <Text className="text-sm font-bold text-neutral-900">{name}</Text>
+          <Text className="flex-1 text-sm font-bold text-neutral-900" numberOfLines={1}>{name}</Text>
         </View>
         <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
       </Card>

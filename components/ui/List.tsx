@@ -91,7 +91,7 @@ export function ListRow({
         ) : null}
       </View>
       {value != null && (
-        <AppText variant="section" style={{ fontVariant: ['tabular-nums'] }}>
+        <AppText variant="section" numberOfLines={1} style={{ fontVariant: ['tabular-nums'], flexShrink: 1, maxWidth: '50%' }}>
           {value}
         </AppText>
       )}

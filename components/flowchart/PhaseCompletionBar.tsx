@@ -33,11 +33,11 @@ export function PhaseCompletionBar({
       {phases.map((phase) => (
         <View
           key={phase.label}
-          className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-lg border"
+          className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-lg border max-w-full"
           style={{ borderColor: '#FECACA', backgroundColor: '#FEF2F2' }}
         >
-          <Ionicons name="warning-outline" size={13} color="#B91C1C" />
-          <Text className="text-xs font-semibold" style={{ color: '#B91C1C' }}>
+          <Ionicons name="warning-outline" size={13} color="#B91C1C" style={{ flexShrink: 0 }} />
+          <Text className="shrink text-xs font-semibold" style={{ color: '#B91C1C' }}>
             Expected {phase.label} completion: {formatCardDate(phase.projectedCompletion)}
           </Text>
         </View>

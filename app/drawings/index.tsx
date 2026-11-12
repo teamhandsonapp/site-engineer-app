@@ -180,7 +180,7 @@ export default function DrawingsScreen() {
                           {isBase ? <Text className="text-2xs font-semibold uppercase tracking-wide text-neutral-400 pt-1">Base plan</Text> : null}
                         </View>
                         <View className="flex-row items-center justify-between mt-2">
-                          <Text className="text-xs text-neutral-500">
+                          <Text className="flex-1 mr-2 text-xs text-neutral-500" numberOfLines={1}>
                             {item.latestRevision === null ? <Text className="text-neutral-400">No PDF yet</Text> : `${revLabel(item.latestRevision)} · ${formatDate(item.latestUploadedAt!)}`}
                             {item.tagCount ? ` · ${item.tagCount} tag${item.tagCount === 1 ? '' : 's'}` : ''}
                           </Text>

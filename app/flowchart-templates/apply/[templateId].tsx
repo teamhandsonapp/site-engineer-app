@@ -219,8 +219,8 @@ export default function ApplyFlowchartTemplateScreen() {
                 onPress={() => setProjectPickerOpen((v) => !v)}
                 className="flex-row items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5 mb-1 bg-white"
               >
-                <Text className="text-sm text-neutral-900">{targetProjectName ?? 'Select a project'}</Text>
-                <Text className="text-neutral-400">{projectPickerOpen ? '▲' : '▼'}</Text>
+                <Text className="flex-1 mr-2 text-sm text-neutral-900" numberOfLines={1}>{targetProjectName ?? 'Select a project'}</Text>
+                <Text className="shrink-0 text-neutral-400">{projectPickerOpen ? '▲' : '▼'}</Text>
               </Pressable>
               {projectPickerOpen && (
                 <View className="mb-3">
@@ -308,10 +308,10 @@ export default function ApplyFlowchartTemplateScreen() {
                               onPress={() => setWorkPickerOpenFor((v) => (v === m.workName ? null : m.workName))}
                               className="flex-row items-center justify-between border border-neutral-200 rounded-lg px-3 py-2 bg-white"
                             >
-                              <Text className="text-xs text-neutral-800">
+                              <Text className="flex-1 mr-2 text-xs text-neutral-800" numberOfLines={1}>
                                 {projectWorks.find((w) => w.id === workExistingChoice[m.workName])?.name ?? 'Select a Work'}
                               </Text>
-                              <Text className="text-neutral-400">{workPickerOpenFor === m.workName ? '▲' : '▼'}</Text>
+                              <Text className="shrink-0 text-neutral-400">{workPickerOpenFor === m.workName ? '▲' : '▼'}</Text>
                             </Pressable>
                             {workPickerOpenFor === m.workName && (
                               <View className="mt-1">

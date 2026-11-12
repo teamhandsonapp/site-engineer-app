@@ -123,10 +123,10 @@ export function ApprovalHistoryDrawer({
                       </View>
                       <View className="flex-1">
                         <View className="flex-row items-center gap-1.5">
-                          <View className="px-1.5 py-0.5 rounded-full" style={{ backgroundColor: style.bg }}>
+                          <View className="px-1.5 py-0.5 rounded-full shrink-0" style={{ backgroundColor: style.bg }}>
                             <Text className="text-2xs font-bold" style={{ color: style.text }}>{style.label}</Text>
                           </View>
-                          <Text className="text-2xs text-neutral-400">
+                          <Text className="shrink text-2xs text-neutral-400" numberOfLines={1}>
                             {r.recorderName ?? 'Unknown'} · {formatDate(r.recordedAtISO)}
                           </Text>
                         </View>

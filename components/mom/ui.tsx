@@ -15,8 +15,8 @@ export const AMBER = '#F0A227';
 export function SectionTitle({ children, right }: { children: ReactNode; right?: ReactNode }) {
   return (
     <View className="flex-row items-center justify-between mt-1 mb-2">
-      <Text className="text-xs font-bold uppercase tracking-wider text-neutral-500">{children}</Text>
-      {right}
+      <Text className="flex-1 text-xs font-bold uppercase tracking-wider text-neutral-500 mr-2" numberOfLines={2}>{children}</Text>
+      {right ? <View className="shrink-0">{right}</View> : null}
     </View>
   );
 }
@@ -52,7 +52,7 @@ export function Button({
       style={{ minHeight: small ? 36 : 44, backgroundColor: styles.bg, borderWidth: 1, borderColor: styles.border, opacity: off ? 0.5 : 1 }}
     >
       {busy ? <ActivityIndicator size="small" color={styles.fg} /> : icon ? <Ionicons name={icon} size={small ? 15 : 17} color={styles.fg} /> : null}
-      <Text className={`${small ? 'text-xs' : 'text-sm'} font-bold`} style={{ color: styles.fg }}>
+      <Text className={`${small ? 'text-xs' : 'text-sm'} font-bold`} style={{ color: styles.fg, flexShrink: 1 }} numberOfLines={1}>
         {label}
       </Text>
     </Pressable>

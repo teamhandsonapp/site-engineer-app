@@ -84,10 +84,10 @@ export function GanttDetailSheet({
               <Text className="text-md font-bold text-neutral-900">{task.taskName}</Text>
 
               <View className="flex-row items-center gap-1.5 mt-2">
-                <View className="w-2 h-2 rounded-full" style={{ backgroundColor: task.workColor }} />
-                <Text className="text-xs text-neutral-600">{task.workName}</Text>
+                <View className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: task.workColor }} />
+                <Text className="shrink text-xs text-neutral-600" numberOfLines={1}>{task.workName}</Text>
                 <Text className="text-xs text-neutral-300">·</Text>
-                <Text className="text-xs text-neutral-600">{statusLabel}</Text>
+                <Text className="shrink-0 text-xs text-neutral-600">{statusLabel}</Text>
               </View>
 
               <View className="flex-row gap-2 mt-3">

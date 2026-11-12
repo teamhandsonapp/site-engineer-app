@@ -366,7 +366,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
                         style={{ minHeight: 36, paddingLeft: 30, backgroundColor: active ? 'rgba(240,162,39,0.14)' : 'transparent' }}
                       >
                         <Text style={{ color: 'rgba(255,255,255,0.35)' }}>—</Text>
-                        <Text className="text-sm font-medium" style={{ color: active ? '#F0A227' : 'rgba(255,255,255,0.65)' }}>
+                        <Text className="flex-1 text-sm font-medium" numberOfLines={1} style={{ color: active ? '#F0A227' : 'rgba(255,255,255,0.65)' }}>
                           {child.label}
                         </Text>
                       </Pressable>
@@ -387,7 +387,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
                     style={{ minHeight: 44, backgroundColor: 'transparent' }}
                   >
                     <Ionicons name="albums-outline" size={18} color="rgba(255,255,255,0.55)" />
-                    <Text className="text-base font-medium" style={{ color: 'rgba(255,255,255,0.8)' }}>
+                    <Text className="flex-1 text-base font-medium" numberOfLines={1} style={{ color: 'rgba(255,255,255,0.8)' }}>
                       Template Kit
                     </Text>
                   </Pressable>
@@ -507,7 +507,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
                   style={{ minHeight: 36, paddingLeft: 30 }}
                 >
                   <Text style={{ color: 'rgba(255,255,255,0.35)' }}>—</Text>
-                  <Text className="text-sm font-medium" style={{ color: 'rgba(255,255,255,0.65)' }}>
+                  <Text className="flex-1 text-sm font-medium" numberOfLines={1} style={{ color: 'rgba(255,255,255,0.65)' }}>
                     {item.label}
                   </Text>
                 </Pressable>

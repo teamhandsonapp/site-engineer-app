@@ -19,8 +19,8 @@ function CompletedTaskRow({ task }: { task: DprTask }) {
     <View className="py-2.5 border-b border-neutral-100">
       <Text className="text-xs font-semibold text-neutral-800">{task.taskName}</Text>
       <View className="flex-row items-center justify-between mt-0.5">
-        <Text className="text-2xs text-neutral-400">{task.workName}</Text>
-        <Text className="text-2xs font-semibold text-green-700">Completed {task.plannedEndDate}</Text>
+        <Text className="flex-1 mr-2 text-2xs text-neutral-400" numberOfLines={1}>{task.workName}</Text>
+        <Text className="shrink-0 text-2xs font-semibold text-green-700">Completed {task.plannedEndDate}</Text>
       </View>
     </View>
   );
