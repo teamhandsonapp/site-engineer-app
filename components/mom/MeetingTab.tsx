@@ -25,7 +25,9 @@ import {
 } from '../../lib/mom/share';
 import { todayIST } from '../../lib/mom/taskData';
 import type { AttendanceMark, Meeting, MomProjectData, Recipient, SendChannel } from '../../lib/mom/types';
+import { sendMeetingWhatsAppTest, WA_TEST_ENABLED, type WaSendSummary } from '../../lib/mom/whatsappTest';
 import { MeetingRecorder } from './MeetingRecorder';
+import { WhatsAppTestSummary } from './WhatsAppTestSummary';
 import { RecipientPicker } from './RecipientPicker';
 import { SendPanel } from './SendPanel';
 import { Banner, Button, Chip, Field, NAVY, Row, SectionTitle, TimeField } from './ui';
@@ -60,6 +62,8 @@ export function MeetingTab({
   const [view, setView] = useState<{ kind: 'list' } | { kind: 'form'; editing: Meeting | null } | { kind: 'detail'; id: string }>({ kind: 'list' });
   const [banner, setBanner] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // DEV TEST (EXPO_PUBLIC_WA_TEST): result of the background WhatsApp send for a just-created meeting.
+  const [waSummary, setWaSummary] = useState<{ meetingId: string; value: WaSendSummary | 'sending' } | null>(null);
   // Re-sorted into Upcoming / Past once a minute, not on every render.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -85,6 +89,12 @@ export function MeetingTab({
           }));
           setBanner(view.editing ? 'Meeting updated.' : 'Meeting created. Next: send the invites and add it to Google Calendar.');
           setView({ kind: 'detail', id: m.id });
+          // DEV TEST: WhatsApp invites via the Meta test number, in the background —
+          // the meeting is already saved; this never blocks or fails the save.
+          if (WA_TEST_ENABLED && !view.editing && m.invitees.length > 0) {
+            setWaSummary({ meetingId: m.id, value: 'sending' });
+            void sendMeetingWhatsAppTest(m, projectName).then((value) => setWaSummary({ meetingId: m.id, value }));
+          }
         }}
         me={me}
       />
@@ -102,6 +112,8 @@ export function MeetingTab({
       );
     }
     return (
+      <View>
+      {waSummary && waSummary.meetingId === m.id ? <WhatsAppTestSummary summary={waSummary.value} onClose={() => setWaSummary(null)} /> : null}
       <MeetingDetail
         meeting={m}
         projectName={projectName}
@@ -133,6 +145,7 @@ export function MeetingTab({
         saveError={saveError}
         clearSaveError={() => setSaveError(null)}
       />
+      </View>
     );
   }
 
