@@ -303,7 +303,7 @@ export function DrawingDetail({
         <View style={{ backgroundColor: colors.bg, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: space.lg, width: '100%', maxWidth: 720, alignSelf: 'center' }}>
           <Text className="text-base font-bold text-neutral-900 mb-3">Edit drawing</Text>
           <SectionLabel title="Where?" hint="Optional" />
-          <LocationChips projectId={projectId} userId={userId} locations={locations} value={draftLoc} onChange={setDraftLoc} onLocationAdded={onLocationAdded} />
+          <LocationChips projectId={projectId} userId={userId} locations={locations} value={draftLoc} onChange={setDraftLoc} onLocationAdded={onLocationAdded} canAdd={false} />
           <View className="mt-3">
             <SectionLabel title="Department" />
             <DepartmentTiles departments={departments} value={draftDept} onChange={setDraftDept} />

@@ -233,7 +233,7 @@ export function DrawingUploadSheet({
 
         {/* 2. Where? */}
         <View className="mb-4">
-          <SectionLabel title="2. Where?" hint="Optional — stop at floor, room or wall" />
+          <SectionLabel title="2. Where?" hint="Optional — pick the folder: floor, then room, then wall (stop at any level)" />
           <LocationChips
             projectId={projectId}
             userId={userId}
@@ -242,6 +242,7 @@ export function DrawingUploadSheet({
             onChange={setLocationId}
             onLocationAdded={onLocationAdded}
             recentIds={recentIds}
+            canAdd={false}
           />
         </View>
 

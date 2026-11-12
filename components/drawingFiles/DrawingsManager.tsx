@@ -382,7 +382,7 @@ export function DrawingsManager({
                   <FloorFolderRow name="No floor set" count={unplacedCount} icon="help-circle-outline" onPress={() => setLocId(NO_FLOOR)} />
                 ) : null}
                 {!locId && locations.length === 0 ? (
-                  <Text className="text-xs text-neutral-500 mb-3">No floors yet — add them while uploading (Where? › + Add).</Text>
+                  <Text className="text-xs text-neutral-500 mb-3">No floor folders yet — they appear automatically when tasks are given a Floor Level and Room Type.</Text>
                 ) : null}
                 {locId && shown.length > 0 ? (
                   <Text className="text-2xs font-semibold text-neutral-500 mt-2 mb-2">
