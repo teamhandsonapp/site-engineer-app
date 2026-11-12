@@ -343,8 +343,8 @@ export default function DailyUpdatesLandingScreen() {
                             className="flex-1 flex-row items-center justify-center gap-1 py-2"
                             style={{ borderBottomWidth: 2, borderBottomColor: active ? '#0F1F33' : 'transparent' }}
                           >
-                            <Text className={`text-xs font-bold ${active ? 'text-neutral-900' : 'text-neutral-400'}`}>{s.label}</Text>
-                            <Text className={`text-2xs font-bold ${active ? 'text-neutral-900' : 'text-neutral-400'}`}>({statusCounts[s.key]})</Text>
+                            <Text numberOfLines={1} className={`shrink text-xs font-bold ${active ? 'text-neutral-900' : 'text-neutral-400'}`}>{s.label}</Text>
+                            <Text className={`shrink-0 text-2xs font-bold ${active ? 'text-neutral-900' : 'text-neutral-400'}`}>({statusCounts[s.key]})</Text>
                           </Pressable>
                         );
                       })}

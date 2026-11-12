@@ -53,7 +53,7 @@ export function CustomAlertsTab({
 
   return (
     <View>
-      <View className="flex-row gap-2 mb-3">
+      <View className="flex-row flex-wrap gap-2 mb-3">
         <Chip label="Department alert" active={section === 'alert'} onPress={() => setSection('alert')} />
         <Chip label="Pending / upcoming tasks" active={section === 'tasks'} onPress={() => setSection('tasks')} />
       </View>

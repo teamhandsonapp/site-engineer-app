@@ -102,7 +102,9 @@ export default function GanttScreen() {
   return (
     <View className="flex-1 bg-white">
       <View className="border-b border-neutral-100 px-4 pt-3 pb-2.5 gap-2.5">
-        <View className="flex-row items-center justify-between">
+        {/* Wraps: the legend drops under the zoom chips when the row doesn't
+            fit (phones), and stays on one line on wider screens. */}
+        <View className="flex-row flex-wrap items-center justify-between gap-y-2 gap-x-3">
           <View className="flex-row gap-1.5">
             {ZOOM_LEVELS.map((level) => {
               const active = level === zoom;
@@ -117,7 +119,7 @@ export default function GanttScreen() {
               );
             })}
           </View>
-          <View className="flex-row gap-2.5">
+          <View className="flex-row flex-wrap gap-2.5">
             <View className="flex-row items-center gap-1">
               <View className="w-2.5 h-2 rounded-sm" style={{ backgroundColor: '#9CA3AF99' }} />
               <Text className="text-2xs text-neutral-400">Planned</Text>

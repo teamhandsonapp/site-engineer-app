@@ -24,7 +24,7 @@ export function RouteErrorBoundary({ error, retry }: ErrorBoundaryProps) {
       <Text className="text-sm text-neutral-500 text-center leading-5 mb-5">
         Something went wrong on this screen. The rest of the app still works — try again, or go back to Home.
       </Text>
-      <View className="flex-row gap-3">
+      <View className="flex-row flex-wrap justify-center gap-3">
         <Pressable onPress={() => retry()} className="px-5 rounded-xl bg-brand-navy justify-center" style={{ minHeight: 44 }}>
           <Text className="text-sm font-semibold text-white">Try Again</Text>
         </Pressable>

@@ -259,7 +259,7 @@ function FlowchartScreenContent() {
       )}
 
       <View
-        className="flex-row items-center justify-end gap-1.5 px-4 pt-2 pb-1"
+        className="flex-row flex-wrap items-center justify-end gap-1.5 px-4 pt-2 pb-1"
         style={{ backgroundColor: CANVAS_THEMES[canvasTheme].bg }}
       >
         <Ionicons name="eye-off-outline" size={13} color={isDark ? '#A3A3A3' : '#6B7280'} />
@@ -367,7 +367,7 @@ function FlowchartScreenContent() {
           <PhaseCompletionBar tasks={data.tasks} seriesEdges={data.seriesEdges} theme={canvasTheme} />
 
           <View
-            className="flex-row items-center justify-between px-4 py-2 border-b"
+            className="flex-row flex-wrap items-center justify-between gap-y-2 px-4 py-2 border-b"
             style={{ backgroundColor: CANVAS_THEMES[canvasTheme].bg, borderColor: isDark ? '#242424' : '#F5F5F5' }}
           >
             <View className="flex-row items-center gap-2">
@@ -398,7 +398,7 @@ function FlowchartScreenContent() {
             </View>
 
             {hasActiveFilter && (
-              <View className="flex-row items-center gap-1.5">
+              <View className="flex-row items-center gap-1.5 ml-auto">
                 <View className="flex-row rounded-lg bg-neutral-100 p-0.5">
                   <Pressable
                     onPress={() => setViewMode('flowchart')}

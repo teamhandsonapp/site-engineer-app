@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, LayoutChangeEvent, PixelRatio, Pressable, View } from 'react-native';
+import { ActivityIndicator, LayoutChangeEvent, PixelRatio, Pressable, useWindowDimensions, View } from 'react-native';
 import { Text } from '../ui/AppText';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
@@ -64,6 +64,8 @@ export function TemplateCanvas({
   // See FlowchartCanvas's identical safeLayout for why PixelRatio.get() is
   // read directly here rather than via ref/state (clampToSafeBitmapBudget's
   // own comment in lib/flowchart/layout.ts has the full crash context).
+  // Narrow phones: icon-only Lock / Upload Sheet so the top row clears the theme pill (batch 4).
+  const { width: screenWidth } = useWindowDimensions();
   const safeLayout = useCallback(
     <T,>(raw: (T & { manualPositionX: number | null; manualPositionY: number | null; id: string })[]) =>
       clampToSafeBitmapBudget(layoutGeneric(raw), PixelRatio.get()),
@@ -644,13 +646,17 @@ export function TemplateCanvas({
             setPendingSourceId(null);
             setLinkPromptTargetId(null);
           }}
+          accessibilityRole="button"
+          accessibilityLabel={isUnlocked ? 'Editing — tap to lock' : 'Locked — tap to edit'}
           className="flex-row items-center gap-1.5 bg-white rounded-xl border border-neutral-200 px-3 py-2.5"
           style={{ elevation: 3 }}
         >
           <Ionicons name={isUnlocked ? 'lock-open-outline' : 'lock-closed-outline'} size={16} color={isUnlocked ? '#F0A227' : '#0F1F33'} />
-          <Text className={`text-2xs font-bold ${isUnlocked ? 'text-brand-amber' : 'text-brand-navy'}`}>
-            {isUnlocked ? 'Editing' : 'Locked'}
-          </Text>
+          {screenWidth >= 360 ? (
+            <Text className={`text-2xs font-bold ${isUnlocked ? 'text-brand-amber' : 'text-brand-navy'}`}>
+              {isUnlocked ? 'Editing' : 'Locked'}
+            </Text>
+          ) : null}
         </Pressable>
 
         {editable && (
@@ -673,12 +679,14 @@ export function TemplateCanvas({
             </Pressable>
             <Pressable
               onPress={handlePickSheet}
+              accessibilityRole="button"
+              accessibilityLabel="Upload Sheet"
               disabled={sheetPicking}
               className="flex-row items-center gap-1.5 bg-white rounded-xl border border-neutral-200 px-3 py-2.5"
               style={{ elevation: 3, opacity: sheetPicking ? 0.6 : 1 }}
             >
               {sheetPicking ? <ActivityIndicator size="small" color="#0F1F33" /> : <Ionicons name="cloud-upload-outline" size={16} color="#0F1F33" />}
-              <Text className="text-2xs font-bold text-brand-navy">Upload Sheet</Text>
+              {screenWidth >= 390 ? <Text className="text-2xs font-bold text-brand-navy">Upload Sheet</Text> : null}
             </Pressable>
           </>
         )}

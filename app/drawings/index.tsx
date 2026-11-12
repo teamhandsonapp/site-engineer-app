@@ -158,7 +158,7 @@ export default function DrawingsScreen() {
             {current ? (
               <View className="px-4 pt-3">
                 {current.base ? (
-                  <View className="flex-row gap-2 mb-3">
+                  <View className="flex-row flex-wrap gap-2 mb-3">
                     <Button label="Open floor plan" icon="map-outline" size="sm" onPress={() => open(current.base!.id)} />
                     {canEdit ? <Button label="Add department drawing" icon="add" size="sm" variant="secondary" onPress={() => setFormFor(current.base!.id)} /> : null}
                   </View>

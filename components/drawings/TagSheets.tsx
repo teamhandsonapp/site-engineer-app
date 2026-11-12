@@ -300,10 +300,10 @@ export function TagDetailSheet({
       {overlayStale ? <Text className="mt-3 text-xs text-red-700 bg-red-50 rounded-lg px-2.5 py-2">{overlayStale}</Text> : null}
       {error ? <Text className="mt-3 text-xs text-red-700 bg-red-50 rounded-lg px-2.5 py-2">{error}</Text> : null}
 
-      <View className="flex-row items-center justify-between mt-4">
-        <Text className="text-sm font-bold text-neutral-900">Site photos ({tag.photos.length})</Text>
+      <View className="flex-row flex-wrap items-center justify-between gap-y-2 mt-4">
+        <Text className="text-sm font-bold text-neutral-900 mr-2">Site photos ({tag.photos.length})</Text>
         {canTag ? (
-          <View className="flex-row gap-1.5">
+          <View className="flex-row gap-1.5 ml-auto">
             {Platform.OS !== 'web' ? <Button label="Camera" icon="camera-outline" size="sm" variant="secondary" onPress={() => addPhotos(true)} disabled={!!busy} /> : null}
             <Button label="+ Add photos" size="sm" variant="secondary" onPress={() => addPhotos(false)} disabled={!!busy} />
           </View>

@@ -92,7 +92,7 @@ export function ReportsTab({ projectId, projectName, data, update }: { projectId
 
   return (
     <View>
-      <View className="flex-row gap-2 mb-3">
+      <View className="flex-row flex-wrap gap-2 mb-3">
         <Chip label="Automated" active={section === 'automated'} onPress={() => setSection('automated')} />
         <Chip label="Send manually" active={section === 'manual'} onPress={() => setSection('manual')} />
         <Chip label={`History (${data.history.length})`} active={section === 'history'} onPress={() => setSection('history')} />

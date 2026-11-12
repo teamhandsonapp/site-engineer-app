@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, LayoutChangeEvent, PixelRatio, Pressable, ScrollView, View } from 'react-native';
+import { Alert, LayoutChangeEvent, PixelRatio, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import { Text, TextInput } from '../ui/AppText';
 import { FormModal } from '../ui/FormModal';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -990,6 +990,12 @@ export function FlowchartCanvas({
   // the zoom controls always just clear the safe-area/gesture-bar offset
   // now, editable or not.
   const zoomBottomOffset = useSafeBottomOffset(4);
+  // A bottom action bar (focused milestone / milestone picks / multi-select)
+  // spans the full width at the bottom; while one is showing, the left
+  // search stack and right zoom stack move up above it instead of being
+  // covered by it (2026-11-12, responsiveness batch 4).
+  const BOTTOM_BAR_LIFT = 60;
+  const { width: screenWidth } = useWindowDimensions();
 
   // Explicit +/- controls alongside pinch-to-zoom — pinch alone isn't
   // discoverable (a user has no visual cue it's even possible), and a real
@@ -1109,6 +1115,7 @@ export function FlowchartCanvas({
   }));
 
   const focusedMilestone = focusedMilestoneId ? milestoneById.get(focusedMilestoneId) ?? null : null;
+  const bottomBarShowing = !!focusedMilestone || (milestoneMode && milestonePickedIds.size > 0) || (selectMode && selectedTaskIds.size > 0);
   const focusedMilestoneTaskCount = focusedMilestoneId ? tasks.filter((t) => t.milestoneId === focusedMilestoneId).length : 0;
   // EdgeLayer already drops any edge whose endpoint isn't in the list it's
   // given, so filtering the task list alone also hides every edge leading
@@ -1180,13 +1187,17 @@ export function FlowchartCanvas({
               setPendingSourceId(null);
               setLinkPromptTargetId(null);
             }}
+            accessibilityRole="button"
+            accessibilityLabel={isUnlocked ? 'Editing — tap to lock' : 'Locked — tap to edit'}
             className="flex-row items-center gap-1.5 bg-white rounded-xl border border-neutral-200 px-3 py-2.5"
             style={{ elevation: 3 }}
           >
             <Ionicons name={isUnlocked ? 'lock-open-outline' : 'lock-closed-outline'} size={16} color={isUnlocked ? '#F0A227' : '#0F1F33'} />
-            <Text className={`text-2xs font-bold ${isUnlocked ? 'text-brand-amber' : 'text-brand-navy'}`}>
-              {isUnlocked ? 'Editing' : 'Locked'}
-            </Text>
+            {screenWidth >= 360 ? (
+              <Text className={`text-2xs font-bold ${isUnlocked ? 'text-brand-amber' : 'text-brand-navy'}`}>
+                {isUnlocked ? 'Editing' : 'Locked'}
+              </Text>
+            ) : null}
           </Pressable>
 
           {editable && (
@@ -1320,7 +1331,7 @@ export function FlowchartCanvas({
       {focusedMilestone && (
         <View
           className="absolute left-3 right-3 flex-row items-center justify-between rounded-xl px-3.5 py-3"
-          style={{ bottom: zoomBottomOffset, elevation: 4, backgroundColor: focusedMilestone.color, marginRight: 56 }}
+          style={{ bottom: zoomBottomOffset, elevation: 4, backgroundColor: focusedMilestone.color }}
         >
           <Text className="text-xs font-bold text-white flex-1" numberOfLines={1}>
             {focusedMilestone.name.toUpperCase()} · {focusedMilestoneTaskCount} task{focusedMilestoneTaskCount === 1 ? '' : 's'}
@@ -1334,7 +1345,7 @@ export function FlowchartCanvas({
       {milestoneMode && milestonePickedIds.size > 0 && (
         <View
           className="absolute left-3 right-3 flex-row items-center justify-between bg-white rounded-xl border border-neutral-200 px-3.5 py-3"
-          style={{ bottom: zoomBottomOffset, elevation: 4, marginRight: 56 }}
+          style={{ bottom: zoomBottomOffset, elevation: 4 }}
         >
           <Text className="flex-1 mr-2 text-xs font-semibold text-neutral-700" numberOfLines={1}>{milestonePickedIds.size} task{milestonePickedIds.size === 1 ? '' : 's'} picked</Text>
           <View className="flex-row gap-2 shrink-0">
@@ -1433,7 +1444,7 @@ export function FlowchartCanvas({
           Scroll-to-top/bottom join the same stack, above zoom — a 300+
           task project has no quick way to reach either end of the graph
           without a marathon manual pan, by explicit request. */}
-      <View className="absolute right-3 items-center gap-1.5" style={{ bottom: zoomBottomOffset }}>
+      <View className="absolute right-3 items-center gap-1.5" style={{ bottom: zoomBottomOffset + (bottomBarShowing ? BOTTOM_BAR_LIFT : 0) }}>
         <Pressable
           onPress={() => scrollToEdge('top')}
           className="w-10 h-10 rounded-full bg-white border border-neutral-200 items-center justify-center"
@@ -1468,7 +1479,7 @@ export function FlowchartCanvas({
           side counterpart to the right-side zoom/scroll stack, by explicit
           request. Left side was empty before this; nothing existing to
           crowd. */}
-      <View className="absolute left-3 items-start gap-1.5" style={{ bottom: zoomBottomOffset }}>
+      <View className="absolute left-3 items-start gap-1.5" style={{ bottom: zoomBottomOffset + (bottomBarShowing ? BOTTOM_BAR_LIFT : 0) }}>
         <Pressable
           onPress={() => setSearchOpen(true)}
           className="w-10 h-10 rounded-full bg-white border border-neutral-200 items-center justify-center"

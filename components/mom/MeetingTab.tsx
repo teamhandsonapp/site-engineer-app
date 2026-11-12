@@ -610,7 +610,7 @@ function AgendaSection({
 
   return (
     <View>
-      <View className="flex-row gap-2 mb-3">
+      <View className="flex-row flex-wrap gap-2 mb-3">
         <Chip label={`1. Collect points (${received}/${people.length})`} active={step === 'collect'} onPress={() => setStep('collect')} />
         <Chip label={`2. Final agenda (${m.finalAgenda.length})`} active={step === 'final'} onPress={() => setStep('final')} />
       </View>

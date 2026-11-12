@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { Text } from '../ui/AppText';
 import { router } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -460,14 +460,14 @@ function DelayByCategorySection({
           showLegend={false}
           sliceLabels
         />
-        <View className="gap-2">
+        <View className="flex-1 gap-2">
           {items.map((d) => {
             const color = DEPARTMENT_COLOR[d.category] ?? DEPARTMENT_COLOR_FALLBACK;
             return (
-              <View key={d.category} className="flex-row items-center gap-2">
-                <View className="flex-row items-center gap-1.5">
-                  <View className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-                  <Text className="text-xs text-neutral-500">{d.label}</Text>
+              <View key={d.category} className="flex-row flex-wrap items-center gap-x-2">
+                <View className="flex-row items-center gap-1.5 shrink">
+                  <View className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                  <Text className="shrink text-xs text-neutral-500" numberOfLines={1}>{d.label}</Text>
                 </View>
                 <Text className="text-xs font-bold" style={{ color }}>{pendingLabel(d)} pending</Text>
               </View>
@@ -1235,7 +1235,9 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
           />
         ) : (
         <>
-        <View className="flex-row self-start rounded-lg bg-neutral-100 p-0.5 mb-3">
+        {/* Scrolls sideways when the three tabs don't fit (small phones). */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="self-start mb-3" style={{ maxWidth: '100%', flexGrow: 0 }}>
+        <View className="flex-row rounded-lg bg-neutral-100 p-0.5">
           {(['pre-construction', 'construction', 'post-construction'] as const).map((type) => {
             const active = reportType === type;
             const label = type === 'construction' ? 'Construction' : type === 'pre-construction' ? 'Pre Construction' : 'Post Construction';
@@ -1251,6 +1253,7 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
             );
           })}
         </View>
+        </ScrollView>
         {/* 2 columns, by explicit request — was one label-per-row list.
             Task Type/Procurement Lead Time stay here (moved up out from
             under "Status of the Work" a few requests ago) — that heading

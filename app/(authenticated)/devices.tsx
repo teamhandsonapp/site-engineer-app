@@ -229,7 +229,7 @@ export default function DevicesScreen() {
           />
         </View>
 
-        <View className="flex-row gap-2 mb-4">
+        <View className="flex-row flex-wrap gap-2 mb-4">
           {([['all', 'All'], ['online', 'Active now'], ['android', 'Android'], ['ios', 'iPhone']] as [Filter, string][]).map(([f, label]) => (
             <Pressable
               key={f}
