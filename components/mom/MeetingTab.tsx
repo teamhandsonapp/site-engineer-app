@@ -5,7 +5,6 @@
 // meeting from the mic, and mark attendance.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { router } from 'expo-router';
 import { Pressable, Switch, View } from 'react-native';
 import { Text } from '../ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -24,6 +23,7 @@ import {
 } from '../../lib/mom/share';
 import { todayIST } from '../../lib/mom/taskData';
 import { AGENDA_MAX, type AttendanceMark, type DiscussionItem, type Meeting, type MomProjectData, type Recipient, type SendChannel } from '../../lib/mom/types';
+import { AgendaOverview } from './AgendaOverview';
 import { DiscussionItemsEditor } from './DiscussionItemsEditor';
 import { useMomScrollTo } from './scrollContext';
 import { sendMeetingWhatsAppTest, WA_TEST_ENABLED } from '../../lib/mom/whatsappTest';
@@ -524,13 +524,6 @@ function MeetingDetail({
         </Text>
         <Text className="text-xs text-neutral-600">📍 {m.venue}</Text>
         {m.notes ? <Text className="text-xs text-neutral-500 mt-1">{m.notes}</Text> : null}
-        <View className="mt-3 pt-3 border-t border-neutral-100">
-          <Text className="text-2xs font-bold uppercase tracking-wider text-neutral-500 mb-1">Agenda</Text>
-          <Text testID="meeting-detail-agenda" className={`text-sm ${m.agenda ? 'text-neutral-800' : 'text-neutral-400 italic'}`}>
-            {m.agenda || 'No agenda added'}
-          </Text>
-        </View>
-        <DiscussionList items={m.discussionItems ?? []} />
         <View className="flex-row items-center gap-2 mt-3">
           {/* Google Calendar is chosen in the Create/Edit form (placeholder until the integration lands). */}
           <View testID="meeting-detail-calendar" className="flex-1 flex-row items-center gap-1.5">
@@ -581,14 +574,8 @@ function MeetingDetail({
         </Card>
       )}
 
+      {tab === 'agenda' && <AgendaOverview meeting={m} onSaveItems={(next) => onChange(() => ({ discussionItems: next }))} />}
       {tab === 'agenda' && <AgendaSection meeting={m} projectName={projectName} me={me} onChange={onChange} logSend={logSend} sentFor={sentFor} />}
-
-      {tab === 'record' && (m.discussionItems?.length ?? 0) > 0 && (
-        <MinutesChecklist
-          items={m.discussionItems ?? []}
-          onSave={(next) => onChange(() => ({ discussionItems: next }))}
-        />
-      )}
 
       {tab === 'record' && (
         <Card className="mb-3">
@@ -618,92 +605,6 @@ function MeetingDetail({
         )}
       </View>
     </View>
-  );
-}
-
-// Read-only list on the meeting page. Tasks open their Task Detail; the
-// saved title copy is shown even if the task was renamed or deleted since.
-function DiscussionList({ items }: { items: DiscussionItem[] }) {
-  return (
-    <View className="mt-3">
-      <Text className="text-2xs font-bold uppercase tracking-wider text-neutral-500 mb-1">
-        What will be discussed{items.length ? ` (${items.length})` : ''}
-      </Text>
-      {items.length === 0 ? <Text className="text-sm text-neutral-400 italic">No discussion items added</Text> : null}
-      {items.map((i) => {
-        const content = (
-          <View className="flex-row items-center gap-2 py-1.5">
-            <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 999, backgroundColor: i.type === 'task' ? '#EEF2F7' : '#F3E8FF', maxWidth: 110 }}>
-              <Text style={{ fontSize: 11, fontWeight: '700', color: i.type === 'task' ? NAVY : '#7C3AED' }} numberOfLines={1}>
-                {i.type === 'task' ? (i.departmentName ?? 'Task') : 'Topic'}
-              </Text>
-            </View>
-            <Text className={`flex-1 text-sm ${i.type === 'task' ? 'text-brand-navy font-semibold' : 'text-neutral-800'}`} numberOfLines={2}>
-              {i.title}
-            </Text>
-            {i.type === 'task' ? <Ionicons name="chevron-forward" size={14} color="#9CA3AF" /> : null}
-          </View>
-        );
-        return i.type === 'task' && i.taskId ? (
-          <Pressable
-            key={i.id}
-            testID="meeting-detail-task"
-            accessibilityRole="link"
-            onPress={() => router.push({ pathname: '/task/[taskId]', params: { taskId: i.taskId as string } } as never)}
-          >
-            {content}
-          </Pressable>
-        ) : (
-          <View key={i.id}>{content}</View>
-        );
-      })}
-    </View>
-  );
-}
-
-// Record tab: the discussion items as a checklist at the top, with a note
-// against each, while writing the minutes. Saved on the meeting.
-function MinutesChecklist({ items, onSave }: { items: DiscussionItem[]; onSave: (next: DiscussionItem[]) => Promise<boolean> }) {
-  const [drafts, setDrafts] = useState<Record<string, string>>(() => Object.fromEntries(items.map((i) => [i.id, i.note ?? ''])));
-  const done = items.filter((i) => i.discussed).length;
-  const save = (id: string, patch: Partial<DiscussionItem>) => onSave(items.map((i) => (i.id === id ? { ...i, ...patch } : i)));
-  return (
-    <Card className="mb-3">
-      <SectionTitle>
-        Minutes · discussed {done}/{items.length}
-      </SectionTitle>
-      {items.map((i, idx) => (
-        <View key={i.id} className={`py-2 ${idx > 0 ? 'border-t border-neutral-100' : ''}`}>
-          <Pressable
-            testID="minutes-item-toggle"
-            onPress={() => void save(i.id, { discussed: !i.discussed })}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: !!i.discussed }}
-            className="flex-row items-center gap-2"
-            style={{ minHeight: 36 }}
-          >
-            <Ionicons name={i.discussed ? 'checkbox' : 'square-outline'} size={20} color={i.discussed ? '#16A34A' : '#D1D5DB'} />
-            <Text className="flex-1 text-sm font-semibold text-neutral-900" numberOfLines={2}>
-              {i.title}
-            </Text>
-            <Text className="text-2xs text-neutral-500" numberOfLines={1} style={{ maxWidth: 100 }}>
-              {i.type === 'task' ? (i.departmentName ?? 'Task') : 'Topic'}
-            </Text>
-          </Pressable>
-          <Field
-            testID="minutes-item-note"
-            value={drafts[i.id] ?? ''}
-            onChangeText={(v) => setDrafts((d) => ({ ...d, [i.id]: v }))}
-            onBlur={() => {
-              if ((drafts[i.id] ?? '') !== (i.note ?? '')) void save(i.id, { note: drafts[i.id] ?? '' });
-            }}
-            placeholder="Notes / decision"
-            multiline
-            style={{ minHeight: 44, textAlignVertical: 'top', marginTop: 4 }}
-          />
-        </View>
-      ))}
-    </Card>
   );
 }
 
@@ -754,16 +655,24 @@ function AgendaSection({
   const submissionFor = (key: string) => m.agendaSubmissions.find((s) => s.from === key);
   const received = m.agendaSubmissions.filter((s) => s.points.length > 0).length;
 
+  // Points can be ticked from the meeting's own discussion items (tasks +
+  // topics chosen while creating it) and/or typed as extra lines.
+  const itemTitles = (m.discussionItems ?? []).map((i) => i.title);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+
   function startEdit(key: string) {
     setEditingFor(key);
-    setDraft((submissionFor(key)?.points ?? []).join('\n'));
+    const existing = submissionFor(key)?.points ?? [];
+    setPicked(new Set(existing.filter((p) => itemTitles.includes(p))));
+    setDraft(existing.filter((p) => !itemTitles.includes(p)).join('\n'));
   }
 
   async function saveSubmission(key: string, name: string) {
-    const points = draft
+    const typed = draft
       .split('\n')
       .map((p) => p.replace(/^\s*(\d+[.)]|[-•*])\s*/, '').trim())
       .filter(Boolean);
+    const points = [...itemTitles.filter((t) => picked.has(t)), ...typed.filter((t) => !picked.has(t))];
     const ok = await onChange((x) => ({
       agendaSubmissions: [
         ...x.agendaSubmissions.filter((s) => s.from !== key),
@@ -847,7 +756,42 @@ function AgendaSection({
                 )}
                 {editing && (
                   <View className="mt-2 gap-2">
-                    <Field value={draft} onChangeText={setDraft} multiline placeholder="One point per line" autoFocus />
+                    {itemTitles.length > 0 ? (
+                      <View testID="agenda-points-pick" className="rounded-lg border border-neutral-100 overflow-hidden">
+                        <Text className="text-2xs font-semibold text-neutral-500 px-3 pt-2 pb-1">Select from this meeting’s items</Text>
+                        {itemTitles.map((t) => {
+                          const on = picked.has(t);
+                          return (
+                            <Pressable
+                              key={t}
+                              onPress={() =>
+                                setPicked((prev) => {
+                                  const n = new Set(prev);
+                                  if (n.has(t)) n.delete(t);
+                                  else n.add(t);
+                                  return n;
+                                })
+                              }
+                              accessibilityRole="checkbox"
+                              accessibilityState={{ checked: on }}
+                              className="flex-row items-center gap-2 px-3 border-t border-neutral-100"
+                              style={{ minHeight: 44 }}
+                            >
+                              <Ionicons name={on ? 'checkbox' : 'square-outline'} size={20} color={on ? NAVY : '#D1D5DB'} />
+                              <Text className="flex-1 text-sm text-neutral-900" numberOfLines={2}>
+                                {t}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    ) : null}
+                    <Field
+                      value={draft}
+                      onChangeText={setDraft}
+                      multiline
+                      placeholder={itemTitles.length ? 'Other points (optional) — one per line' : 'One point per line'}
+                    />
                     <View className="flex-row gap-2">
                       <View className="flex-1">
                         <Button small label="Save" icon="checkmark" onPress={() => saveSubmission(p.key, p.name)} />
