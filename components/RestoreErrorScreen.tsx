@@ -1,4 +1,5 @@
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { Text } from './ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 
 // Shown when AuthContext's restore() genuinely fails (dead network, an

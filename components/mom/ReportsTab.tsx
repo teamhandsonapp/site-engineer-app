@@ -8,7 +8,8 @@
 //  • History: everything sent from the MoM section, newest first.
 
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Switch, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 import { fetchProjectProgress } from '../../lib/projectProgress';

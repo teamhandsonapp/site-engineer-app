@@ -2,7 +2,8 @@
 // of the app (navy / amber, IBM Plex via the global font, Card surfaces).
 
 import { useState, type ReactNode } from 'react';
-import { ActivityIndicator, Modal, Platform, Pressable, Text, TextInput, View, type TextInputProps } from 'react-native';
+import { ActivityIndicator, Modal, Platform, Pressable, View, type TextInputProps } from 'react-native';
+import { Text, TextInput } from '../ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useModalBottomPadding } from '../../lib/useSafeBottomOffset';
 

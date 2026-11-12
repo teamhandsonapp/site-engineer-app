@@ -1,4 +1,5 @@
-import { Modal, Pressable, Text, View } from 'react-native';
+import { Modal, Pressable, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import { Card } from '../ui/Card';
 import { DEPENDENCY_TYPE_FULL_LABEL, type RelationshipType } from '../../lib/flowchart/types';
 

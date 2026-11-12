@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Modal, Pressable, Text, View } from 'react-native';
+import { Modal, Pressable, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import { DateField } from '../ui/DateField';
 import { isItemDone, STATUS_CHIP, STATUS_ORDER, type CompletionStatus } from '../../lib/taskDetail/constants';
 

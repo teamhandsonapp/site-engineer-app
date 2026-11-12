@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { KeyboardAvoidingView, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, ScrollView, View } from 'react-native';
+import { Text, TextInput } from '../ui/AppText';
 import { KEYBOARD_BEHAVIOR } from '../ui/KeyboardAvoider';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import AsyncStorage from '@react-native-async-storage/async-storage';

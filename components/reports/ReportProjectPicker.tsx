@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import { useProject } from '../../lib/ProjectContext';
 import { Card } from '../ui/Card';
 

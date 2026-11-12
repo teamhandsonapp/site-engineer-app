@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { Text } from '../../components/ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ComposeCriticalAlertModal } from '../../components/ComposeCriticalAlertModal';
 import { appRoleFor, useAuth } from '../../lib/AuthContext';

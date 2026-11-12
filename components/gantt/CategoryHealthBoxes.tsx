@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Dimensions, Modal, Pressable, Text, View } from 'react-native';
+import { Dimensions, Modal, Pressable, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import {
   CATEGORY_LABELS,
   STATUS_CHIP,

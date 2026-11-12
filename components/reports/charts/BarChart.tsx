@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Text, View, type LayoutChangeEvent } from 'react-native';
+import { View, type LayoutChangeEvent } from 'react-native';
+import { Text } from '../../ui/AppText';
 import Svg, { Line, Rect } from 'react-native-svg';
 import type { BarChartCategory, BarChartSeries } from './types';
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, View } from 'react-native';
+import { Text, TextInput } from '../../../components/ui/AppText';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { appRoleFor, useAuth } from '../../../lib/AuthContext';
 import { fetchTemplateForEditing, updateTemplateInfo, type TemplateEditorData } from '../../../lib/flowchart/templateData';

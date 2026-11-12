@@ -1,4 +1,5 @@
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { Text } from '../components/ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Redirect, Stack, router } from 'expo-router';
 import { useAuth } from '../lib/AuthContext';

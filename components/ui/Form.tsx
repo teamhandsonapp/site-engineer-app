@@ -2,10 +2,10 @@
 // / error text, 48px inputs with readable placeholders.
 
 import type { ReactNode } from 'react';
-import { TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
+import { View, type StyleProp, type TextInputProps, type ViewStyle } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, shadow, space, type as t } from '../../lib/theme';
-import { AppText } from './AppText';
+import { AppText, TextInput } from './AppText';
 
 export function FormSection({
   title,

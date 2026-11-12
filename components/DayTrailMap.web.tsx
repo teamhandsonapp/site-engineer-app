@@ -1,5 +1,6 @@
 import { forwardRef, useImperativeHandle } from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
+import { Text } from './ui/AppText';
 import type { DayTimeline } from '../lib/dayTimeline';
 
 // react-native-maps has zero web support (crashes at import time under

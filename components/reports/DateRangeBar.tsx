@@ -1,4 +1,5 @@
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
+import { Text } from '../ui/AppText';
 import { DateField } from '../ui/DateField';
 import { Card } from '../ui/Card';
 import type { DateRange } from '../../lib/reports/dateRange';

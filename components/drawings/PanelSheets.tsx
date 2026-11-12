@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Linking, Pressable, Text, TextInput, View } from 'react-native';
+import { Linking, Pressable, View } from 'react-native';
+import { Text, TextInput } from '../ui/AppText';
 import * as DocumentPicker from 'expo-document-picker';
 import { router } from 'expo-router';
 import { Button } from '../ui/Button';

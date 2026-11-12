@@ -1,4 +1,5 @@
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
+import { Text } from './ui/AppText';
 
 // react-native-maps has ZERO web support — unlike the previous react-native-
 // webview approach (which at least shipped a real, if unimplemented, web

@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Modal, Platform, Pressable, Text, View } from 'react-native';
+import { Modal, Platform, Pressable, View } from 'react-native';
+import { Text } from './AppText';
 import { CalendarPicker } from './CalendarPicker';
 
 // @react-native-community/datetimepicker has NO web implementation — its own

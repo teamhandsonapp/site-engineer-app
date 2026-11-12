@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 import { formatDayLabel, monthRange, parseDateKeyUtc, todayKeyUtc, weeksOfMonth, type DateRange } from '../../lib/reports/dateRange';

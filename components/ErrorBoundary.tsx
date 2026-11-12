@@ -1,5 +1,6 @@
 import { Component, type ReactNode } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { Text } from './ui/AppText';
 import { logError } from '../lib/sentryLog';
 
 interface Props {

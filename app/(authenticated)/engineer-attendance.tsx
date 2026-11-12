@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, useRef } from 'react';
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { Text } from '../../components/ui/AppText';
 import { router, useIsFocused } from 'expo-router';
 import { fetchTeamAttendanceSummary, type EngineerAttendanceSummary } from '../../lib/attendanceReview';
 import { useAttendanceRealtime } from '../../lib/attendanceRealtime';

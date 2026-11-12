@@ -1,4 +1,5 @@
-import { ScrollView, Text, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import { Card } from '../ui/Card';
 import { EmptyState } from '../ui/EmptyState';
 import type { FlowchartTask } from '../../lib/flowchart/types';

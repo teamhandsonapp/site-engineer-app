@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
+import { Text, TextInput } from '../ui/AppText';
 import { FormModal } from '../ui/FormModal';
 import { DPR_COMMENT_LABEL, DPR_COMMENT_PRESETS, type DprComment, type DprCommentPreset } from '../../lib/dprEntries';
 

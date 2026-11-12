@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Pressable, RefreshControl, Text, View } from 'react-native';
+import { Pressable, RefreshControl, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import Animated, { useAnimatedRef, useAnimatedScrollHandler, scrollTo } from 'react-native-reanimated';
 import type { TimelineWork } from '../../lib/projectTimeline';
 import type { TaskDelayInfo } from '../../lib/gantt/delayEngine';

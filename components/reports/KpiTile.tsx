@@ -1,5 +1,6 @@
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
+import { Text } from '../ui/AppText';
 import { Card } from '../ui/Card';
 
 // Same shape as app/project-dashboard.tsx's own StatTile (icon chip + big

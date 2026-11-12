@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
+import { Text } from '../ui/AppText';
 import { Card } from '../ui/Card';
 
 // Thin Card + title/subtitle shell reused by every one of the 12 report

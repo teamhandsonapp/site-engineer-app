@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import { WorkerFolderCard } from './WorkerFolderCard';
 import { useAttendanceMarks } from './useAttendanceMarks';
 import { fetchWorkforceFolders, type WorkforceFolder } from '../../lib/workforce';

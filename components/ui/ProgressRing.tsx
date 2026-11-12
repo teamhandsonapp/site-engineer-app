@@ -1,4 +1,5 @@
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
+import { Text } from './AppText';
 import Svg, { Circle } from 'react-native-svg';
 
 // A compact circular progress indicator — built for App Home's project list

@@ -5,10 +5,9 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
-  Text,
-  TextInput,
   View,
 } from 'react-native';
+import { Text, TextInput } from '../../components/ui/AppText';
 import { FormModal } from '../../components/ui/FormModal';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { appRoleFor, roleLabel, useAuth, type UserRole } from '../../lib/AuthContext';

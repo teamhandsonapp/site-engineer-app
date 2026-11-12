@@ -1,4 +1,5 @@
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
+import { Text } from '../ui/AppText';
 import type { GeneralParameterReportData } from '../../lib/reports/generalParameterReport';
 
 // Cumulative Pre + Construction delay, admin/manager oversight only, shown

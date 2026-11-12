@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { RefreshControl, ScrollView, Text, View } from 'react-native';
+import { RefreshControl, ScrollView, View } from 'react-native';
+import { Text } from '../../components/ui/AppText';
 import { DayTimelineView, type DayTimelineViewHandle } from '../../components/DayTimelineView';
 import { isFieldRole, useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';

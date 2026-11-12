@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
-import { KeyboardAvoidingView, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, ScrollView, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import { KEYBOARD_BEHAVIOR } from '../ui/KeyboardAvoider';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors } from '../../lib/theme';

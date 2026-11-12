@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, LayoutChangeEvent, PixelRatio, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, LayoutChangeEvent, PixelRatio, Pressable, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import Ionicons from '@expo/vector-icons/Ionicons';

@@ -3,7 +3,8 @@
 // last 20 sends. Admin only — the backend function enforces it too.
 
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import { Card } from '../ui/Card';
 import { Banner, Button, Field, NAVY, SectionTitle } from './ui';
 import { fetchRecentTestReports, previewTestReportPdf, sendTestReport, type TestReportLogRow, type TestReportType } from '../../lib/reports/testReportEmail';

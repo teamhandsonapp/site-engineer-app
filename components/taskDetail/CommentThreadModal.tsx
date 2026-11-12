@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, View } from 'react-native';
+import { Text, TextInput } from '../ui/AppText';
 import { FormModal } from '../ui/FormModal';
 import { createItemComment, fetchItemComments, type ItemComment } from '../../lib/taskDetail/data';
 

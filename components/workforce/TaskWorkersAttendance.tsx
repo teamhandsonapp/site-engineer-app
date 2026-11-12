@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import { WorkerFolderCard } from './WorkerFolderCard';
 import { useAttendanceMarks } from './useAttendanceMarks';
 import { fetchWorkforceFolders, folderStats, type WorkforceFolder } from '../../lib/workforce';
@@ -69,6 +70,7 @@ export function TaskWorkersAttendance({
   return (
     <View>
       <WorkerFolderCard folder={folder} marks={marks} savingIds={savingIds} onMark={(id, s) => void mark(id, s)} />
+      {markError ? <Text className="text-xs text-red-600 mb-1">{markError}</Text> : null}
       {unmarked > 0 ? (
         <Text className="text-xs text-amber-700">
           {unmarked} {unmarked === 1 ? 'person' : 'people'} not marked — mark everyone before submitting.

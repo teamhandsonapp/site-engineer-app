@@ -1,4 +1,5 @@
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
+import { Text } from '../ui/AppText';
 import type { TagDTO } from '../../lib/drawings/types';
 
 // Native build: the PDF renderer for phones is decided in Step 1 of the

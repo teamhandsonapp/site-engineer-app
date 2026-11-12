@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import { fetchStatusHistory, type StatusHistoryEntry } from '../../lib/taskDetail/data';
 import { STATUS_CHIP, type CompletionStatus } from '../../lib/taskDetail/constants';
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { Text } from '../components/ui/AppText';
 import { Redirect, router, Stack } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { isFieldRole, useAuth } from '../lib/AuthContext';

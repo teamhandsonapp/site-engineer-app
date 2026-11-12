@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
 import { Redirect, Stack, router, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { preparePhotoForUpload } from '../../lib/preparePhoto';
@@ -9,7 +9,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../../lib/AuthContext';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
-import { AppText } from '../../components/ui/AppText';
+import { AppText, Text } from '../../components/ui/AppText';
 import { Button, IconButton } from '../../components/ui/Button';
 import { FormField, FormSection, TextField } from '../../components/ui/Form';
 import { Screen } from '../../components/ui/Screen';

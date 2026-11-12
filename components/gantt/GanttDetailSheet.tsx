@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import { Card } from '../ui/Card';
 import type { TimelineWork } from '../../lib/projectTimeline';
 import type { TaskDelayInfo } from '../../lib/gantt/delayEngine';

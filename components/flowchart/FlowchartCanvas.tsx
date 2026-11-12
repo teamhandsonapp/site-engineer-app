@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, LayoutChangeEvent, PixelRatio, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, LayoutChangeEvent, PixelRatio, Pressable, ScrollView, View } from 'react-native';
+import { Text, TextInput } from '../ui/AppText';
 import { FormModal } from '../ui/FormModal';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
