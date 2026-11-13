@@ -22,6 +22,7 @@ export function TaskNode({
   editable,
   isPendingLinkSource,
   isSelected,
+  selectionNumber,
   milestone,
   // 1 for every normal project (the overwhelmingly common case) — only ever
   // smaller than 1 when clampToSafeBitmapBudget (lib/flowchart/layout.ts)
@@ -48,6 +49,8 @@ export function TaskNode({
   // read as the same thing (they can't both be active at once anyway, but
   // the color language still shouldn't overlap).
   isSelected?: boolean;
+  // Order this task was picked in select mode (1-based), shown as a badge.
+  selectionNumber?: number;
   // "This task to this task = Milestone 1" — a colored badge, mirrored on
   // the opposite (left) side from the AC/AV badge's own top-right slot, at
   // the same already-proven-clear -20 tier, so the two never compete for
@@ -247,6 +250,30 @@ export function TaskNode({
             <Text className="font-bold" style={[font2xs, { color: badge.text }]}>{badgeLabel}</Text>
           </View>
         )}
+
+        {/* Selection order (1, 2, 3…) in select mode. */}
+        {selectionNumber ? (
+          <View
+            testID={`flowchart-selected-${selectionNumber}`}
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              top: -11 * nodeScale,
+              right: -11 * nodeScale,
+              width: 24 * nodeScale,
+              height: 24 * nodeScale,
+              borderRadius: 12 * nodeScale,
+              backgroundColor: '#F0A227',
+              borderWidth: 2,
+              borderColor: '#fff',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 5,
+            }}
+          >
+            <Text style={{ fontSize: 12 * nodeScale, fontWeight: '800', color: '#0F1F33' }}>{selectionNumber}</Text>
+          </View>
+        ) : null}
 
         {milestone && (
           <View

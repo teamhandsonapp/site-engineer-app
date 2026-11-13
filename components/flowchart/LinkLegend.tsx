@@ -2,7 +2,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Text } from '../ui/AppText';
-import { LINK_INFO, LINK_TYPE_ORDER, LINK_WARNING_COLOR } from '../../lib/flowchart/linkTypes';
+import { LINK_INFO, LINK_TYPE_ORDER } from '../../lib/flowchart/linkTypes';
 import { LinkStylePreview } from './LinkTypeModal';
 
 // Flowchart › "Links" toggle: the 4 line styles with code + meaning. Same
@@ -22,12 +22,6 @@ export function LinkLegend({ style }: { style?: object }) {
                 </Text>
               </View>
             ))}
-            <View className="flex-row items-center gap-1.5">
-              <View className="rounded px-1" style={{ borderWidth: 1.5, borderColor: LINK_WARNING_COLOR }}>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: LINK_WARNING_COLOR }}>FS!</Text>
-              </View>
-              <Text className="text-2xs text-neutral-600">Dates don’t match the link</Text>
-            </View>
           </View>
         </View>
       ) : null}

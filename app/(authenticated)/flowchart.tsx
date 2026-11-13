@@ -21,12 +21,14 @@ import { formatDateLabel } from '../../lib/reports/dateRange';
 import { FlowchartCanvas } from '../../components/flowchart/FlowchartCanvas';
 import { FlowchartFilterModal } from '../../components/flowchart/FlowchartFilterModal';
 import { FilteredTaskList } from '../../components/flowchart/FilteredTaskList';
-import { PhaseCompletionBar } from '../../components/flowchart/PhaseCompletionBar';
 import { EmptyState } from '../../components/ui/EmptyState';
+import { FormModal } from '../../components/ui/FormModal';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { withTimeout } from '../../lib/withTimeout';
 
 const FETCH_TIMEOUT_MS = 12_000;
+const SHOW_SETS_KEY = 'flowchart:showOldVersions';
 
 type FlowchartViewMode = 'flowchart' | 'list';
 
@@ -60,6 +62,25 @@ function FlowchartScreenContent() {
   // Excel download (Task ID / dates / Delayed By / empty Delay Reason).
   const [excelExporting, setExcelExporting] = useState(false);
   const [excelNote, setExcelNote] = useState<{ text: string; isError: boolean } | null>(null);
+  // "⋯" more menu (Excel lives there now).
+  const [moreOpen, setMoreOpen] = useState(false);
+  // 👁 shows the old flowchart versions (56 / 15 / 311-task sets). Hidden by
+  // default; the choice is remembered on this device.
+  const [showSets, setShowSets] = useState(false);
+  useEffect(() => {
+    AsyncStorage.getItem(SHOW_SETS_KEY)
+      .then((v) => setShowSets(v === '1'))
+      .catch(() => {});
+  }, []);
+  function toggleShowSets() {
+    setShowSets((prev) => {
+      const next = !prev;
+      AsyncStorage.setItem(SHOW_SETS_KEY, next ? '1' : '0').catch(() => {});
+      // Hiding the versions also leaves an old version you were viewing.
+      if (!next) setTaskSet(null);
+      return next;
+    });
+  }
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -258,12 +279,87 @@ function FlowchartScreenContent() {
         </View>
       )}
 
+      {/* Top row (2026-11-13): Filter · ⋯ more (Excel) · 👁 old flowchart versions. */}
       <View
-        className="flex-row flex-wrap items-center justify-end gap-1.5 px-4 pt-2 pb-1"
+        className="flex-row items-center gap-2 px-3 pt-2 pb-1.5"
         style={{ backgroundColor: CANVAS_THEMES[canvasTheme].bg }}
       >
-        <Ionicons name="eye-off-outline" size={13} color={isDark ? '#A3A3A3' : '#6B7280'} />
-        <Text className="text-2xs font-bold mr-1" style={{ color: isDark ? '#A3A3A3' : '#6B7280' }}>HIDDEN</Text>
+        {taskSet === null && data && data.tasks.length > 0 ? (
+          <Pressable
+            testID="flowchart-filter"
+            onPress={() => setFilterModalOpen(true)}
+            className="flex-row items-center gap-1.5 px-3 rounded-xl border"
+            style={{
+              minHeight: 40,
+              backgroundColor: hasActiveFilter ? '#0F1F33' : isDark ? '#141414' : '#fff',
+              borderColor: hasActiveFilter ? '#0F1F33' : isDark ? '#242424' : '#E5E5E5',
+            }}
+          >
+            <Ionicons name="filter-outline" size={15} color={hasActiveFilter ? '#fff' : isDark ? '#E5E5E5' : '#374151'} />
+            <Text className="text-xs font-bold" style={{ color: hasActiveFilter ? '#fff' : isDark ? '#E5E5E5' : '#374151' }}>
+              Filter{hasActiveFilter ? ` (${filteredTasks.length})` : ''}
+            </Text>
+          </Pressable>
+        ) : null}
+        <View className="flex-1" />
+        <Pressable
+          testID="flowchart-eye"
+          onPress={() => toggleShowSets()}
+          accessibilityRole="button"
+          accessibilityLabel={showSets ? 'Hide old flowchart versions' : 'Show old flowchart versions'}
+          className="items-center justify-center rounded-xl border"
+          style={{ width: 40, height: 40, backgroundColor: showSets ? '#0F1F33' : isDark ? '#141414' : '#fff', borderColor: showSets ? '#0F1F33' : isDark ? '#242424' : '#E5E5E5' }}
+        >
+          <Ionicons name={showSets ? 'eye' : 'eye-outline'} size={18} color={showSets ? '#fff' : isDark ? '#E5E5E5' : '#374151'} />
+        </Pressable>
+        {taskSet === null && data && data.tasks.length > 0 ? (
+          <Pressable
+            testID="flowchart-more"
+            onPress={() => setMoreOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="More options"
+            className="items-center justify-center rounded-xl border"
+            style={{ width: 40, height: 40, backgroundColor: isDark ? '#141414' : '#fff', borderColor: isDark ? '#242424' : '#E5E5E5' }}
+          >
+            {excelExporting ? <ActivityIndicator size="small" color="#0F1F33" /> : <Ionicons name="ellipsis-horizontal" size={18} color={isDark ? '#E5E5E5' : '#374151'} />}
+          </Pressable>
+        ) : null}
+      </View>
+
+      {/* "⋯" more options */}
+      <FormModal visible={moreOpen} onRequestClose={() => setMoreOpen(false)} position="bottom" animationType="slide">
+        <View className="bg-white rounded-t-2xl px-4 pt-3 pb-8 w-full self-center" style={{ maxWidth: 560 }}>
+          <View className="flex-row items-center mb-2">
+            <Text className="flex-1 text-base font-bold text-neutral-900">More</Text>
+            <Pressable onPress={() => setMoreOpen(false)} hitSlop={10} accessibilityLabel="Close">
+              <Ionicons name="close" size={22} color="#6B7280" />
+            </Pressable>
+          </View>
+          <Pressable
+            testID="flowchart-more-excel"
+            onPress={() => {
+              setMoreOpen(false);
+              void handleDownloadExcel();
+            }}
+            disabled={excelExporting || filteredTasks.length === 0}
+            className="flex-row items-center gap-3 border-t border-neutral-100"
+            style={{ minHeight: 52, opacity: excelExporting || filteredTasks.length === 0 ? 0.5 : 1 }}
+          >
+            <Ionicons name="document-text-outline" size={20} color="#15803D" />
+            <View className="flex-1">
+              <Text className="text-sm font-semibold text-neutral-900">Download Excel</Text>
+              <Text className="text-2xs text-neutral-500">{filteredTasks.length} task{filteredTasks.length === 1 ? '' : 's'}{hasActiveFilter ? ' (filtered)' : ''}</Text>
+            </View>
+          </Pressable>
+        </View>
+      </FormModal>
+
+      {showSets ? (
+      <View
+        className="flex-row flex-wrap items-center gap-1.5 px-3 pb-1.5"
+        style={{ backgroundColor: CANVAS_THEMES[canvasTheme].bg }}
+      >
+        <Text className="text-2xs font-bold mr-1" style={{ color: isDark ? '#A3A3A3' : '#6B7280' }}>Old versions:</Text>
         {(Object.keys(FLOWCHART_SET_LABEL) as FlowchartSetKey[]).map((key) => {
           const active = taskSet === key;
           return (
@@ -285,6 +381,7 @@ function FlowchartScreenContent() {
           );
         })}
       </View>
+      ) : null}
 
       {taskSet !== null ? (
         archive.loading ? (
@@ -364,39 +461,13 @@ function FlowchartScreenContent() {
         </View>
       ) : (
         <>
-          <PhaseCompletionBar tasks={data.tasks} seriesEdges={data.seriesEdges} theme={canvasTheme} />
-
+          {/* Filter results controls (only while a filter is on). The phase
+              completion chip and the Excel button moved out (2026-11-13). */}
+          {hasActiveFilter && (
           <View
             className="flex-row flex-wrap items-center justify-between gap-y-2 px-4 py-2 border-b"
             style={{ backgroundColor: CANVAS_THEMES[canvasTheme].bg, borderColor: isDark ? '#242424' : '#F5F5F5' }}
           >
-            <View className="flex-row items-center gap-2">
-              <Pressable
-                onPress={() => setFilterModalOpen(true)}
-                className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-full border"
-                style={{
-                  backgroundColor: hasActiveFilter ? '#0F1F33' : isDark ? '#141414' : '#fff',
-                  borderColor: hasActiveFilter ? '#0F1F33' : isDark ? '#242424' : '#E5E5E5',
-                }}
-              >
-                <Ionicons name="filter-outline" size={14} color={hasActiveFilter ? '#fff' : isDark ? '#E5E5E5' : '#374151'} />
-                <Text className="text-xs font-bold" style={{ color: hasActiveFilter ? '#fff' : isDark ? '#E5E5E5' : '#374151' }}>
-                  Filter{hasActiveFilter ? ` (${filteredTasks.length})` : ''}
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={handleDownloadExcel}
-                disabled={excelExporting || filteredTasks.length === 0}
-                accessibilityRole="button"
-                accessibilityLabel="Download tasks as Excel"
-                className="flex-row items-center gap-1.5 px-3 py-1.5 rounded-full"
-                style={{ backgroundColor: '#15803D', opacity: excelExporting || filteredTasks.length === 0 ? 0.5 : 1 }}
-              >
-                {excelExporting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="document-text-outline" size={14} color="#fff" />}
-                <Text className="text-xs font-bold text-white">{excelExporting ? 'Preparing…' : 'Excel'}</Text>
-              </Pressable>
-            </View>
-
             {hasActiveFilter && (
               <View className="flex-row items-center gap-1.5 ml-auto">
                 <View className="flex-row rounded-lg bg-neutral-100 p-0.5">
@@ -427,6 +498,7 @@ function FlowchartScreenContent() {
               </View>
             )}
           </View>
+          )}
 
           {excelNote && (
             <Pressable

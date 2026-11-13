@@ -212,7 +212,13 @@ export function FlowchartCanvas({
   // (see TaskDetailSheet's own canEditChecklist comment).
   const canEditChecklist = authState.status === 'signed-in' && appRoleFor(authState.profile.role) === 'staff';
   const [selectMode, setSelectMode] = useState(false);
-  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  // Selection keeps the ORDER tasks were tapped (shown as 1, 2, 3… badges;
+  // with 2 tasks, #1 is the link's predecessor). selectedTaskIds is the set view.
+  const [selectedOrder, setSelectedOrder] = useState<string[]>([]);
+  const selectedTaskIds = useMemo(() => new Set(selectedOrder), [selectedOrder]);
+  const setSelectedTaskIds = (s: Set<string>) => setSelectedOrder(Array.from(s));
+  // "Link" from a 2-task selection: the pair (swappable) waiting for a type.
+  const [selectionLink, setSelectionLink] = useState<{ source: string; target: string } | null>(null);
   const [pushModalOpen, setPushModalOpen] = useState(false);
   const [pushing, setPushing] = useState(false);
 
@@ -226,12 +232,26 @@ export function FlowchartCanvas({
   }
 
   function toggleTaskSelected(taskId: string) {
-    setSelectedTaskIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(taskId)) next.delete(taskId);
-      else next.add(taskId);
-      return next;
-    });
+    setSelectedOrder((prev) => (prev.includes(taskId) ? prev.filter((id) => id !== taskId) : [...prev, taskId]));
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedOrder([]);
+  }
+
+  // Selection bar actions.
+  function selectionLinkTo() {
+    // 1 task: it becomes the link's start; tap the other task on the canvas next.
+    const id = selectedOrder[0];
+    exitSelectMode();
+    setLinkError(null);
+    setPendingSourceId(id);
+  }
+  function selectionMilestone() {
+    if (selectedOrder.length === 0) return;
+    setMilestoneNameError(null);
+    setPendingChainTaskIds([...selectedOrder]);
   }
 
   async function handlePushToEngineer(engineerId: string) {
@@ -331,6 +351,7 @@ export function FlowchartCanvas({
       setPendingChainTaskIds(null);
       setMilestonePickedIds(new Set());
       setMilestoneMode(false);
+      exitSelectMode();
     } catch (err) {
       setMilestoneNameError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -1155,7 +1176,9 @@ export function FlowchartCanvas({
   }));
 
   const focusedMilestone = focusedMilestoneId ? milestoneById.get(focusedMilestoneId) ?? null : null;
-  const bottomBarShowing = !!focusedMilestone || (milestoneMode && milestonePickedIds.size > 0) || (selectMode && selectedTaskIds.size > 0);
+  const bottomBarShowing = !!focusedMilestone || (milestoneMode && milestonePickedIds.size > 0) || selectMode;
+  // How far the floating controls move up so nothing covers a bottom bar (the selection bar is taller).
+  const bottomLift = selectMode ? (selectedOrder.length > 0 ? 116 : 64) : bottomBarShowing ? BOTTOM_BAR_LIFT : 0;
   const focusedMilestoneTaskCount = focusedMilestoneId ? tasks.filter((t) => t.milestoneId === focusedMilestoneId).length : 0;
   // EdgeLayer already drops any edge whose endpoint isn't in the list it's
   // given, so filtering the task list alone also hides every edge leading
@@ -1211,6 +1234,7 @@ export function FlowchartCanvas({
                 nodeScale={nodeScale}
                 isPendingLinkSource={pendingSourceId === task.id}
                 isSelected={selectedTaskIds.has(task.id) || milestoneStartId === task.id || milestonePickedIds.has(task.id)}
+                selectionNumber={selectMode && selectedTaskIds.has(task.id) ? selectedOrder.indexOf(task.id) + 1 : undefined}
                 milestone={task.milestoneId ? milestoneById.get(task.milestoneId) : null}
               />
             ))}
@@ -1283,25 +1307,17 @@ export function FlowchartCanvas({
               <Text className="text-2xs font-bold text-white">New Task</Text>
             </Pressable>
             <Pressable
+              testID="flowchart-select"
               onPress={toggleSelectMode}
               className="flex-row items-center gap-1.5 rounded-xl px-3 py-2.5"
               style={{ elevation: 3, backgroundColor: selectMode ? '#F0A227' : '#fff', borderWidth: selectMode ? 0 : 1, borderColor: '#E5E5E5' }}
             >
               <Ionicons name="checkmark-circle-outline" size={16} color={selectMode ? '#fff' : '#0F1F33'} />
               <Text className="text-2xs font-bold" style={{ color: selectMode ? '#fff' : '#0F1F33' }}>
-                {selectMode ? `Select (${selectedTaskIds.size})` : 'Select'}
+                {selectMode ? `Selecting (${selectedTaskIds.size})` : 'Select'}
               </Text>
             </Pressable>
-            <Pressable
-              onPress={toggleMilestoneMode}
-              className="flex-row items-center gap-1.5 rounded-xl px-3 py-2.5"
-              style={{ elevation: 3, backgroundColor: milestoneMode ? '#7C3AED' : '#fff', borderWidth: milestoneMode ? 0 : 1, borderColor: '#E5E5E5' }}
-            >
-              <Ionicons name="flag-outline" size={16} color={milestoneMode ? '#fff' : '#0F1F33'} />
-              <Text className="text-2xs font-bold" style={{ color: milestoneMode ? '#fff' : '#0F1F33' }}>
-                {milestoneMode ? 'Cancel Milestone' : 'Create Milestone'}
-              </Text>
-            </Pressable>
+            {/* Create Milestone now lives in the selection bar (select tasks -> Milestone). */}
           </ScrollView>
         </View>
       )}
@@ -1409,22 +1425,79 @@ export function FlowchartCanvas({
       {/* Bottom action bar for the multi-select above — only while
           selectMode is on and at least one task is picked, so it doesn't
           sit empty/disabled the whole time select mode is active. */}
-      {selectMode && selectedTaskIds.size > 0 && (
+      {/* Selection bar — actions depend on how many tasks are picked:
+          1: Link to… / Edit / Delete · 2: Link / Milestone / Push · 3+: Milestone / Push. */}
+      {selectMode && (
         <View
-          className="absolute left-3 right-3 flex-row items-center justify-between bg-white rounded-xl border border-neutral-200 px-3.5 py-3"
-          style={{ bottom: zoomBottomOffset, elevation: 4 }}
+          testID="flowchart-selection-bar"
+          className="absolute left-3 right-3 bg-white rounded-2xl border border-neutral-200 px-3 pt-2.5 pb-3"
+          style={{ bottom: zoomBottomOffset, elevation: 6 }}
         >
-          <Text className="flex-1 mr-2 text-xs font-semibold text-neutral-700" numberOfLines={1}>{selectedTaskIds.size} task{selectedTaskIds.size === 1 ? '' : 's'} selected</Text>
-          <View className="flex-row gap-2 shrink-0">
-            <Pressable onPress={toggleSelectMode} className="px-3 py-2 rounded-lg bg-neutral-100">
-              <Text className="text-2xs font-semibold text-neutral-600">Cancel</Text>
-            </Pressable>
-            <Pressable onPress={() => setPushModalOpen(true)} className="flex-row items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-navy">
-              <Ionicons name="send-outline" size={14} color="#fff" />
-              <Text className="text-2xs font-bold text-white">Push to Site Engineer</Text>
+          <View className="flex-row items-center mb-2">
+            <Text className="flex-1 text-xs font-bold text-neutral-800" numberOfLines={1}>
+              {selectedOrder.length === 0
+                ? 'Tap tasks to select them'
+                : `${selectedOrder.length} task${selectedOrder.length === 1 ? '' : 's'} selected`}
+            </Text>
+            <Pressable testID="flowchart-selection-done" onPress={exitSelectMode} hitSlop={10} accessibilityRole="button">
+              <Text className="text-xs font-bold" style={{ color: '#1D4ED8' }}>Done</Text>
             </Pressable>
           </View>
+          {selectedOrder.length > 0 ? (
+            <View className="flex-row gap-2">
+              {(() => {
+                const n = selectedOrder.length;
+                const actions: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; onPress: () => void; primary?: boolean; danger?: boolean }[] = [];
+                if (n === 1) {
+                  actions.push({ key: 'link-to', label: 'Link to…', icon: 'git-network-outline', primary: true, onPress: selectionLinkTo });
+                  actions.push({ key: 'edit', label: 'Edit', icon: 'create-outline', onPress: () => { const id = selectedOrder[0]; exitSelectMode(); handleEditTask(id); } });
+                  actions.push({ key: 'delete', label: 'Delete', icon: 'trash-outline', danger: true, onPress: () => { const id = selectedOrder[0]; exitSelectMode(); handleDeleteTaskRequest(id); } });
+                } else {
+                  if (n === 2) actions.push({ key: 'link', label: 'Link', icon: 'git-network-outline', primary: true, onPress: () => setSelectionLink({ source: selectedOrder[0], target: selectedOrder[1] }) });
+                  actions.push({ key: 'milestone', label: 'Milestone', icon: 'flag-outline', primary: n > 2, onPress: selectionMilestone });
+                  actions.push({ key: 'push', label: 'Push', icon: 'send-outline', onPress: () => setPushModalOpen(true) });
+                }
+                return actions.map((a) => (
+                  <Pressable
+                    key={a.key}
+                    testID={`flowchart-sel-${a.key}`}
+                    onPress={a.onPress}
+                    accessibilityRole="button"
+                    className="flex-1 flex-row items-center justify-center gap-1.5 rounded-xl"
+                    style={{
+                      minHeight: 44,
+                      backgroundColor: a.primary ? '#0F1F33' : a.danger ? '#FEF2F2' : '#F3F4F6',
+                    }}
+                  >
+                    <Ionicons name={a.icon} size={16} color={a.primary ? '#fff' : a.danger ? '#DC2626' : '#0F1F33'} />
+                    <Text className="text-xs font-bold" style={{ color: a.primary ? '#fff' : a.danger ? '#DC2626' : '#0F1F33' }} numberOfLines={1}>
+                      {a.label}
+                    </Text>
+                  </Pressable>
+                ));
+              })()}
+            </View>
+          ) : null}
         </View>
+      )}
+
+      {/* Link from a 2-task selection: #1 -> #2 (swappable), pick the type. */}
+      {selectionLink && (
+        <LinkTypeModal
+          title="Link these tasks"
+          confirmLabel="Create link"
+          allowParallel
+          fromName={tasks.find((t) => t.id === selectionLink.source)?.taskName}
+          toName={tasks.find((t) => t.id === selectionLink.target)?.taskName}
+          onSwap={() => setSelectionLink((p) => (p ? { source: p.target, target: p.source } : p))}
+          onCancel={() => setSelectionLink(null)}
+          onSelect={(type) => {
+            const { source, target } = selectionLink;
+            setSelectionLink(null);
+            exitSelectMode();
+            void createLink(type, source, target);
+          }}
+        />
       )}
 
       {/* Canvas background theme — light vs. black, each circle IS the
@@ -1490,7 +1563,7 @@ export function FlowchartCanvas({
           Scroll-to-top/bottom join the same stack, above zoom — a 300+
           task project has no quick way to reach either end of the graph
           without a marathon manual pan, by explicit request. */}
-      <View className="absolute right-3 items-center gap-1.5" style={{ bottom: zoomBottomOffset + (bottomBarShowing ? BOTTOM_BAR_LIFT : 0) }}>
+      <View className="absolute right-3 items-center gap-1.5" style={{ bottom: zoomBottomOffset + bottomLift }}>
         <Pressable
           onPress={() => scrollToEdge('top')}
           className="w-10 h-10 rounded-full bg-white border border-neutral-200 items-center justify-center"
@@ -1525,7 +1598,7 @@ export function FlowchartCanvas({
           side counterpart to the right-side zoom/scroll stack, by explicit
           request. Left side was empty before this; nothing existing to
           crowd. */}
-      <View className="absolute left-3 items-start gap-1.5" style={{ bottom: zoomBottomOffset + (bottomBarShowing ? BOTTOM_BAR_LIFT : 0), right: 64 }} pointerEvents="box-none">
+      <View className="absolute left-3 items-start gap-1.5" style={{ bottom: zoomBottomOffset + bottomLift, right: 64 }} pointerEvents="box-none">
         {/* Link types legend (toggle) — opens upwards above this stack. */}
         <LinkLegend />
         <Pressable

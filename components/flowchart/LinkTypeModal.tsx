@@ -4,7 +4,7 @@ import Svg, { Line } from 'react-native-svg';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text } from '../ui/AppText';
 import { FormModal } from '../ui/FormModal';
-import { LINK_COLOR, LINK_INFO, LINK_STYLE, LINK_TYPE_ORDER } from '../../lib/flowchart/linkTypes';
+import { explainLink, LINK_COLOR, LINK_INFO, LINK_STYLE, LINK_TYPE_ORDER } from '../../lib/flowchart/linkTypes';
 import type { DependencyType, RelationshipType } from '../../lib/flowchart/types';
 
 /** Small sample of a link's line style (used in this picker and the legend). */
@@ -39,7 +39,10 @@ export function LinkTypeModal({
   confirmLabel = 'Link tasks',
   fromName,
   toName,
+  onSwap,
 }: {
+  // When given, a swap button flips which task comes first (A -> B).
+  onSwap?: () => void;
   onSelect: (type: RelationshipType) => void;
   onCancel: () => void;
   initial?: RelationshipType;
@@ -57,9 +60,29 @@ export function LinkTypeModal({
         <View className="bg-white rounded-2xl p-4">
           <Text className="text-base font-bold text-neutral-900">{title}</Text>
           {fromName && toName ? (
-            <Text className="text-2xs text-neutral-500 mt-0.5 mb-3" numberOfLines={2}>
-              A: {fromName} → B: {toName}
-            </Text>
+            <View className="flex-row items-center gap-2 rounded-xl bg-neutral-100 px-3 py-2 mt-2 mb-3">
+              <View className="flex-1">
+                <Text testID="link-pair-from" className="text-xs font-semibold text-neutral-900" numberOfLines={2}>
+                  1 · {fromName}
+                </Text>
+                <Text className="text-2xs text-neutral-500 my-0.5">↓ then</Text>
+                <Text testID="link-pair-to" className="text-xs font-semibold text-neutral-900" numberOfLines={2}>
+                  2 · {toName}
+                </Text>
+              </View>
+              {onSwap ? (
+                <Pressable
+                  testID="link-swap"
+                  onPress={onSwap}
+                  accessibilityRole="button"
+                  accessibilityLabel="Swap which task comes first"
+                  className="items-center justify-center rounded-xl bg-white border border-neutral-200"
+                  style={{ width: 44, height: 44 }}
+                >
+                  <Ionicons name="swap-vertical" size={20} color="#0F1F33" />
+                </Pressable>
+              ) : null}
+            </View>
           ) : (
             <View className="mb-3" />
           )}
@@ -82,7 +105,11 @@ export function LinkTypeModal({
                       {t === 'PARALLEL' ? 'Parallel' : `${t} · ${LINK_INFO[t].name}`}
                     </Text>
                     <Text className="text-2xs text-neutral-500" numberOfLines={2}>
-                      {t === 'PARALLEL' ? 'Runs alongside — no blocking order between them' : LINK_INFO[t].meaning}
+                      {t === 'PARALLEL'
+                        ? 'Runs alongside — no blocking order between them'
+                        : fromName && toName
+                          ? explainLink(t, fromName, toName)
+                          : LINK_INFO[t].meaning}
                     </Text>
                   </View>
                   {t === 'PARALLEL' ? (
