@@ -129,12 +129,55 @@ async function pickSaveDirectory(): Promise<string> {
   return permissions.directoryUri;
 }
 
+// Flowchart 2 "Checklist Excel" (client request, 2026-11-14): one row per
+// task — Task Name, Department (blank if none), Planned Start, Actual Start —
+// then the five pre-checklist points as wide, tall EMPTY cells so the client
+// can write comments on the printout.
+export const CHECKLIST_POINTS = [
+  'Drawing Approval from Arch, Consultant',
+  'Client Approval',
+  'Procurement Status',
+  'Procurement Lead time',
+  'Other Dependencies',
+];
+
+export function buildChecklistWorkbook(tasks: FlowchartTask[]): XLSX.WorkBook {
+  const headers = ['S.No', 'Task Name', 'Department', 'Planned Start Date', 'Actual Start Date', ...CHECKLIST_POINTS];
+  const rows: XLSX.CellObject[][] = [...tasks].sort(byActualStart).map((t, i) => [
+    { t: 'n', v: i + 1 },
+    { t: 's', v: t.taskName.trim() },
+    { t: 's', v: t.workName && t.workName !== 'Unassigned' ? t.workName : '' },
+    dateCell(t.plannedStartDate),
+    dateCell(t.actualStartDate),
+    ...CHECKLIST_POINTS.map((): XLSX.CellObject => ({ t: 's', v: '' })),
+  ]);
+  const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows] as unknown as unknown[][], { cellDates: true });
+  // Big writing space: wide checklist columns and tall rows.
+  sheet['!cols'] = [{ wch: 6 }, { wch: 48 }, { wch: 18 }, { wch: 17 }, { wch: 17 }, ...CHECKLIST_POINTS.map(() => ({ wch: 34 }))];
+  sheet['!rows'] = [{ hpt: 30 }, ...rows.map(() => ({ hpt: 60 }))];
+  sheet['!freeze'] = { xSplit: 2, ySplit: 1 };
+  const book = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book, sheet, 'Checklist');
+  return book;
+}
+
+export async function exportChecklistExcel(tasks: FlowchartTask[], projectName: string): Promise<string> {
+  const book = buildChecklistWorkbook(tasks);
+  const stamp = new Date().toISOString().slice(0, 10);
+  const baseName = `${(projectName || 'Project').replace(/[^\w@ -]+/g, '').trim()} - Flowchart 2 Checklist ${stamp}`;
+  return saveWorkbook(book, baseName, 'Checklist (Excel)');
+}
+
 // Returns a short "saved to …" note ('' when the browser / share sheet
 // already made the outcome obvious).
 export async function exportFlowchartExcel(tasks: FlowchartTask[], projectName: string): Promise<string> {
   const book = await buildFlowchartWorkbook(tasks, projectName);
   const stamp = new Date().toISOString().slice(0, 10);
   const baseName = `${(projectName || 'Project').replace(/[^\w@ -]+/g, '').trim()} - Tasks ${stamp}`;
+  return saveWorkbook(book, baseName, 'Tasks (Excel)');
+}
+
+async function saveWorkbook(book: XLSX.WorkBook, baseName: string, dialogTitle: string): Promise<string> {
 
   if (Platform.OS === 'web') {
     XLSX.writeFile(book, `${baseName}.xlsx`, { bookType: 'xlsx', cellDates: true });
@@ -159,6 +202,6 @@ export async function exportFlowchartExcel(tasks: FlowchartTask[], projectName: 
   const uri = `${FileSystem.cacheDirectory}${baseName}.xlsx`;
   await FileSystem.writeAsStringAsync(uri, base64, { encoding: FileSystem.EncodingType.Base64 });
   if (!(await Sharing.isAvailableAsync())) throw new Error("Sharing isn't available on this device.");
-  await Sharing.shareAsync(uri, { mimeType: XLSX_MIME, dialogTitle: 'Tasks (Excel)', UTI: 'org.openxmlformats.spreadsheetml.sheet' });
+  await Sharing.shareAsync(uri, { mimeType: XLSX_MIME, dialogTitle, UTI: 'org.openxmlformats.spreadsheetml.sheet' });
   return '';
 }

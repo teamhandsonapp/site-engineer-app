@@ -15,7 +15,7 @@ import {
   type FlowchartSetKey,
 } from '../../lib/flowchart/data';
 import { exportFilteredTasksPdf, printFilteredTasks } from '../../lib/flowchart/filterExport';
-import { exportFlowchartExcel } from '../../lib/flowchart/excelExport';
+import { exportChecklistExcel, exportFlowchartExcel } from '../../lib/flowchart/excelExport';
 import { downloadFlowchartA3Pdf } from '../../lib/flowchart/a3Pdf';
 import { fetchMilestones, type Milestone } from '../../lib/flowchart/milestones';
 import { CANVAS_THEMES, type CanvasTheme } from '../../components/flowchart/GridBackground';
@@ -276,6 +276,21 @@ function FlowchartScreenContent() {
     }
   }
 
+  // Flowchart 2 "Checklist Excel": task, department, planned/actual start and
+  // five empty pre-checklist columns for the client's comments.
+  async function handleDownloadChecklistExcel() {
+    setExcelExporting(true);
+    setExcelNote(null);
+    try {
+      const note = await exportChecklistExcel(filteredTasks, projectName);
+      setExcelNote({ text: note || `Checklist Excel with ${filteredTasks.length} task${filteredTasks.length === 1 ? '' : 's'} downloaded`, isError: false });
+    } catch (err) {
+      setExcelNote({ text: `Could not create the checklist Excel: ${err instanceof Error ? err.message : String(err)}`, isError: true });
+    } finally {
+      setExcelExporting(false);
+    }
+  }
+
   // Flowchart 2 "Download A3 PDF": the board as cards + arrows on A3 portrait
   // pages (lib/flowchart/a3Pdf.ts). Uses whatever is shown (filter applies).
   async function handleDownloadA3Pdf() {
@@ -443,6 +458,24 @@ function FlowchartScreenContent() {
               <Text className="text-2xs text-neutral-500">{filteredTasks.length} task{filteredTasks.length === 1 ? '' : 's'}{hasActiveFilter ? ' (filtered)' : ''}</Text>
             </View>
           </Pressable>
+          {board === 'fc2' ? (
+            <Pressable
+              testID="flowchart-more-checklist-excel"
+              onPress={() => {
+                setMoreOpen(false);
+                void handleDownloadChecklistExcel();
+              }}
+              disabled={excelExporting || filteredTasks.length === 0}
+              className="flex-row items-center gap-3 border-t border-neutral-100"
+              style={{ minHeight: 52, opacity: excelExporting || filteredTasks.length === 0 ? 0.5 : 1 }}
+            >
+              <Ionicons name="checkbox-outline" size={20} color="#15803D" />
+              <View className="flex-1">
+                <Text className="text-sm font-semibold text-neutral-900">Download Checklist Excel</Text>
+                <Text className="text-2xs text-neutral-500">{filteredTasks.length} tasks · 5 checklist columns for comments</Text>
+              </View>
+            </Pressable>
+          ) : null}
           {board === 'fc2' ? (
             <Pressable
               testID="flowchart-more-a3pdf"
