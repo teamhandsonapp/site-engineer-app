@@ -40,8 +40,12 @@ export async function fetchAddableTasks(projectId: string, workId: string, exclu
     }));
 }
 
-/** Per department (works.id): how many tasks "+ Add task" would list. One query for the project. */
-export async function fetchAddableCounts(projectId: string, excludeIds: Set<string>): Promise<Map<string, number>> {
+/**
+ * Per department (works.id): its not-completed tasks (`total`) and how many of
+ * those "+ Add task" would list (`addable` — not already in today's DPR).
+ * One query for the project.
+ */
+export async function fetchAddableCounts(projectId: string, excludeIds: Set<string>): Promise<Map<string, { total: number; addable: number }>> {
   const { data, error } = await supabase
     .from('tasks')
     .select('id, work_id, works!inner(project_id)')
@@ -49,10 +53,13 @@ export async function fetchAddableCounts(projectId: string, excludeIds: Set<stri
     .is('deleted_at', null)
     .neq('status', 'completed');
   if (error) throw new Error(error.message);
-  const out = new Map<string, number>();
+  const out = new Map<string, { total: number; addable: number }>();
   for (const r of (data ?? []) as unknown as { id: string; work_id: string | null }[]) {
-    if (!r.work_id || excludeIds.has(r.id)) continue;
-    out.set(r.work_id, (out.get(r.work_id) ?? 0) + 1);
+    if (!r.work_id) continue;
+    const c = out.get(r.work_id) ?? { total: 0, addable: 0 };
+    c.total += 1;
+    if (!excludeIds.has(r.id)) c.addable += 1;
+    out.set(r.work_id, c);
   }
   return out;
 }

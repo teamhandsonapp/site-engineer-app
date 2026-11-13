@@ -72,7 +72,7 @@ export function DprAddTaskSheet({
   const [departments, setDepartments] = useState<Department[] | null>(null);
   const [dept, setDept] = useState<Department | null>(null);
   // Tasks each department could add (not completed, not in today's list).
-  const [counts, setCounts] = useState<Map<string, number> | null>(null);
+  const [counts, setCounts] = useState<Map<string, { total: number; addable: number }> | null>(null);
   const [tasks, setTasks] = useState<AddableTask[] | null>(null);
   const [query, setQuery] = useState('');
   const [task, setTask] = useState<AddableTask | null>(null);
@@ -104,8 +104,7 @@ export function DprAddTaskSheet({
     setSubmitError(null);
     fetchDepartments(projectId).then(setDepartments).catch(() => setDepartments([]));
     setCounts(null);
-    fetchAddableCounts(projectId, todayListIds).then(setCounts).catch(() => setCounts(null));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    fetchAddableCounts(projectId, new Set()).then(setCounts).catch(() => setCounts(null));
   }, [visible, projectId]);
 
   function pickDept(d: Department) {
@@ -113,7 +112,8 @@ export function DprAddTaskSheet({
     setTasks(null);
     setQuery('');
     setStep('task');
-    fetchAddableTasks(projectId, d.id, todayListIds).then(setTasks).catch(() => setTasks([]));
+    // Every open task of the department — not limited by today's DPR list (2026-11-13).
+    fetchAddableTasks(projectId, d.id, new Set()).then(setTasks).catch(() => setTasks([]));
   }
 
   function pickTask(t: AddableTask) {
@@ -214,7 +214,7 @@ export function DprAddTaskSheet({
             </Pressable>
           ) : null}
         </View>
-        <Text className="text-2xs text-neutral-500 mb-3">For a task that started on site before it shows in today’s DPR.</Text>
+        <Text className="text-2xs text-neutral-500 mb-3">Report progress on any open task of a department.</Text>
 
         {/* 1. Department */}
         {step === 'dept' ? (
@@ -228,8 +228,11 @@ export function DprAddTaskSheet({
                 departments={departments}
                 value={dept?.id ?? null}
                 onChange={(id) => pickDept(departments.find((d) => d.id === id) as Department)}
-                counts={counts ?? undefined}
-                countNoun="task"
+                countLabel={(id) => {
+                  if (!counts) return '…';
+                  const n = counts.get(id)?.total ?? 0;
+                  return `${n} task${n === 1 ? '' : 's'}`;
+                }}
               />
             </View>
           )
@@ -238,7 +241,7 @@ export function DprAddTaskSheet({
         {/* 2. Task */}
         {step === 'task' && dept ? (
           <View>
-            <Text className="text-xs font-semibold text-neutral-600 mb-2">{dept.name} · tasks not in today’s DPR</Text>
+            <Text className="text-xs font-semibold text-neutral-600 mb-2">{dept.name} · all open tasks</Text>
             <View className="flex-row items-center gap-2 border border-neutral-200 rounded-lg px-3 bg-white mb-2" style={{ minHeight: 42 }}>
               <Ionicons name="search" size={15} color="#6B7280" />
               <TextInput
@@ -253,7 +256,7 @@ export function DprAddTaskSheet({
             </View>
             {tasks === null ? <ActivityIndicator color={colors.navy} style={{ marginVertical: 16 }} /> : null}
             {tasks !== null && tasks.length === 0 ? (
-              <Text testID="dpr-add-no-tasks" className="text-sm text-neutral-500 py-3">No other tasks in this department</Text>
+              <Text testID="dpr-add-no-tasks" className="text-sm text-neutral-500 py-3">No open tasks in this department</Text>
             ) : null}
             <View className="rounded-xl bg-white border border-neutral-100 overflow-hidden">
               {shownTasks.map((t, i) => (
