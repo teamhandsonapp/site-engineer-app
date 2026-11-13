@@ -56,7 +56,10 @@ export function CreateTaskSheet({
   taskTypes,
   onClose,
   onCreated,
+  flowchartSet = null,
 }: {
+  // 'flowchart-2' on the Flowchart 2 tab — the new task stays on that board.
+  flowchartSet?: string | null;
   projectId: string;
   existingTasks: { id: string; taskId: string; taskName: string }[];
   taskTypes: TaskTypeOption[];
@@ -136,6 +139,7 @@ export function CreateTaskSheet({
         taskTypeId,
         plannedStartDate,
         dueDate,
+        flowchartSet: flowchartSet ?? null,
       });
 
       // Auto-seed the checklist so this behaves identically to a task

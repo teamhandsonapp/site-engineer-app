@@ -9,6 +9,8 @@ import {
   fetchFlowchartData,
   fetchFlowchartSet,
   FLOWCHART_SET_LABEL,
+  flowchartSetForBoard,
+  type FlowchartBoard,
   type FlowchartData,
   type FlowchartSetKey,
 } from '../../lib/flowchart/data';
@@ -90,6 +92,8 @@ function FlowchartScreenContent() {
   // (tasks.flowchart_set — soft-deleted, so nothing else in the app shows
   // them) view-only, never linked to DPR/checklists.
   const [taskSet, setTaskSet] = useState<FlowchartSetKey | null>(null);
+  // Which live board: the original flowchart or Flowchart 2.
+  const [board, setBoard] = useState<FlowchartBoard>('main');
   const [archive, setArchive] = useState<{ data: FlowchartData | null; loading: boolean; error: string | null }>({
     data: null,
     loading: false,
@@ -137,7 +141,7 @@ function FlowchartScreenContent() {
     try {
       setError(null);
       const [flowchartData, milestoneList] = await Promise.all([
-        withTimeout(fetchFlowchartData(projectId), FETCH_TIMEOUT_MS, "Couldn't reach the server — check your connection and try again."),
+        withTimeout(fetchFlowchartData(projectId, board), FETCH_TIMEOUT_MS, "Couldn't reach the server — check your connection and try again."),
         fetchMilestones(projectId).catch(() => []), // filter option list only — a courtesy, not load-bearing, same as FlowchartCanvas's own fetchMilestones call
       ]);
       setData(flowchartData);
@@ -145,7 +149,7 @@ function FlowchartScreenContent() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, []);
+  }, [board]);
 
   useEffect(() => {
     if (!selectedProjectId) {
@@ -278,6 +282,34 @@ function FlowchartScreenContent() {
           </Pressable>
         </View>
       )}
+
+      {/* Boards: the original flowchart and Flowchart 2 (site sheet 3 Nov 2026). */}
+      <View className="flex-row px-3 pt-2" style={{ backgroundColor: CANVAS_THEMES[canvasTheme].bg }}>
+        <View className="flex-row rounded-xl p-1" style={{ backgroundColor: isDark ? '#1F1F1F' : '#F1F3F6' }}>
+          {(['main', 'fc2'] as FlowchartBoard[]).map((b) => {
+            const active = board === b;
+            return (
+              <Pressable
+                key={b}
+                testID={`flowchart-board-${b}`}
+                onPress={() => {
+                  if (board === b) return;
+                  setTaskSet(null);
+                  setBoard(b);
+                }}
+                accessibilityRole="tab"
+                accessibilityState={{ selected: active }}
+                className="items-center justify-center rounded-lg px-4"
+                style={{ minHeight: 36, backgroundColor: active ? (isDark ? '#141414' : '#fff') : 'transparent' }}
+              >
+                <Text className="text-xs font-bold" style={{ color: active ? (isDark ? '#F5F5F5' : '#0F1F33') : '#9CA3AF' }}>
+                  {b === 'main' ? 'Flowchart' : 'Flowchart 2'}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
 
       {/* Top row (2026-11-13): Filter · ⋯ more (Excel) · 👁 old flowchart versions. */}
       <View
@@ -436,8 +468,9 @@ function FlowchartScreenContent() {
         // New Task button) with a centred hint over the empty grid.
         <View className="flex-1">
           <FlowchartCanvas
-            key="empty"
+            key={`empty-${board}`}
             projectId={selectedProjectId}
+            flowchartSet={flowchartSetForBoard(board)}
             initialTasks={data.tasks}
             seriesEdges={data.seriesEdges}
             parallelEdges={data.parallelEdges}
@@ -522,12 +555,13 @@ function FlowchartScreenContent() {
               // own position/zoom state from initialTasks ONCE at mount
               // (useMemo/useState with an empty dep array), so swapping the
               // prop alone would silently keep showing the old task set.
-              key={
+              key={`${board}-${
                 hasActiveFilter
                   ? `filtered-${floorFilter}-${deptFilter}-${roomFilter}-${milestoneFilter}-${dateMode}-${dateFrom}-${dateTo}`
                   : 'unfiltered'
-              }
+              }`}
               projectId={selectedProjectId}
+              flowchartSet={flowchartSetForBoard(board)}
               initialTasks={hasActiveFilter ? filteredTasks : data.tasks}
               seriesEdges={hasActiveFilter ? filteredSeriesEdges : data.seriesEdges}
               parallelEdges={hasActiveFilter ? filteredParallelEdges : data.parallelEdges}

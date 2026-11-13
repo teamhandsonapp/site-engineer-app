@@ -82,7 +82,10 @@ export function FlowchartCanvas({
   onCanvasThemeChange,
   onTaskCountChange,
   viewOnly = false,
+  flowchartSet = null,
 }: {
+  // Board new tasks are created on ('flowchart-2' for the Flowchart 2 tab).
+  flowchartSet?: string | null;
   projectId: string;
   initialTasks: FlowchartTask[];
   seriesEdges: FlowchartSeriesEdge[];
@@ -1771,6 +1774,7 @@ export function FlowchartCanvas({
       {createTaskOpen && (
         <CreateTaskSheet
           projectId={projectId}
+          flowchartSet={flowchartSet}
           existingTasks={tasks.map((t) => ({ id: t.id, taskId: t.taskId, taskName: t.taskName }))}
           taskTypes={taskTypes}
           onClose={() => setCreateTaskOpen(false)}

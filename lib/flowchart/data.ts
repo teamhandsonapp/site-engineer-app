@@ -30,7 +30,17 @@ interface RawTaskRow {
   room_type: string | null;
   floor_level: string | null;
   milestone_id: string | null;
+  flowchart_set: string | null;
   work: { id: string; name: string; code: string; accountability_type: AccountabilityType | null } | null;
+}
+
+// Live task boards: the original flowchart and "Flowchart 2" (tasks tagged
+// flowchart_set = 'flowchart-2', supabase/flowchart-2-paper-tasks.sql). Both
+// are real tasks (DPR, Gantt); each board only shows its own.
+export type FlowchartBoard = 'main' | 'fc2';
+export const FLOWCHART_2_SET = 'flowchart-2';
+export function flowchartSetForBoard(board: FlowchartBoard): string | null {
+  return board === 'fc2' ? FLOWCHART_2_SET : null;
 }
 
 interface RawDependencyRow {
@@ -58,7 +68,7 @@ const TASK_SELECT = `
   actual_start_date, actual_end_date, current_planned_start_date, current_due_date,
   cascade_delay_days,
   accountability_type, task_type_id, manual_position_x, manual_position_y,
-  hidden_from_flowchart, room_type, floor_level, milestone_id,
+  hidden_from_flowchart, room_type, floor_level, milestone_id, flowchart_set,
   work:works!inner(id, name, code, accountability_type, project_id)
 `;
 
@@ -111,7 +121,7 @@ export async function fetchTaskTypes(): Promise<TaskTypeOption[]> {
 // fetchProjectTimeline (lib/projectTimeline.ts) — RLS does the real project
 // scoping for all four (task_dependencies/task_parallel_links policies were
 // added specifically for this feature, see admin-web/supabase/rls-policies.sql).
-export async function fetchFlowchartData(projectId: string): Promise<FlowchartData> {
+export async function fetchFlowchartData(projectId: string, board: FlowchartBoard = 'main'): Promise<FlowchartData> {
   const [tasksRes, depsRes, parallelRes, typesRes] = await Promise.all([
     supabase
       .from('tasks')
@@ -138,7 +148,11 @@ export async function fetchFlowchartData(projectId: string): Promise<FlowchartDa
   // granular tasks are hidden here in favor of ~15 milestone-level tasks
   // meant just for this view (add-hidden-from-flowchart.sql).
   const rawTasks = ((tasksRes.data ?? []) as unknown as RawTaskRow[]).filter(
-    (t) => isPilotVisible(t.task_id, t.work?.code) && !t.hidden_from_flowchart
+    (t) =>
+      isPilotVisible(t.task_id, t.work?.code) &&
+      !t.hidden_from_flowchart &&
+      // Each board shows only its own tasks (Flowchart 2 = flowchart_set 'flowchart-2').
+      (board === 'fc2' ? t.flowchart_set === FLOWCHART_2_SET : t.flowchart_set !== FLOWCHART_2_SET)
   );
   const taskIds = new Set(rawTasks.map((t) => t.id));
 
@@ -417,6 +431,8 @@ export interface CreateTaskInput {
   taskTypeId: string;
   plannedStartDate: string;
   dueDate: string;
+  // 'flowchart-2' when created on the Flowchart 2 tab, so it stays on that board.
+  flowchartSet?: string | null;
 }
 
 // taskId generation matches admin-web's createTaskCore exactly
@@ -442,6 +458,7 @@ export async function createTask(input: CreateTaskInput): Promise<FlowchartTask>
       accountability_type: classifyAccountabilityType(input.taskName, input.description),
       work_id: input.workId,
       status: 'draft',
+      flowchart_set: input.flowchartSet ?? null,
       // Task.updatedAt is `@updatedAt` in Prisma — a client-side ORM
       // timestamp, not a Postgres column default. A direct PostgREST
       // insert (this call) bypasses Prisma entirely, so it must be
@@ -500,7 +517,7 @@ export async function duplicateTask(sourceTaskId: string): Promise<FlowchartTask
     .from('tasks')
     .select(`
       task_name, description, task_type_id, accountability_type, work_id,
-      hidden_from_flowchart, manual_position_x, manual_position_y,
+      hidden_from_flowchart, manual_position_x, manual_position_y, flowchart_set,
       work:works!inner(id, code)
     `)
     .eq('id', sourceTaskId)
@@ -529,6 +546,8 @@ export async function duplicateTask(sourceTaskId: string): Promise<FlowchartTask
       accountability_type: source.accountability_type,
       work_id: source.work_id,
       hidden_from_flowchart: source.hidden_from_flowchart,
+      // A copy stays on the same board (original flowchart or Flowchart 2).
+      flowchart_set: source.flowchart_set === FLOWCHART_2_SET ? FLOWCHART_2_SET : null,
       manual_position_x: manualPositionX,
       manual_position_y: manualPositionY,
       status: 'draft',
