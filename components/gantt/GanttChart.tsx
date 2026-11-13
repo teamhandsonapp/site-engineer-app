@@ -4,12 +4,9 @@ import { Text } from '../ui/AppText';
 import Animated, { useAnimatedRef, useAnimatedScrollHandler, scrollTo } from 'react-native-reanimated';
 import type { TimelineWork } from '../../lib/projectTimeline';
 import type { TaskDelayInfo } from '../../lib/gantt/delayEngine';
-import { getTaskBoxBackground } from '../../lib/flowchart/taskTypeColor';
 import { CategoryHealthBoxes } from './CategoryHealthBoxes';
-import { HatchStripe } from './HatchStripe';
 import { GanttDetailSheet } from './GanttDetailSheet';
 import {
-  BAR_HEIGHT,
   LABEL_WIDTH,
   MONTH_HEADER_HEIGHT,
   ROW_HEIGHT,
@@ -17,7 +14,6 @@ import {
   WEEK_HEADER_HEIGHT,
   WORK_HEADER_HEIGHT,
   ZOOM_PX_PER_DAY,
-  addDays,
   buildTimelineScale,
   computeTimelineRange,
   differenceInCalendarDays,
@@ -25,14 +21,49 @@ import {
   toLocalCalendarDate,
   type ZoomLevel,
 } from '../../lib/ganttLayout';
-import { getStatusColor } from '../../lib/statusColors';
-import { PROGRESS_STATUS_META, useProgressStatuses } from '../../lib/taskProgressStatus';
 import { EmptyState } from '../ui/EmptyState';
 
-// Planned bar sits above the Projected/Actual bar, touching (no gap) —
-// same geometry as admin-web's GanttTaskBars.tsx.
-const PLANNED_BAR_TOP = (ROW_HEIGHT - BAR_HEIGHT * 2) / 2;
-const PROJECTED_BAR_TOP = PLANNED_BAR_TOP + BAR_HEIGHT;
+// 2026-11-13: two labelled bars per task (baseline vs actual):
+//   top    dark "Planned  29 Oct – 4 Nov · 7d"   (planned start -> planned end)
+//   bottom red  "Actual   2 Nov – 11 Nov · 10d"  (actual start -> actual end, or -> today while running)
+// so the two lengths can be compared at a glance. Text sits inside the bar
+// when it fits, otherwise just to the right of it.
+const DUAL_BAR_HEIGHT = 18;
+const DUAL_BAR_GAP = 3;
+const PLANNED_BAR_TOP = (ROW_HEIGHT - DUAL_BAR_HEIGHT * 2 - DUAL_BAR_GAP) / 2;
+const ACTUAL_BAR_TOP = PLANNED_BAR_TOP + DUAL_BAR_HEIGHT + DUAL_BAR_GAP;
+const PLANNED_COLOR = '#1E293B';
+const ACTUAL_COLOR = '#DC2626';
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const dayLabel = (d: Date) => `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+
+function LabelledBar({ top, left, width, color, text }: { top: number; left: number; width: number; color: string; text: string }) {
+  // ~5.6px per character at 10px bold, plus padding.
+  const fits = width >= text.length * 5.6 + 12;
+  return (
+    <>
+      <View
+        className="absolute"
+        style={{ top, left, width, height: DUAL_BAR_HEIGHT, borderRadius: 4, backgroundColor: color, justifyContent: 'center', overflow: 'hidden' }}
+      >
+        {fits ? (
+          <Text numberOfLines={1} style={{ color: '#fff', fontSize: 10, fontWeight: '700', paddingHorizontal: 6 }}>
+            {text}
+          </Text>
+        ) : null}
+      </View>
+      {!fits ? (
+        <Text
+          numberOfLines={1}
+          className="absolute"
+          style={{ top: top + 2, left: left + width + 4, color, fontSize: 10, fontWeight: '700' }}
+        >
+          {text}
+        </Text>
+      ) : null}
+    </>
+  );
+}
 
 // The single most important usability property of this screen: the time
 // axis stays visible while scrolling down through trades, and the
@@ -69,8 +100,6 @@ export function GanttChart({
   const headerScrollRef = useAnimatedRef<Animated.ScrollView>();
   const labelScrollRef = useAnimatedRef<Animated.ScrollView>();
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
-  // Calculated status colours (same as DPR) for every task on the chart.
-  const progressById = useProgressStatuses(works.flatMap((w) => w.tasks.map((t) => t.id)));
 
   // RN's ScrollView only stretches to fill a flex parent along the cross
   // axis, not the scroll axis — a vertical ScrollView nested inside a
@@ -292,40 +321,33 @@ export function GanttChart({
                       );
                     }
 
-                    const typeColor = t.taskTypeId ? taskTypeColors[t.taskTypeId] ?? null : null;
-                    const boxMix = getTaskBoxBackground(typeColor, t.workAccountabilityType);
-
+                    // Planned (baseline) bar.
                     const plannedBar = t.plannedStartDate && t.dueDate
                       ? (() => {
                           const start = parseDateKey(t.plannedStartDate!);
                           const due = parseDateKey(t.dueDate!);
                           const left = scale.dateToX(start);
-                          return { left, width: Math.max(scale.dateToX(due) - left + scale.pxPerDay, 2) };
+                          const days = differenceInCalendarDays(due, start) + 1;
+                          return {
+                            left,
+                            width: Math.max(scale.dateToX(due) - left + scale.pxPerDay, 3),
+                            text: `Planned ${dayLabel(start)} – ${dayLabel(due)} · ${days}d`,
+                          };
                         })()
                       : null;
 
-                    const calc = progressById.get(t.id);
-                    const statusColor = calc ? PROGRESS_STATUS_META[calc.status].color : getStatusColor(t.status).dot;
-                    const projectedStart = toLocalCalendarDate(delay.projectedStart);
-                    const projectedFinish = toLocalCalendarDate(delay.projectedFinish);
-                    const dueDateObj = t.dueDate ? parseDateKey(t.dueDate) : null;
-                    const hasDelay = !!dueDateObj && delay.totalDelayDays > 0;
-
-                    const normalEnd = hasDelay && dueDateObj && dueDateObj < projectedFinish ? dueDateObj : projectedFinish;
-                    const normalSpanDays = differenceInCalendarDays(normalEnd, projectedStart) + 1;
-                    const hasNormalSegment = normalSpanDays > 0;
-                    const normalSegment = hasNormalSegment
-                      ? {
-                          left: scale.dateToX(projectedStart),
-                          width: Math.max(scale.dateToX(normalEnd) - scale.dateToX(projectedStart) + scale.pxPerDay, 2),
-                        }
-                      : null;
-                    const delaySegment = hasDelay
+                    // Actual bar: actual start -> actual end, or -> today while still running.
+                    const actualBar = t.actualStartDate
                       ? (() => {
-                          const start = hasNormalSegment ? addDays(normalEnd, 1) : projectedStart;
+                          const start = parseDateKey(t.actualStartDate!);
+                          const today = toLocalCalendarDate(new Date());
+                          const end = t.actualEndDate ? parseDateKey(t.actualEndDate) : today >= start ? today : start;
+                          const left = scale.dateToX(start);
+                          const days = differenceInCalendarDays(end, start) + 1;
                           return {
-                            left: scale.dateToX(start),
-                            width: Math.max(scale.dateToX(projectedFinish) - scale.dateToX(start) + scale.pxPerDay, 2),
+                            left,
+                            width: Math.max(scale.dateToX(end) - left + scale.pxPerDay, 3),
+                            text: `Actual ${dayLabel(start)} – ${t.actualEndDate ? dayLabel(end) : 'today'} · ${days}d`,
                           };
                         })()
                       : null;
@@ -338,28 +360,15 @@ export function GanttChart({
                         style={{ height: ROW_HEIGHT }}
                       >
                         {plannedBar && (
-                          <View
-                            className="absolute rounded-sm"
-                            style={{
-                              top: PLANNED_BAR_TOP, height: BAR_HEIGHT, left: plannedBar.left, width: plannedBar.width,
-                              backgroundColor: boxMix?.background ?? w.workColor, opacity: boxMix ? 1 : 0.55,
-                            }}
-                          />
+                          <LabelledBar top={PLANNED_BAR_TOP} left={plannedBar.left} width={plannedBar.width} color={PLANNED_COLOR} text={plannedBar.text} />
                         )}
-                        {normalSegment && (
-                          <View
-                            className="absolute rounded-sm"
-                            style={{
-                              top: PROJECTED_BAR_TOP, height: BAR_HEIGHT, left: normalSegment.left, width: normalSegment.width,
-                              backgroundColor: statusColor, opacity: 0.55,
-                            }}
-                          />
-                        )}
-                        {delaySegment && (
-                          <View className="absolute" style={{ top: PROJECTED_BAR_TOP, left: delaySegment.left }}>
-                            <HatchStripe width={delaySegment.width} height={BAR_HEIGHT} />
-                          </View>
-                        )}
+                        {actualBar ? (
+                          <LabelledBar top={ACTUAL_BAR_TOP} left={actualBar.left} width={actualBar.width} color={ACTUAL_COLOR} text={actualBar.text} />
+                        ) : plannedBar ? (
+                          <Text className="absolute" style={{ top: ACTUAL_BAR_TOP + 2, left: plannedBar.left, fontSize: 10, color: '#9CA3AF', fontStyle: 'italic' }}>
+                            Not started
+                          </Text>
+                        ) : null}
                         <CategoryHealthBoxes items={t.checklistItems} />
                       </Pressable>
                     );

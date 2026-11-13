@@ -6,7 +6,6 @@ import { appRoleFor, useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
 import { fetchProjectTimeline, type ProjectTimelineData } from '../../lib/projectTimeline';
 import { GanttChart } from '../../components/gantt/GanttChart';
-import { HatchStripe } from '../../components/gantt/HatchStripe';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ZOOM_LEVELS, type ZoomLevel } from '../../lib/ganttLayout';
 import { withTimeout } from '../../lib/withTimeout';
@@ -121,16 +120,12 @@ export default function GanttScreen() {
           </View>
           <View className="flex-row flex-wrap gap-2.5">
             <View className="flex-row items-center gap-1">
-              <View className="w-2.5 h-2 rounded-sm" style={{ backgroundColor: '#9CA3AF99' }} />
-              <Text className="text-2xs text-neutral-400">Planned</Text>
+              <View className="w-3.5 h-2.5 rounded-sm" style={{ backgroundColor: '#1E293B' }} />
+              <Text className="text-2xs text-neutral-500">Planned dates</Text>
             </View>
             <View className="flex-row items-center gap-1">
-              <View className="w-2.5 h-2 rounded-sm bg-emerald-500" />
-              <Text className="text-2xs text-neutral-400">Projected / actual</Text>
-            </View>
-            <View className="flex-row items-center gap-1">
-              <HatchStripe width={10} height={8} />
-              <Text className="text-2xs text-neutral-400">Behind plan</Text>
+              <View className="w-3.5 h-2.5 rounded-sm" style={{ backgroundColor: '#DC2626' }} />
+              <Text className="text-2xs text-neutral-500">Actual dates</Text>
             </View>
           </View>
         </View>
