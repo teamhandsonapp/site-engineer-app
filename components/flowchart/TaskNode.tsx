@@ -350,6 +350,17 @@ export function TaskNode({
           <Text numberOfLines={2} style={[font2xs, { color: textColor, opacity: 0.75, textAlign: 'center' }]}>{category}</Text>
         )}
         <Text className="font-semibold" numberOfLines={2} style={[fontXs, { color: textColor, textAlign: 'center' }]}>{action}</Text>
+        {/* Department under the name (2026-11-14) — change it from the task's
+            edit sheet (Department) and it shows here after saving. */}
+        {task.workName && task.workName !== 'Unassigned' ? (
+          <Text
+            testID={`flowchart-node-dept-${task.taskId}`}
+            numberOfLines={1}
+            style={[font2xs, { color: textColor, opacity: 0.7, textAlign: 'center', marginTop: 1 * nodeScale, fontStyle: 'italic' }]}
+          >
+            {task.workName}
+          </Text>
+        ) : null}
       </Animated.View>
     </GestureDetector>
   );
