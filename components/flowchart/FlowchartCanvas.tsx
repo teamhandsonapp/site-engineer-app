@@ -1241,6 +1241,31 @@ export function FlowchartCanvas({
                 milestone={task.milestoneId ? milestoneById.get(task.milestoneId) : null}
               />
             ))}
+            {/* Section titles (e.g. "West side") — a small navy pill just
+                above the card that starts the section (tasks.flowchart_section_title).
+                Drawn here, not inside TaskNode, because the card clips its overflow. */}
+            {renderedTasks
+              .filter((t) => t.sectionTitle)
+              .map((t) => (
+                <View
+                  key={`section-${t.id}`}
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    transform: [{ translateX: t.x }, { translateY: t.y - 34 * nodeScale }],
+                    paddingHorizontal: 9 * nodeScale,
+                    paddingVertical: 4 * nodeScale,
+                    borderRadius: 6,
+                    backgroundColor: '#0F1F33',
+                  }}
+                >
+                  <Text numberOfLines={1} style={{ fontSize: 13 * nodeScale, fontWeight: '800', color: '#fff' }}>
+                    {t.sectionTitle}
+                  </Text>
+                </View>
+              ))}
           </Animated.View>
         </GestureDetector>
       )}

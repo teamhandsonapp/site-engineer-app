@@ -60,6 +60,8 @@ export interface FlowchartTask {
   roomType: string | null;
   floorLevel: string | null;
   milestoneId: string | null;
+  // Small title drawn above this task's card (e.g. "West side"); null = none.
+  sectionTitle?: string | null;
 }
 
 // Series link (task_dependencies) — a real, enforced ordering relationship.
