@@ -347,6 +347,11 @@ export async function createDependency(
   return { id: data.id, taskId: data.task_id, dependsOnTaskId: data.depends_on_task_id, type: data.type };
 }
 
+export async function updateDependencyType(dependencyId: string, type: DependencyType): Promise<void> {
+  const { error } = await supabase.from('task_dependencies').update({ type }).eq('id', dependencyId);
+  if (error) throw new Error(error.message);
+}
+
 export async function createParallelLink(taskAId: string, taskBId: string): Promise<FlowchartParallelEdge> {
   const { data, error } = await supabase
     .from('task_parallel_links')

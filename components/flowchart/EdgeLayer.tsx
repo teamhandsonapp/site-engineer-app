@@ -4,7 +4,47 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
 import Svg, { Line, Polygon } from 'react-native-svg';
 import { NODE_WIDTH, NODE_HEIGHT } from '../../lib/flowchart/layout';
-import type { DependencyType, FlowchartParallelEdge, FlowchartSeriesEdge, PositionedTask } from '../../lib/flowchart/types';
+import { LINK_COLOR, LINK_STYLE, LINK_WARNING_COLOR, linkDateWarning } from '../../lib/flowchart/linkTypes';
+import type { FlowchartParallelEdge, FlowchartSeriesEdge, PositionedTask } from '../../lib/flowchart/types';
+
+// Label position: the line's middle, pushed off the line along its normal —
+// upwards for flat-ish lines, to the right for steep ones — then nudged
+// further out if it would land on a label already placed.
+function placeLabels(
+  lines: { id: string; from: { x: number; y: number }; to: { x: number; y: number } }[],
+  s: number
+): Map<string, { left: number; top: number }> {
+  const out = new Map<string, { left: number; top: number }>();
+  const placed: { x: number; y: number }[] = [];
+  const w = LABEL_W * s;
+  const h = LABEL_H * s;
+  for (const l of lines) {
+    const dx = l.to.x - l.from.x;
+    const dy = l.to.y - l.from.y;
+    const len = Math.hypot(dx, dy) || 1;
+    let nx = -dy / len;
+    let ny = dx / len;
+    // "Above" a flat-ish line; to the right of a steep one.
+    const flip = Math.abs(ny) >= 0.35 ? ny > 0 : nx < 0;
+    if (flip) {
+      nx = -nx;
+      ny = -ny;
+    }
+    const mx = (l.from.x + l.to.x) / 2;
+    const my = (l.from.y + l.to.y) / 2;
+    let d = LABEL_GAP * s + Math.max(w * Math.abs(nx), h * Math.abs(ny)) / 2;
+    let cx = mx + nx * d;
+    let cy = my + ny * d;
+    for (let i = 0; i < 6 && placed.some((p) => Math.abs(p.x - cx) < w && Math.abs(p.y - cy) < h); i++) {
+      d += h + 2 * s;
+      cx = mx + nx * d;
+      cy = my + ny * d;
+    }
+    placed.push({ x: cx, y: cy });
+    out.set(l.id, { left: cx - w / 2, top: cy - h / 2 });
+  }
+  return out;
+}
 
 // Same color convention as admin-web's TaskDependencyGraph.tsx — series
 // (FS/SS/FF/SF) is a real, enforced ordering relationship, so it's solid;
@@ -21,14 +61,12 @@ import type { DependencyType, FlowchartParallelEdge, FlowchartSeriesEdge, Positi
 // each get a distinct dash rhythm plus a slightly deeper shade. Mirrors
 // TemplateEdgeLayer.tsx's identical map exactly.
 const PARALLEL_EDGE_COLOR = '#2563EB';
-// See the series-badge render comment below for why this exists.
-const SERIES_BADGE_X_OFFSET = 34;
-const SERIES_TYPE_STYLE: Record<DependencyType, { color: string; dash?: string }> = {
-  FS: { color: '#F0A227' },
-  SS: { color: '#F0A227', dash: '5,4' },
-  FF: { color: '#C2660B', dash: '2,3' },
-  SF: { color: '#B45309', dash: '8,3,2,3' },
-};
+// 2026-11-13: line styles now come from lib/flowchart/linkTypes.ts —
+// FS solid, SS double, FF dotted, SF dashed (one colour; the style tells
+// them apart). Labels sit ABOVE the line's middle and dodge each other.
+const LABEL_W = 30;
+const LABEL_H = 18;
+const LABEL_GAP = 10;
 
 // nodeScale mirrors TaskNode's own prop (1 unless clampToSafeBitmapBudget
 // had to shrink an unusually large graph) — a line's endpoint must land on
@@ -108,13 +146,19 @@ export function EdgeLayer({
   // no midpoint marker at all before, since nothing needed to be tapped on
   // one yet).
   onEdgePress,
+  onSeriesLabelPress,
   nodeScale,
+  showLabels = true,
 }: {
   tasks: PositionedTask[];
   seriesEdges: FlowchartSeriesEdge[];
   parallelEdges: FlowchartParallelEdge[];
   onEdgePress?: (edgeId: string, kind: 'series' | 'parallel') => void;
+  // Series label taps (always on, locked or not): opens the link's info sheet.
+  onSeriesLabelPress?: (edgeId: string) => void;
   nodeScale: number;
+  // Off when zoomed far out — the line styles stay, the chips go.
+  showLabels?: boolean;
 }) {
   const byId = new Map(tasks.map((t) => [t.id, t]));
 
@@ -123,9 +167,10 @@ export function EdgeLayer({
       const from = byId.get(e.dependsOnTaskId); // prerequisite
       const to = byId.get(e.taskId); // blocked task
       if (!from || !to) return null;
-      return { edge: e, from: center(from, nodeScale), to: center(to, nodeScale) };
+      return { edge: e, from: center(from, nodeScale), to: center(to, nodeScale), warning: linkDateWarning(e.type, from, to) };
     })
     .filter((v): v is NonNullable<typeof v> => v !== null);
+  const labelPos = showLabels ? placeLabels(seriesLines.map((l) => ({ id: l.edge.id, from: l.from, to: l.to })), nodeScale) : new Map();
 
   const parallelLines = parallelEdges
     .map((e) => {
@@ -140,7 +185,24 @@ export function EdgeLayer({
     <>
       <Svg style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }}>
         {seriesLines.map(({ edge, from, to }) => {
-          const style = SERIES_TYPE_STYLE[edge.type];
+          const style = LINK_STYLE[edge.type];
+          if (style.double) {
+            // SS: two parallel lines, 2.5px either side of the centre line.
+            const len = Math.hypot(to.x - from.x, to.y - from.y) || 1;
+            const ox = (-(to.y - from.y) / len) * 2.5 * nodeScale;
+            const oy = ((to.x - from.x) / len) * 2.5 * nodeScale;
+            return [1, -1].map((k) => (
+              <Line
+                key={`${edge.id}-${k}`}
+                x1={from.x + ox * k}
+                y1={from.y + oy * k}
+                x2={to.x + ox * k}
+                y2={to.y + oy * k}
+                stroke={LINK_COLOR}
+                strokeWidth={1.5}
+              />
+            ));
+          }
           return (
             <Line
               key={edge.id}
@@ -148,14 +210,15 @@ export function EdgeLayer({
               y1={from.y}
               x2={to.x}
               y2={to.y}
-              stroke={style.color}
-              strokeWidth={2}
+              stroke={LINK_COLOR}
+              strokeWidth={style.cap === 'round' ? 3 : 2}
               strokeDasharray={style.dash}
+              strokeLinecap={style.cap ?? 'butt'}
             />
           );
         })}
         {seriesLines.map(({ edge, from, to }) => (
-          <Polygon key={`arrow-${edge.id}`} points={arrowheadPoints(from, to, nodeScale)} fill={SERIES_TYPE_STYLE[edge.type].color} />
+          <Polygon key={`arrow-${edge.id}`} points={arrowheadPoints(from, to, nodeScale)} fill={LINK_COLOR} />
         ))}
         {parallelLines.map(({ edge, from, to }) => (
           <Line
@@ -191,13 +254,18 @@ export function EdgeLayer({
           near each box's TOP, not at box-center height where a horizontal
           line's midpoint falls), so the same fixed nudge is harmless there
           too, just a small, deliberate sideways shift off the line. */}
-      {seriesLines.map(({ edge, from, to }) => {
+      {seriesLines.map(({ edge, warning }) => {
+        const pos = labelPos.get(edge.id);
+        if (!pos) return null;
+        const tint = warning ? LINK_WARNING_COLOR : LINK_COLOR;
         const style = {
           position: 'absolute' as const,
-          left: (from.x + to.x) / 2 - 14 * nodeScale + SERIES_BADGE_X_OFFSET * nodeScale,
-          top: (from.y + to.y) / 2 - 12 * nodeScale,
-          minWidth: 28 * nodeScale,
+          left: pos.left,
+          top: pos.top,
+          width: LABEL_W * nodeScale,
+          height: LABEL_H * nodeScale,
           alignItems: 'center' as const,
+          justifyContent: 'center' as const,
         };
         const content = (
           // text-2xs (10px) is this app's smallest defined size — still
@@ -210,15 +278,29 @@ export function EdgeLayer({
           // Scaled by nodeScale like every dimension in this file, matching
           // TaskNode's own fix for the same "fixed-size text on a shrunk
           // graph overlaps its neighbors" bug.
-          <View className="bg-white rounded" style={{ paddingHorizontal: 6 * nodeScale, paddingVertical: 2 * nodeScale, borderWidth: 1.5, borderColor: SERIES_TYPE_STYLE[edge.type].color }}>
-            <Text className="font-bold text-neutral-900" style={{ fontSize: 9 * nodeScale, lineHeight: 12 * nodeScale }}>{edge.type}</Text>
+          <View
+            testID={`link-label-${edge.type}`}
+            className="rounded"
+            style={{
+              paddingHorizontal: 4 * nodeScale,
+              borderWidth: 1.5,
+              borderColor: tint,
+              backgroundColor: warning ? '#FEF2F2' : '#FFFFFF',
+              height: LABEL_H * nodeScale,
+              justifyContent: 'center',
+            }}
+          >
+            <Text style={{ fontSize: 10 * nodeScale, lineHeight: 13 * nodeScale, fontWeight: '700', color: warning ? LINK_WARNING_COLOR : '#111827' }}>
+              {warning ? `${edge.type}!` : edge.type}
+            </Text>
           </View>
         );
-        if (!onEdgePress) {
+        const press = onSeriesLabelPress ?? (onEdgePress ? (id: string) => onEdgePress(id, 'series') : null);
+        if (!press) {
           return <View key={`badge-${edge.id}`} pointerEvents="none" style={style}>{content}</View>;
         }
         return (
-          <EdgeBadge key={`badge-${edge.id}`} onPress={() => onEdgePress(edge.id, 'series')} style={style}>
+          <EdgeBadge key={`badge-${edge.id}`} onPress={() => press(edge.id)} style={style}>
             {content}
           </EdgeBadge>
         );

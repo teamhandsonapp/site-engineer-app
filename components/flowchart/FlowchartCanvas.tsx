@@ -30,8 +30,12 @@ import {
   fetchTaskById,
   pushTasksUrgent,
   seedDependencyItems,
+  updateDependencyType,
   updateTaskPosition,
 } from '../../lib/flowchart/data';
+import { linkProblem } from '../../lib/flowchart/linkTypes';
+import { LinkInfoSheet } from './LinkInfoSheet';
+import { LinkLegend } from './LinkLegend';
 import { getTaskTypeColors } from '../../lib/flowchart/taskTypeColor';
 import {
   assignTasksToMilestone,
@@ -52,6 +56,7 @@ import {
   type UndoableAction,
 } from '../../lib/flowchart/undo';
 import type {
+  DependencyType,
   FlowchartParallelEdge,
   FlowchartSeriesEdge,
   FlowchartTask,
@@ -64,6 +69,8 @@ import type {
 // Second toolbar row (New Task / Select / Create Milestone) sits under
 // the Locked/Editing row at top-3.
 const TOOLBAR_ROW2_TOP = 60;
+// Link labels (FS/SS/FF/SF chips) hide below this zoom; the line styles stay.
+const LABEL_MIN_ZOOM = 0.45;
 export function FlowchartCanvas({
   projectId,
   initialTasks,
@@ -183,6 +190,9 @@ export function FlowchartCanvas({
   const [detailInitialTab, setDetailInitialTab] = useState<'edit' | 'subtasks' | 'prerequisites'>('edit');
   const [actionMenuTaskId, setActionMenuTaskId] = useState<string | null>(null);
   const [edgeDeleteConfirmId, setEdgeDeleteConfirmId] = useState<string | null>(null);
+  // Series link whose info sheet is open / whose type is being changed.
+  const [linkInfoId, setLinkInfoId] = useState<string | null>(null);
+  const [changeTypeEdgeId, setChangeTypeEdgeId] = useState<string | null>(null);
   const [deleteTaskConfirmId, setDeleteTaskConfirmId] = useState<string | null>(null);
   const [deletingTask, setDeletingTask] = useState(false);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
@@ -466,6 +476,15 @@ export function FlowchartCanvas({
         }
         return;
       }
+      case 'changeSeriesLinkType': {
+        const edge = seriesEdges.find((e) => e.taskId === action.taskId && e.dependsOnTaskId === action.dependsOnTaskId);
+        if (edge) {
+          const type = isUndo ? action.before : action.after;
+          await updateDependencyType(edge.id, type);
+          setSeriesEdges((prev) => prev.map((e) => (e.id === edge.id ? { ...e, type } : e)));
+        }
+        return;
+      }
       case 'deleteParallelLink': {
         if (isUndo) {
           const edge = await createParallelLink(action.taskAId, action.taskBId);
@@ -553,9 +572,12 @@ export function FlowchartCanvas({
   // Plain React state (not a shared value) since it only needs to update
   // once per gesture SETTLE, not every frame.
   const [gridArea, setGridArea] = useState<GridArea | null>(null);
+  // Zoom level as of the last settled gesture — link labels hide when zoomed far out.
+  const [labelZoom, setLabelZoom] = useState(1);
   function recomputeGridArea() {
     if (!containerSize) return;
     setGridArea(computeGridArea(scale.value, translateX.value, translateY.value, containerSize.width, containerSize.height));
+    setLabelZoom(scale.value);
   }
 
   // Viewport culling — a real project's flowchart (311 tasks, confirmed
@@ -759,6 +781,7 @@ export function FlowchartCanvas({
     if (pendingSourceId) {
       if (pendingSourceId === taskId) {
         setPendingSourceId(null); // tapping the same node again cancels
+        setLinkError("A task can't be linked to itself — linking cancelled.");
         return;
       }
       setLinkPromptTargetId(taskId);
@@ -792,9 +815,11 @@ export function FlowchartCanvas({
         return;
       }
     } else {
-      const exists = seriesEdges.some((e) => e.taskId === target && e.dependsOnTaskId === source);
-      if (exists) {
-        setLinkError('This dependency already exists.');
+      // Self, duplicate (either direction) and circular links are refused
+      // with a plain message (the database refuses them too).
+      const problem = linkProblem(seriesEdges, source, target);
+      if (problem) {
+        setLinkError(problem);
         return;
       }
     }
@@ -840,7 +865,22 @@ export function FlowchartCanvas({
           setLinkError(`Couldn't delete the link — ${err instanceof Error ? err.message : 'check your connection'}. It was restored.`);
         });
     } else {
-      setEdgeDeleteConfirmId(edgeId);
+      setLinkInfoId(edgeId);
+    }
+  }
+
+  // Change an existing series link's type (from its info sheet).
+  async function changeLinkType(edgeId: string, type: DependencyType) {
+    const edge = seriesEdges.find((e) => e.id === edgeId);
+    setChangeTypeEdgeId(null);
+    if (!edge || edge.type === type) return;
+    setSeriesEdges((prev) => prev.map((e) => (e.id === edgeId ? { ...e, type } : e)));
+    try {
+      await updateDependencyType(edgeId, type);
+      pushHistory({ type: 'changeSeriesLinkType', taskId: edge.taskId, dependsOnTaskId: edge.dependsOnTaskId, before: edge.type, after: type });
+    } catch (err) {
+      setSeriesEdges((prev) => prev.map((e) => (e.id === edgeId ? { ...e, type: edge.type } : e)));
+      setLinkError(`Couldn't change the link type — ${err instanceof Error ? err.message : 'check your connection'}.`);
     }
   }
 
@@ -1126,6 +1166,10 @@ export function FlowchartCanvas({
   // just below however many toolbar rows are showing.
   const overlayTop = editable ? TOOLBAR_ROW2_TOP + 48 : canEdit ? 60 : 12;
 
+  const linkInfoEdge = linkInfoId ? seriesEdges.find((e) => e.id === linkInfoId) ?? null : null;
+  const linkInfoFrom = linkInfoEdge ? tasks.find((t) => t.id === linkInfoEdge.dependsOnTaskId) ?? null : null;
+  const linkInfoTo = linkInfoEdge ? tasks.find((t) => t.id === linkInfoEdge.taskId) ?? null : null;
+  const changeTypeEdge = changeTypeEdgeId ? seriesEdges.find((e) => e.id === changeTypeEdgeId) ?? null : null;
   const detailTask = tasks.find((t) => t.id === detailTaskId) ?? null;
   const actionMenuTask = tasks.find((t) => t.id === actionMenuTaskId) ?? null;
   const deleteTaskTarget = tasks.find((t) => t.id === deleteTaskConfirmId) ?? null;
@@ -1149,7 +1193,9 @@ export function FlowchartCanvas({
               seriesEdges={seriesEdges}
               parallelEdges={parallelEdges}
               onEdgePress={editable ? handleEdgePress : undefined}
+              onSeriesLabelPress={setLinkInfoId}
               nodeScale={nodeScale}
+              showLabels={labelZoom >= LABEL_MIN_ZOOM}
             />
             {renderedTasks.map((task) => (
               <TaskNode
@@ -1479,7 +1525,9 @@ export function FlowchartCanvas({
           side counterpart to the right-side zoom/scroll stack, by explicit
           request. Left side was empty before this; nothing existing to
           crowd. */}
-      <View className="absolute left-3 items-start gap-1.5" style={{ bottom: zoomBottomOffset + (bottomBarShowing ? BOTTOM_BAR_LIFT : 0) }}>
+      <View className="absolute left-3 items-start gap-1.5" style={{ bottom: zoomBottomOffset + (bottomBarShowing ? BOTTOM_BAR_LIFT : 0), right: 64 }} pointerEvents="box-none">
+        {/* Link types legend (toggle) — opens upwards above this stack. */}
+        <LinkLegend />
         <Pressable
           onPress={() => setSearchOpen(true)}
           className="w-10 h-10 rounded-full bg-white border border-neutral-200 items-center justify-center"
@@ -1559,6 +1607,40 @@ export function FlowchartCanvas({
         <LinkTypeModal
           onSelect={handleLinkTypeSelected}
           onCancel={() => setLinkPromptTargetId(null)}
+          fromName={tasks.find((t) => t.id === pendingSourceId)?.taskName}
+          toName={tasks.find((t) => t.id === linkPromptTargetId)?.taskName}
+        />
+      )}
+
+      {/* Link info: plain-English meaning, date warning, Change type / Delete. */}
+      {linkInfoEdge && linkInfoFrom && linkInfoTo && (
+        <LinkInfoSheet
+          edge={linkInfoEdge}
+          from={linkInfoFrom}
+          to={linkInfoTo}
+          editable={editable}
+          onClose={() => setLinkInfoId(null)}
+          onChangeType={() => {
+            setLinkInfoId(null);
+            setChangeTypeEdgeId(linkInfoEdge.id);
+          }}
+          onDelete={() => {
+            setLinkInfoId(null);
+            setEdgeDeleteConfirmId(linkInfoEdge.id);
+          }}
+        />
+      )}
+
+      {changeTypeEdge && (
+        <LinkTypeModal
+          title="Change link type"
+          confirmLabel="Change type"
+          initial={changeTypeEdge.type}
+          allowParallel={false}
+          fromName={tasks.find((t) => t.id === changeTypeEdge.dependsOnTaskId)?.taskName}
+          toName={tasks.find((t) => t.id === changeTypeEdge.taskId)?.taskName}
+          onSelect={(type) => void changeLinkType(changeTypeEdge.id, type as DependencyType)}
+          onCancel={() => setChangeTypeEdgeId(null)}
         />
       )}
 

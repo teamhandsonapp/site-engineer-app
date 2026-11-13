@@ -1,0 +1,47 @@
+# Create each of the 4 link types between TEST tasks, check each label, then
+# delete them again so the test data is left clean.
+appId: com.pmcportal.mobile
+---
+- runFlow: _open-flowchart-editing.yaml
+- runFlow:
+    file: _link-two-tasks.yaml
+    env: { FROM: Maestro A, TO: Maestro B, TYPE: FS }
+- assertVisible:
+    id: link-label-FS
+- runFlow:
+    file: _link-two-tasks.yaml
+    env: { FROM: Maestro B, TO: Maestro C, TYPE: SS }
+- assertVisible:
+    id: link-label-SS
+# Change those two to FF and SF via the label sheet.
+- tapOn:
+    id: link-label-FS
+- tapOn:
+    id: link-info-change-type
+- tapOn:
+    id: link-type-FF
+- tapOn:
+    id: link-type-confirm
+- assertVisible:
+    id: link-label-FF
+- tapOn:
+    id: link-label-SS
+- tapOn:
+    id: link-info-change-type
+- tapOn:
+    id: link-type-SF
+- tapOn:
+    id: link-type-confirm
+- assertVisible:
+    id: link-label-SF
+# Clean up.
+- tapOn:
+    id: link-label-FF
+- tapOn:
+    id: link-info-delete
+- tapOn: Remove
+- tapOn:
+    id: link-label-SF
+- tapOn:
+    id: link-info-delete
+- tapOn: Remove

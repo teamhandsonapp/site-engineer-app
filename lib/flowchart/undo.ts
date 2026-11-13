@@ -228,4 +228,5 @@ export type UndoableAction =
   | { type: 'createSeriesLink'; taskId: string; dependsOnTaskId: string; linkType: DependencyType }
   | { type: 'createParallelLink'; taskAId: string; taskBId: string }
   | { type: 'deleteSeriesLink'; taskId: string; dependsOnTaskId: string; linkType: DependencyType }
+  | { type: 'changeSeriesLinkType'; taskId: string; dependsOnTaskId: string; before: DependencyType; after: DependencyType }
   | { type: 'deleteParallelLink'; taskAId: string; taskBId: string };

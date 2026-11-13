@@ -2,5 +2,7 @@
 # only run from inside other flows, never on their own.
 flows:
   - "mom/*"
+  - "flowchart/*"
+  - "dpr/*"
 excludeTags:
   - subflow
