@@ -244,11 +244,13 @@ export function DepartmentTiles({
   value,
   onChange,
   counts,
+  countNoun = 'file',
 }: {
   departments: Department[];
   value: string | null;
   onChange: (id: string) => void;
   counts?: Map<string, number>;
+  countNoun?: string; // e.g. 'file' -> "3 files", 'task' -> "1 task"
 }) {
   return (
     <View className="flex-row flex-wrap" style={{ gap: space.sm }}>
@@ -279,7 +281,12 @@ export function DepartmentTiles({
               </Text>
               {selected ? <Ionicons name="checkmark-circle" size={16} color={d.color} /> : null}
             </View>
-            {counts ? <Text className="text-2xs text-neutral-500 mt-1">{counts.get(d.id) ?? 0} files</Text> : null}
+            {counts ? (
+              <Text className="text-2xs text-neutral-500 mt-1">
+                {counts.get(d.id) ?? 0} {countNoun}
+                {(counts.get(d.id) ?? 0) === 1 ? '' : 's'}
+              </Text>
+            ) : null}
           </Pressable>
         );
       })}

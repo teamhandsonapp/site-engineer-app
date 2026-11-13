@@ -18,6 +18,7 @@ import { fetchDepartments, type Department } from '../../lib/departments';
 import type { DprDependencyCategory } from '../../lib/dprEntries';
 import {
   delayReasonNeeded,
+  fetchAddableCounts,
   fetchAddableTasks,
   fetchReportedPercent,
   fetchUnfinishedPredecessors,
@@ -70,6 +71,8 @@ export function DprAddTaskSheet({
   const [step, setStep] = useState<Step>('dept');
   const [departments, setDepartments] = useState<Department[] | null>(null);
   const [dept, setDept] = useState<Department | null>(null);
+  // Tasks each department could add (not completed, not in today's list).
+  const [counts, setCounts] = useState<Map<string, number> | null>(null);
   const [tasks, setTasks] = useState<AddableTask[] | null>(null);
   const [query, setQuery] = useState('');
   const [task, setTask] = useState<AddableTask | null>(null);
@@ -100,6 +103,9 @@ export function DprAddTaskSheet({
     setErrors({});
     setSubmitError(null);
     fetchDepartments(projectId).then(setDepartments).catch(() => setDepartments([]));
+    setCounts(null);
+    fetchAddableCounts(projectId, todayListIds).then(setCounts).catch(() => setCounts(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, projectId]);
 
   function pickDept(d: Department) {
@@ -218,7 +224,13 @@ export function DprAddTaskSheet({
             <Text className="text-sm text-neutral-500">This project has no departments yet.</Text>
           ) : (
             <View testID="dpr-add-departments">
-              <DepartmentTiles departments={departments} value={dept?.id ?? null} onChange={(id) => pickDept(departments.find((d) => d.id === id) as Department)} />
+              <DepartmentTiles
+                departments={departments}
+                value={dept?.id ?? null}
+                onChange={(id) => pickDept(departments.find((d) => d.id === id) as Department)}
+                counts={counts ?? undefined}
+                countNoun="task"
+              />
             </View>
           )
         ) : null}

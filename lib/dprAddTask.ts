@@ -40,6 +40,23 @@ export async function fetchAddableTasks(projectId: string, workId: string, exclu
     }));
 }
 
+/** Per department (works.id): how many tasks "+ Add task" would list. One query for the project. */
+export async function fetchAddableCounts(projectId: string, excludeIds: Set<string>): Promise<Map<string, number>> {
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('id, work_id, works!inner(project_id)')
+    .eq('works.project_id', projectId)
+    .is('deleted_at', null)
+    .neq('status', 'completed');
+  if (error) throw new Error(error.message);
+  const out = new Map<string, number>();
+  for (const r of (data ?? []) as unknown as { id: string; work_id: string | null }[]) {
+    if (!r.work_id || excludeIds.has(r.id)) continue;
+    out.set(r.work_id, (out.get(r.work_id) ?? 0) + 1);
+  }
+  return out;
+}
+
 /** Cumulative % already reported for the task (sum of its DPR rows, max 100). */
 export async function fetchReportedPercent(taskId: string): Promise<number> {
   const { data, error } = await supabase.from('dpr_entries').select('percent_complete').eq('task_id', taskId);
