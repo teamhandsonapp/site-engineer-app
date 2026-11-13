@@ -69,7 +69,11 @@ const HIDDEN_ROUTES = new Set(['gantt', 'flowchart', 'task-list', 'critical-aler
 
 // Top-level rows that carry collapsible sub-items (parent route -> children).
 const SUBMENUS: Record<string, { route: string; label: string; params?: { tab: string }; adminOnly?: boolean }[]> = {
-  'daily-updates': [{ route: 'dpr-edit-requests', label: 'Edit Requests' }],
+  // PR (Progress Report) opens the DPR screen on its PR tab.
+  'daily-updates': [
+    { route: 'daily-updates', label: 'PR', params: { tab: 'pr' } },
+    { route: 'dpr-edit-requests', label: 'Edit Requests', adminOnly: true },
+  ],
   settings: [{ route: 'devices', label: 'Devices & Logins' }],
   // MoM's three tabs (one screen, opened on the matching tab).
   mom: [
@@ -296,10 +300,9 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
     return true;
   }
 
-  // Edit Requests under DPR is admin only, so DPR only counts as a dropdown
-  // menu for admin; for everyone else it's a plain single row.
+  // DPR always has the PR sub-item; Edit Requests under it stays admin only (adminOnly).
   function routeHasSubmenu(name: string): boolean {
-    return SUBMENUS[name] != null && (name !== 'daily-updates' || isAdmin);
+    return SUBMENUS[name] != null;
   }
 
   function renderRoute({ route, index }: { route: (typeof state.routes)[number]; index: number }) {
@@ -312,7 +315,9 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
             // special-casing. A client's Home (ClientHome) was already
             // unaffected either way.
             const label = (options.drawerLabel ?? options.title ?? route.name) as string;
-            const focused = state.index === index;
+            // On DPR's PR tab the PR sub-item is the highlighted row, not DPR itself.
+            const onPrTab = route.name === 'daily-updates' && (route.params as { tab?: string } | undefined)?.tab === 'pr';
+            const focused = state.index === index && !onPrTab;
             const icon = ICONS[route.name] ?? 'ellipse-outline';
             // Edit Requests under DPR (admin only); Leave Log under
             // Attendance (team-attendance is already admin/manager only).
@@ -327,7 +332,14 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
                 <Pressable
                   // Files from the menu always starts at its project picker
                   // (a project dashboard opens it with a projectId instead).
-                  onPress={() => (route.name === 'files' ? navigation.navigate('files', { projectId: undefined }) : navigation.navigate(route.name))}
+                  // DPR itself always opens on Today (its PR sub-item opens the PR tab).
+                  onPress={() =>
+                    route.name === 'files'
+                      ? navigation.navigate('files', { projectId: undefined })
+                      : route.name === 'daily-updates'
+                        ? navigation.navigate('daily-updates', { tab: 'today' })
+                        : navigation.navigate(route.name)
+                  }
                   className="flex-row items-center gap-3 rounded-xl px-3"
                   style={{ minHeight: 44, backgroundColor: focused ? 'rgba(240,162,39,0.14)' : 'transparent' }}
                 >
@@ -355,7 +367,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
 
                 {submenuOpen &&
                   submenu?.filter((child) => !child.adminOnly || isAdmin).map((child) => {
-                    const focusedTab = (state.routes[state.index]?.params as { tab?: string } | undefined)?.tab ?? 'meeting';
+                    const focusedTab = (state.routes[state.index]?.params as { tab?: string } | undefined)?.tab ?? (child.route === 'mom' ? 'meeting' : '');
                     const active = focusedRouteName === child.route && (!child.params || child.params.tab === focusedTab);
                     return (
                       <Pressable

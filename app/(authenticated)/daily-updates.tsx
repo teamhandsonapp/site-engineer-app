@@ -10,7 +10,7 @@ import { DprTaskRow } from '../../components/dpr/DprTaskRow';
 import { DprHistorySection } from '../../components/dpr/DprHistorySection';
 import { DprWorkersAttendance } from '../../components/workforce/DprWorkersAttendance';
 import { DateField } from '../../components/ui/DateField';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { formatCardDateRange } from '../../lib/flowchart/delay';
 import {
@@ -154,7 +154,17 @@ export default function DailyUpdatesLandingScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [timeScope, setTimeScope] = useState<TimeScope>('today');
+  // ?tab=pr from the side menu's DPR › PR sub-item (and ?tab=today from DPR itself).
+  const params = useLocalSearchParams<{ tab?: string }>();
+  const [timeScope, setTimeScopeState] = useState<TimeScope>(() => (TIME_SCOPE_ORDER.includes(params.tab as TimeScope) ? (params.tab as TimeScope) : 'today'));
+  useEffect(() => {
+    if (TIME_SCOPE_ORDER.includes(params.tab as TimeScope)) setTimeScopeState(params.tab as TimeScope);
+  }, [params.tab]);
+  // Keep the URL in step so the menu highlights the right row.
+  const setTimeScope = (scope: TimeScope) => {
+    setTimeScopeState(scope);
+    router.setParams({ tab: scope });
+  };
   // PR tab date range (defaults to this calendar week).
   const [prFrom, setPrFrom] = useState(weekStartKey);
   const [prTo, setPrTo] = useState(weekEndKey);
