@@ -92,6 +92,7 @@ export async function submitTaskFromSite(input: {
   actualEnd: string | null;
   percent: number;
   reasons: DprDependencyCategory[];
+  comments: Partial<Record<DprDependencyCategory, string>>;
   note: string;
   userId: string | null;
 }): Promise<void> {
@@ -103,6 +104,7 @@ export async function submitTaskFromSite(input: {
     p_reasons: input.reasons,
     p_note: input.note,
     p_submitted_by: input.userId,
+    p_comments: input.comments,
   });
   if (error) {
     if (/function .*dpr_add_task_from_site.* does not exist|Could not find the function/i.test(error.message)) {

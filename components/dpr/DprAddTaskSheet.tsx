@@ -15,7 +15,14 @@ import { FormModal } from '../ui/FormModal';
 import { useToast } from '../ui/Toast';
 import { colors, radius, space } from '../../lib/theme';
 import { fetchDepartments, type Department } from '../../lib/departments';
-import type { DprDependencyCategory } from '../../lib/dprEntries';
+import {
+  DPR_DEPENDENCY_CATEGORIES,
+  DPR_DEPENDENCY_LABEL,
+  fetchChecklistProgress,
+  inPreconstruction,
+  type DprDependencyCategory,
+} from '../../lib/dprEntries';
+import { markAllPrerequisitesIssued } from '../../lib/progressReport';
 import {
   delayReasonNeeded,
   fetchAddableCounts,
@@ -32,14 +39,8 @@ import { TaskWorkersAttendance, type TaskAttendanceState } from '../workforce/Ta
 type Step = 'dept' | 'task' | 'progress' | 'summary';
 const STEPS: Step[] = ['dept', 'task', 'progress', 'summary'];
 const STEP_TITLE: Record<Step, string> = { dept: 'Department', task: 'Task', progress: 'Progress', summary: 'Review & submit' };
-const REASONS: { key: DprDependencyCategory; label: string }[] = [
-  { key: 'architect', label: 'Architect' },
-  { key: 'client', label: 'Client' },
-  { key: 'consultant', label: 'Consultant' },
-  { key: 'contractor', label: 'Contractor' },
-  { key: 'vendor', label: 'Vendor' },
-  { key: 'other', label: 'Other' },
-];
+// Same reasons + labels as DPR / PR.
+const REASONS: { key: DprDependencyCategory; label: string }[] = DPR_DEPENDENCY_CATEGORIES.map((key) => ({ key, label: DPR_DEPENDENCY_LABEL[key] }));
 const STATUS_COLOR: Record<string, string> = { in_progress: '#1D4ED8', on_hold: '#B45309', blocked: '#DC2626', ready: '#15803D', draft: '#6B7280' };
 const TAG_COLOR = { early: '#15803D', on_time: '#1D4ED8', delayed: '#DC2626' } as const;
 
@@ -82,7 +83,12 @@ export function DprAddTaskSheet({
   const [actualEnd, setActualEnd] = useState<string | null>(null);
   const [percentText, setPercentText] = useState('');
   const [reasons, setReasons] = useState<DprDependencyCategory[]>([]);
+  const [comments, setComments] = useState<Partial<Record<DprDependencyCategory, string>>>({});
   const [note, setNote] = useState('');
+  // Pre-construction checklist of the picked task (same "Mark all as Issued" as PR).
+  const [checklist, setChecklist] = useState<{ done: number; total: number } | null>(null);
+  const [confirmIssue, setConfirmIssue] = useState(false);
+  const [issuing, setIssuing] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [attendance, setAttendance] = useState<TaskAttendanceState>({ loaded: false, hasFolder: false, total: 0, unmarked: 0 });
   const [submitting, setSubmitting] = useState(false);
@@ -122,11 +128,15 @@ export function DprAddTaskSheet({
       setActualEnd(null);
       setPercentText('');
       setReasons([]);
+      setComments({});
       setNote('');
       setErrors({});
+      setChecklist(null);
+      setConfirmIssue(false);
     }
     setTask(t);
     setStep('progress');
+    fetchChecklistProgress(t.id).then(setChecklist).catch(() => setChecklist(null));
     fetchReportedPercent(t.id).then(setReported).catch(() => setReported(0));
     fetchUnfinishedPredecessors(t.id).then(setPreds).catch(() => setPreds([]));
   }
@@ -148,12 +158,29 @@ export function DprAddTaskSheet({
       else if (percent < 0 || percent > 100) e.percent = 'Progress must be 0–100';
       else if (percent < reported) e.percent = `Can't be lower than the last reported ${reported}%`;
     }
-    if (reasonWhy) {
-      if (reasons.length === 0) e.reason = 'Pick at least one reason for the delay';
-      else if (reasons.includes('other') && !note.trim()) e.reason = 'Describe the "Other" reason';
+    if (reasonWhy && reasons.length === 0) e.reason = 'Pick at least one reason for the delay';
+    else {
+      const missing = reasons.filter((c) => !comments[c]?.trim());
+      if (missing.length) e.reason = `Add a comment for: ${missing.map((c) => DPR_DEPENDENCY_LABEL[c]).join(', ')}`;
     }
     setErrors(e);
     return Object.keys(e).length === 0;
+  }
+
+  async function issueAll() {
+    if (!task) return;
+    setIssuing(true);
+    try {
+      const n = await markAllPrerequisitesIssued(task.id, userId);
+      toast.success(`${n} checklist item${n === 1 ? '' : 's'} marked Issued`);
+      setConfirmIssue(false);
+      setChecklist(await fetchChecklistProgress(task.id));
+      setTask((t) => (t && inPreconstruction(t.status) ? { ...t, status: 'ready' } : t));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIssuing(false);
+    }
   }
 
   const attendanceOk = attendance.loaded && attendance.hasFolder && attendance.total > 0 && attendance.unmarked === 0;
@@ -163,7 +190,7 @@ export function DprAddTaskSheet({
     setSubmitError(null);
     setSubmitting(true);
     try {
-      await submitTaskFromSite({ taskId: task.id, actualStart: actualStart as string, actualEnd, percent, reasons, note, userId });
+      await submitTaskFromSite({ taskId: task.id, actualStart: actualStart as string, actualEnd, percent, reasons, comments, note, userId });
       toast.success(`${task.name} added to today's DPR`);
       onAdded();
       onClose();
@@ -305,6 +332,41 @@ export function DprAddTaskSheet({
               </View>
             </View>
 
+            {/* Pre-construction checklist — same "Mark all as Issued" as PR (optional here). */}
+            {checklist && checklist.total > 0 && checklist.done < checklist.total ? (
+              <View testID="dpr-add-checklist" className="rounded-xl px-3 py-2.5 gap-2" style={{ backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A' }}>
+                <View className="flex-row items-center gap-2">
+                  <Ionicons name="lock-closed-outline" size={15} color="#B45309" />
+                  <Text className="flex-1 text-xs font-bold" style={{ color: '#92400E' }}>Pre-construction checklist pending</Text>
+                  <Text className="text-2xs font-semibold" style={{ color: '#92400E' }}>
+                    {checklist.done} of {checklist.total} Issued / Not Required
+                  </Text>
+                </View>
+                {confirmIssue ? (
+                  <View className="gap-2">
+                    <Text className="text-2xs" style={{ color: '#92400E' }}>
+                      This marks every remaining item as Issued. Items already Issued or Not Required stay as they are.
+                    </Text>
+                    <View className="flex-row gap-2">
+                      <View className="flex-1">
+                        <Button label="Cancel" variant="secondary" size="sm" fullWidth onPress={() => setConfirmIssue(false)} />
+                      </View>
+                      <View className="flex-1">
+                        <Button testID="dpr-add-issue-all-confirm" label="Yes, mark all" icon="checkmark-done" variant="success" size="sm" fullWidth busy={issuing} onPress={() => void issueAll()} />
+                      </View>
+                    </View>
+                  </View>
+                ) : (
+                  <Button testID="dpr-add-issue-all" label="Mark all as Issued" icon="checkmark-done-outline" variant="secondary" size="sm" fullWidth onPress={() => setConfirmIssue(true)} />
+                )}
+              </View>
+            ) : checklist && checklist.total > 0 ? (
+              <View className="flex-row items-center gap-1.5">
+                <Ionicons name="checkmark-circle" size={14} color="#15803D" />
+                <Text className="text-2xs font-semibold" style={{ color: '#15803D' }}>Pre-construction checklist complete</Text>
+              </View>
+            ) : null}
+
             <View className="flex-row gap-3">
               <View className="flex-1" testID="dpr-add-actual-start">
                 <DateField label="Actual start *" value={actualStart} maxDate={todayKey} onChange={(v) => { setActualStart(v); setErrors((e) => ({ ...e, start: '' })); }} />
@@ -341,43 +403,67 @@ export function DprAddTaskSheet({
               {errors.percent ? <Text className="text-2xs font-semibold mt-1" style={{ color: colors.danger }}>{errors.percent}</Text> : null}
             </View>
 
+            {/* Reasons for Delay — same as PR: chips, then a comment for each one picked. */}
             <View>
-              <Text className="text-xs text-neutral-500 mb-1">{reasonWhy ? 'Reason for delay *' : 'Remarks (optional)'}</Text>
+              <View className="flex-row items-center gap-1.5 mb-1">
+                <Ionicons name="alert-circle-outline" size={15} color={colors.navy} />
+                <Text className="text-xs font-bold text-neutral-800">Reasons for Delay{reasonWhy ? ' *' : ''}</Text>
+              </View>
               {reasonWhy ? (
                 <Text testID="dpr-add-reason-why" className="text-2xs font-semibold mb-1.5" style={{ color: colors.danger }}>
                   Required: {reasonWhy}
                 </Text>
               ) : null}
-              {reasonWhy ? (
-                <View className="flex-row flex-wrap gap-1.5 mb-2">
-                  {REASONS.map((r) => {
-                    const on = reasons.includes(r.key);
-                    return (
-                      <Pressable
-                        key={r.key}
-                        testID={`dpr-add-reason-${r.key}`}
-                        onPress={() => setReasons((prev) => (on ? prev.filter((x) => x !== r.key) : [...prev, r.key]))}
-                        className="rounded-full px-3 border"
-                        style={{ minHeight: 34, justifyContent: 'center', backgroundColor: on ? colors.navy : '#fff', borderColor: on ? colors.navy : colors.border }}
-                      >
-                        <Text className="text-xs font-semibold" style={{ color: on ? '#fff' : colors.text }}>{r.label}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ) : null}
+              <View className="flex-row flex-wrap gap-1.5 mb-2">
+                {REASONS.map((r) => {
+                  const on = reasons.includes(r.key);
+                  return (
+                    <Pressable
+                      key={r.key}
+                      testID={`dpr-add-reason-${r.key}`}
+                      onPress={() => setReasons((prev) => (on ? prev.filter((x) => x !== r.key) : [...prev, r.key]))}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: on }}
+                      className="flex-row items-center gap-1 rounded-full px-3 border"
+                      style={{ minHeight: 34, backgroundColor: on ? colors.navy : '#fff', borderColor: on ? colors.navy : colors.border }}
+                    >
+                      {on ? <Ionicons name="checkmark" size={14} color="#fff" /> : null}
+                      <Text className="text-xs font-semibold" style={{ color: on ? '#fff' : colors.text }}>{r.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {REASONS.filter((r) => reasons.includes(r.key)).map((r) => (
+                <TextInput
+                  key={r.key}
+                  testID={`dpr-add-reason-comment-${r.key}`}
+                  value={comments[r.key] ?? ''}
+                  onChangeText={(v) => setComments((prev) => ({ ...prev, [r.key]: v }))}
+                  multiline
+                  maxLength={500}
+                  placeholder={`${r.label}: what is the delay about?`}
+                  placeholderTextColor={colors.placeholder}
+                  className="border border-neutral-200 rounded-lg px-3 py-2 text-sm text-neutral-900 bg-white mb-2"
+                  style={{ minHeight: 52, textAlignVertical: 'top' }}
+                  accessibilityLabel={`Comment for ${r.label} delay`}
+                />
+              ))}
+              {errors.reason ? <Text className="text-2xs font-semibold mb-1" style={{ color: colors.danger }}>{errors.reason}</Text> : null}
+            </View>
+
+            <View>
+              <Text className="text-xs text-neutral-500 mb-1">Comments (optional)</Text>
               <TextInput
                 testID="dpr-add-note"
                 value={note}
                 onChangeText={setNote}
                 multiline
                 maxLength={500}
-                placeholder={reasonWhy ? 'Details (what caused the delay?)' : 'Anything to note about this task'}
+                placeholder="Anything to note about this task"
                 placeholderTextColor={colors.placeholder}
                 className="border border-neutral-200 rounded-lg px-3 py-2 text-sm text-neutral-900 bg-white"
-                style={{ minHeight: 64, textAlignVertical: 'top' }}
+                style={{ minHeight: 56, textAlignVertical: 'top' }}
               />
-              {errors.reason ? <Text className="text-2xs font-semibold mt-1" style={{ color: colors.danger }}>{errors.reason}</Text> : null}
             </View>
 
             <Button testID="dpr-add-next" label="Next: review" icon="arrow-forward" onPress={() => validateProgress() && setStep('summary')} fullWidth />
@@ -395,7 +481,8 @@ export function DprAddTaskSheet({
                 ['Actual', `${shortDate(actualStart)}${actualEnd ? ` → ${shortDate(actualEnd)}` : ' → (ongoing)'}`],
                 ['Progress', `${percent}%${percent >= 100 ? ' · will be marked Completed' : ' · will be In Progress'}`],
                 ['Timing', timing?.label ?? '—'],
-                [reasonWhy ? 'Reason' : 'Remarks', [reasons.map((r) => REASONS.find((x) => x.key === r)?.label).join(', '), note.trim()].filter(Boolean).join(' — ') || '—'],
+                ['Delay reasons', reasons.length ? reasons.map((r) => `${DPR_DEPENDENCY_LABEL[r]}: ${comments[r]?.trim() ?? ''}`).join(' · ') : '—'],
+                ['Comments', note.trim() || '—'],
               ].map(([k, v]) => (
                 <View key={k} className="flex-row gap-2">
                   <Text className="text-xs text-neutral-500" style={{ width: 84 }}>{k}</Text>
