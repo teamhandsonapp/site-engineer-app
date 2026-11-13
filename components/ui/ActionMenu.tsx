@@ -3,7 +3,8 @@
 // for confirmation inside the sheet (no system alert, works on web too).
 
 import { useState } from 'react';
-import { Modal, Pressable, View } from 'react-native';
+import { Modal, View } from 'react-native';
+import { Pressable } from './Pressable';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, HIT, radius, space } from '../../lib/theme';

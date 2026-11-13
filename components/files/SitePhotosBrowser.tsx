@@ -3,7 +3,8 @@
 // Data from lib/sitePhotos.ts (sample photos + this phone's DPR photos).
 
 import { useMemo, useState } from 'react';
-import { Image, Modal, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { Image, Modal, ScrollView, useWindowDimensions, View } from 'react-native';
+import { Pressable } from '../ui/Pressable';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, shadow, space } from '../../lib/theme';

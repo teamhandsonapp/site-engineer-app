@@ -1,7 +1,8 @@
 // One button for the whole app: clear pressed state, disabled/busy states,
 // 44px minimum height (48 for `lg`), optional icon and haptic feedback.
 
-import { ActivityIndicator, Pressable, View, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
+import { ActivityIndicator, View, type PressableProps, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable } from './Pressable';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, HIT, radius } from '../../lib/theme';
 import { haptic } from '../../lib/haptics';

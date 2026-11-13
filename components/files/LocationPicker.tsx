@@ -3,7 +3,8 @@
 // back, and a one-tap "Use last location" shortcut.
 
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, View } from 'react-native';
+import { Modal, ScrollView, View } from 'react-native';
+import { Pressable } from '../ui/Pressable';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, HIT, radius, space } from '../../lib/theme';

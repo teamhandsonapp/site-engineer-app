@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
+import { Pressable } from '../ui/Pressable';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AppText } from '../ui/AppText';
 import { Button } from '../ui/Button';

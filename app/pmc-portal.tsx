@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
+import { Pressable } from '../components/ui/Pressable';
 import { Text } from '../components/ui/AppText';
 import { Redirect, router, Stack } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';

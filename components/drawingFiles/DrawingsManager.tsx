@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { RefreshControl, ScrollView, View } from 'react-native';
+import { Pressable } from '../ui/Pressable';
 import { Text, TextInput } from '../ui/AppText';
 import { Button } from '../ui/Button';
 import { Card } from '../ui/Card';

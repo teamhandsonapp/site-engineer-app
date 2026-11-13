@@ -10,7 +10,8 @@
 //   Client:          Home · Status · More
 
 import { useEffect, useState } from 'react';
-import { Keyboard, Platform, Pressable, View } from 'react-native';
+import { Keyboard, Platform, View } from 'react-native';
+import { Pressable } from './ui/Pressable';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
