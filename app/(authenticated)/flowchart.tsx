@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, View } from 'react-native';
 import { Text } from '../../components/ui/AppText';
 import { router } from 'expo-router';
@@ -20,7 +20,7 @@ import { fetchMilestones, type Milestone } from '../../lib/flowchart/milestones'
 import { CANVAS_THEMES, type CanvasTheme } from '../../components/flowchart/GridBackground';
 import { matchesPlannedDateFilter, PLANNED_DATE_MODE_LABEL, type PlannedDateMode } from '../../lib/flowchart/plannedDateFilter';
 import { formatDateLabel } from '../../lib/reports/dateRange';
-import { FlowchartCanvas } from '../../components/flowchart/FlowchartCanvas';
+import { FlowchartCanvas, type CanvasViewMemory } from '../../components/flowchart/FlowchartCanvas';
 import { FlowchartFilterModal } from '../../components/flowchart/FlowchartFilterModal';
 import { FilteredTaskList } from '../../components/flowchart/FilteredTaskList';
 import { EmptyState } from '../../components/ui/EmptyState';
@@ -170,6 +170,8 @@ function FlowchartScreenContent() {
   // it with the new data.
   const [refreshing, setRefreshing] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Where the user is looking on the board; refresh puts them back there.
+  const viewMemory = useRef<CanvasViewMemory>({ pending: false, view: null });
   async function refresh() {
     if (!selectedProjectId || refreshing) return;
     setRefreshing(true);
@@ -180,6 +182,7 @@ function FlowchartScreenContent() {
       } else {
         await load(selectedProjectId);
       }
+      viewMemory.current.pending = true;
       setRefreshKey((k) => k + 1);
     } catch (err) {
       setArchive((a) => ({ ...a, error: err instanceof Error ? err.message : String(err) }));
@@ -482,6 +485,7 @@ function FlowchartScreenContent() {
             <FlowchartCanvas
               key={`set-${taskSet}-r${refreshKey}`}
               projectId={selectedProjectId}
+              viewMemory={viewMemory}
               initialTasks={archive.data.tasks}
               seriesEdges={archive.data.seriesEdges}
               parallelEdges={archive.data.parallelEdges}
@@ -511,6 +515,7 @@ function FlowchartScreenContent() {
           <FlowchartCanvas
             key={`empty-${board}-r${refreshKey}`}
             projectId={selectedProjectId}
+            viewMemory={viewMemory}
             flowchartSet={flowchartSetForBoard(board)}
             initialTasks={data.tasks}
             seriesEdges={data.seriesEdges}
@@ -602,6 +607,7 @@ function FlowchartScreenContent() {
                   : 'unfiltered'
               }-r${refreshKey}`}
               projectId={selectedProjectId}
+              viewMemory={viewMemory}
               flowchartSet={flowchartSetForBoard(board)}
               initialTasks={hasActiveFilter ? filteredTasks : data.tasks}
               seriesEdges={hasActiveFilter ? filteredSeriesEdges : data.seriesEdges}

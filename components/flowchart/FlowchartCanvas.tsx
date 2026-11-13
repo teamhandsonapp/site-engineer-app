@@ -71,6 +71,16 @@ import type {
 const TOOLBAR_ROW2_TOP = 60;
 // Link labels (FS/SS/FF/SF chips) hide below this zoom; the line styles stay.
 const LABEL_MIN_ZOOM = 0.45;
+
+// Remembers where the user was looking (zoom + pan) so the screen's refresh
+// button can redraw the board and put them back on the same spot instead of
+// jumping to the top. The canvas saves its view here when it unmounts; the
+// next canvas to mount uses it once when 'pending' is true.
+export interface CanvasViewMemory {
+  pending: boolean;
+  view: { scale: number; translateX: number; translateY: number } | null;
+}
+
 export function FlowchartCanvas({
   projectId,
   initialTasks,
@@ -83,7 +93,10 @@ export function FlowchartCanvas({
   onTaskCountChange,
   viewOnly = false,
   flowchartSet = null,
+  viewMemory,
 }: {
+  // See CanvasViewMemory — lets a refresh keep the current zoom/position.
+  viewMemory?: { current: CanvasViewMemory };
   // Board new tasks are created on ('flowchart-2' for the Flowchart 2 tab).
   flowchartSet?: string | null;
   projectId: string;
@@ -706,7 +719,10 @@ export function FlowchartCanvas({
   // replaced a whole-graph fit-to-view.
   useEffect(() => {
     if (!containerSize) return;
-    const fit = fitInitialViewTransform(tasksRef.current, containerSize.width, containerSize.height);
+    // After a refresh: go back to the exact spot the user was on (once).
+    const remembered = viewMemory?.current.pending ? viewMemory.current.view : null;
+    if (viewMemory) viewMemory.current.pending = false;
+    const fit = remembered ?? fitInitialViewTransform(tasksRef.current, containerSize.width, containerSize.height);
     scale.value = fit.scale;
     savedScale.value = fit.scale;
     translateX.value = fit.translateX;
@@ -718,6 +734,15 @@ export function FlowchartCanvas({
     recomputePositionIndicator();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [containerSize]);
+
+  // Save the current view when this canvas goes away (refresh / board switch).
+  useEffect(() => {
+    const memory = viewMemory;
+    return () => {
+      if (memory) memory.current.view = { scale: scale.value, translateX: translateX.value, translateY: translateY.value };
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const draggingNodeId = useSharedValue<string | null>(null);
   const dragDeltaX = useSharedValue(0);
