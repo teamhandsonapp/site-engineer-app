@@ -164,6 +164,30 @@ function FlowchartScreenContent() {
     if (selectedProjectId) load(selectedProjectId);
   }
 
+  // Small ⟳ button (2026-11-14): re-fetches the board (or the old version
+  // being viewed) without leaving the tab. FlowchartCanvas reads its tasks
+  // once at mount, so bumping refreshKey (part of every canvas key) redraws
+  // it with the new data.
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  async function refresh() {
+    if (!selectedProjectId || refreshing) return;
+    setRefreshing(true);
+    try {
+      if (taskSet !== null) {
+        const d = await withTimeout(fetchFlowchartSet(selectedProjectId, taskSet), FETCH_TIMEOUT_MS, "Couldn't reach the server — check your connection and try again.");
+        setArchive({ data: d, loading: false, error: null });
+      } else {
+        await load(selectedProjectId);
+      }
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      setArchive((a) => ({ ...a, error: err instanceof Error ? err.message : String(err) }));
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   if (!profile) {
     return (
       <View className="flex-1 items-center justify-center bg-white">
@@ -309,6 +333,23 @@ function FlowchartScreenContent() {
             );
           })}
         </View>
+        <View className="flex-1" />
+        <Pressable
+          testID="flowchart-refresh"
+          onPress={refresh}
+          disabled={refreshing}
+          accessibilityRole="button"
+          accessibilityLabel="Refresh flowchart"
+          hitSlop={8}
+          className="items-center justify-center rounded-lg border self-center"
+          style={{ width: 32, height: 32, backgroundColor: isDark ? '#141414' : '#fff', borderColor: isDark ? '#242424' : '#E5E5E5' }}
+        >
+          {refreshing ? (
+            <ActivityIndicator size="small" color={isDark ? '#E5E5E5' : '#0F1F33'} />
+          ) : (
+            <Ionicons name="refresh" size={16} color={isDark ? '#E5E5E5' : '#374151'} />
+          )}
+        </Pressable>
       </View>
 
       {/* Top row (2026-11-13): Filter · ⋯ more (Excel) · 👁 old flowchart versions. */}
@@ -439,7 +480,7 @@ function FlowchartScreenContent() {
               </Text>
             </View>
             <FlowchartCanvas
-              key={`set-${taskSet}`}
+              key={`set-${taskSet}-r${refreshKey}`}
               projectId={selectedProjectId}
               initialTasks={archive.data.tasks}
               seriesEdges={archive.data.seriesEdges}
@@ -468,7 +509,7 @@ function FlowchartScreenContent() {
         // New Task button) with a centred hint over the empty grid.
         <View className="flex-1">
           <FlowchartCanvas
-            key={`empty-${board}`}
+            key={`empty-${board}-r${refreshKey}`}
             projectId={selectedProjectId}
             flowchartSet={flowchartSetForBoard(board)}
             initialTasks={data.tasks}
@@ -559,7 +600,7 @@ function FlowchartScreenContent() {
                 hasActiveFilter
                   ? `filtered-${floorFilter}-${deptFilter}-${roomFilter}-${milestoneFilter}-${dateMode}-${dateFrom}-${dateTo}`
                   : 'unfiltered'
-              }`}
+              }-r${refreshKey}`}
               projectId={selectedProjectId}
               flowchartSet={flowchartSetForBoard(board)}
               initialTasks={hasActiveFilter ? filteredTasks : data.tasks}
