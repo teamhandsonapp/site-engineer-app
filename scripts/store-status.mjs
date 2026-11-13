@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-const PORT = 4477;
+const PORT = Number(process.env.STATUS_PORT) || 4477;
 const APP_ID = '23496903-a9cc-44b2-8c89-724e265c34f1';
 const EXPO_BUILDS = 'https://expo.dev/accounts/kabilan404/projects/mobile-portal/builds';
 
