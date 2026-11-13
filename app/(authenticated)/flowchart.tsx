@@ -16,6 +16,7 @@ import {
 } from '../../lib/flowchart/data';
 import { exportFilteredTasksPdf, printFilteredTasks } from '../../lib/flowchart/filterExport';
 import { exportFlowchartExcel } from '../../lib/flowchart/excelExport';
+import { downloadFlowchartA3Pdf } from '../../lib/flowchart/a3Pdf';
 import { fetchMilestones, type Milestone } from '../../lib/flowchart/milestones';
 import { CANVAS_THEMES, type CanvasTheme } from '../../components/flowchart/GridBackground';
 import { matchesPlannedDateFilter, PLANNED_DATE_MODE_LABEL, type PlannedDateMode } from '../../lib/flowchart/plannedDateFilter';
@@ -275,6 +276,21 @@ function FlowchartScreenContent() {
     }
   }
 
+  // Flowchart 2 "Download A3 PDF": the board as cards + arrows on A3 portrait
+  // pages (lib/flowchart/a3Pdf.ts). Uses whatever is shown (filter applies).
+  async function handleDownloadA3Pdf() {
+    setExcelExporting(true);
+    setExcelNote(null);
+    try {
+      const note = await downloadFlowchartA3Pdf(filteredTasks, filteredSeriesEdges, `${projectName} — Flowchart 2`);
+      setExcelNote({ text: note || 'A3 PDF created', isError: false });
+    } catch (err) {
+      setExcelNote({ text: `Could not create the A3 PDF: ${err instanceof Error ? err.message : String(err)}`, isError: true });
+    } finally {
+      setExcelExporting(false);
+    }
+  }
+
   async function handlePrint() {
     setPrinting(true);
     try {
@@ -427,6 +443,24 @@ function FlowchartScreenContent() {
               <Text className="text-2xs text-neutral-500">{filteredTasks.length} task{filteredTasks.length === 1 ? '' : 's'}{hasActiveFilter ? ' (filtered)' : ''}</Text>
             </View>
           </Pressable>
+          {board === 'fc2' ? (
+            <Pressable
+              testID="flowchart-more-a3pdf"
+              onPress={() => {
+                setMoreOpen(false);
+                void handleDownloadA3Pdf();
+              }}
+              disabled={excelExporting || filteredTasks.length === 0}
+              className="flex-row items-center gap-3 border-t border-neutral-100"
+              style={{ minHeight: 52, opacity: excelExporting || filteredTasks.length === 0 ? 0.5 : 1 }}
+            >
+              <Ionicons name="document-outline" size={20} color="#B91C1C" />
+              <View className="flex-1">
+                <Text className="text-sm font-semibold text-neutral-900">Download A3 PDF</Text>
+                <Text className="text-2xs text-neutral-500">Flowchart drawing, A3 portrait{hasActiveFilter ? ' (filtered)' : ''}</Text>
+              </View>
+            </Pressable>
+          ) : null}
         </View>
       </FormModal>
 
