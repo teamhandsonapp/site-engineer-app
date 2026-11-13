@@ -241,11 +241,17 @@ function toDprTask(row: RawTaskRow, todayKey: string): DprTask {
     // plan is stale. Only affects which tasks SHOW here — doesn't touch
     // plannedStartDate/plannedEndDate themselves, so "planned days"/target%
     // math everywhere else stays correct off the real dates.
-    // Every task on the flowchart that isn't completed shows in the DPR, by
-    // explicit request (2026-11-09): a task whose planned window is in the
-    // past or future can still have any of its days filled in from its own
-    // DPR 1..N pager, so hiding it by date only got in the way.
-    scheduledToday: row.status !== 'completed',
+    // 2026-11-13 (with DPR "+ Add task"): Today shows tasks that are already
+    // started (in progress / on hold / have an actual start) or whose planned
+    // start has arrived (incl. overdue). Tasks planned for later are added
+    // from site with "+ Add task" when they start early. Replaces the
+    // 2026-11-09 "every not-completed task" rule.
+    scheduledToday:
+      row.status !== 'completed' &&
+      (row.status === 'in_progress' ||
+        row.status === 'on_hold' ||
+        !!row.actual_start_date ||
+        (!!plannedStartDate && plannedStartDate <= todayKey)),
   };
 }
 
@@ -658,19 +664,25 @@ export interface DprSubmission {
   percentComplete: number | null;
   dependencies: DprDependencyCategory[];
   commentPreset: DprCommentPreset | null;
+  // "+ Add task" rows (dpr_entries.source = 'added_from_site'); false before that column exists.
+  fromSite: boolean;
+  siteNote: string | null;
 }
 
 export async function fetchDprSubmissionHistory(projectId: string, limit = 50): Promise<DprSubmission[]> {
-  const { data, error } = await supabase
-    .from('dpr_entries')
-    .select(
-      'task_id, report_date, submitted_at, submitted_by, is_overall, percent_complete, dependency_categories, comment_preset, task:tasks!inner(task_name, status, deleted_at, work:works!inner(name, project_id))'
-    )
-    .not('submitted_at', 'is', null)
-    .is('task.deleted_at', null)
-    .eq('task.work.project_id', projectId)
-    .order('submitted_at', { ascending: false })
-    .limit(limit);
+  const base = 'task_id, report_date, submitted_at, submitted_by, is_overall, percent_complete, dependency_categories, comment_preset, task:tasks!inner(task_name, status, deleted_at, work:works!inner(name, project_id))';
+  const run = (cols: string) =>
+    supabase
+      .from('dpr_entries')
+      .select(cols)
+      .not('submitted_at', 'is', null)
+      .is('task.deleted_at', null)
+      .eq('task.work.project_id', projectId)
+      .order('submitted_at', { ascending: false })
+      .limit(limit);
+  // source/site_note come with the "+ Add task" migration — fall back if it isn't installed yet.
+  let { data, error } = await run(`${base}, source, site_note`);
+  if (error && /source|site_note/.test(error.message)) ({ data, error } = await run(base));
   if (error) throw new Error(error.message);
 
   type Row = {
@@ -682,6 +694,8 @@ export async function fetchDprSubmissionHistory(projectId: string, limit = 50): 
     percent_complete: number | null;
     dependency_categories: DprDependencyCategory[] | null;
     comment_preset: DprCommentPreset | null;
+    source?: string | null;
+    site_note?: string | null;
     task: { task_name: string; status: TaskStatus; deleted_at: string | null; work: { name: string } | { name: string }[] | null } | null;
   };
   const rows = ((data ?? []) as unknown as Row[]).filter((r) => r.task && !r.task.deleted_at);
@@ -707,6 +721,8 @@ export async function fetchDprSubmissionHistory(projectId: string, limit = 50): 
       percentComplete: r.percent_complete,
       dependencies: r.dependency_categories ?? [],
       commentPreset: r.comment_preset,
+      fromSite: r.source === 'added_from_site',
+      siteNote: r.site_note ?? null,
     };
   });
 }

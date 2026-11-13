@@ -1,0 +1,23 @@
+# Shared steps: DPR page › + Add task › department › task.
+# TEST DATA ONLY: the department DEPT must have a not-completed TEST task named
+# TASK that is planned for a later date (so it isn't in today's list), and its
+# workers must be marked in attendance today (or be marked in the sheet).
+appId: com.pmcportal.mobile
+tags:
+  - subflow
+env:
+  DEPT: Plumbing
+---
+- launchApp
+- openLink: mobileportal://daily-updates
+- extendedWaitUntil:
+    visible:
+      id: dpr-add-task-button
+    timeout: 20000
+- tapOn:
+    id: dpr-add-task-button
+- tapOn: ${DEPT}
+- tapOn:
+    id: dpr-add-task-search
+- inputText: ${TASK}
+- tapOn: ${TASK}.*

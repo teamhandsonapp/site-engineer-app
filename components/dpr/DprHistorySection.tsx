@@ -27,9 +27,16 @@ function HistoryRow({ entry, isLast }: { entry: DprSubmission; isLast: boolean }
     <View className={isLast ? '' : 'border-b border-neutral-100'}>
       <Pressable onPress={() => setExpanded((v) => !v)} className="flex-row items-center justify-between py-2.5">
         <View className="flex-1 pr-2">
-          <Text className="text-xs font-semibold text-neutral-800" numberOfLines={1}>{entry.taskName}</Text>
+          <View className="flex-row items-center gap-1.5">
+            <Text className="text-xs font-semibold text-neutral-800 flex-shrink" numberOfLines={1}>{entry.taskName}</Text>
+            {entry.fromSite ? (
+              <View testID="dpr-history-from-site" className="px-1.5 rounded-full" style={{ backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#A7F3D0' }}>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: '#047857' }}>Added from site</Text>
+              </View>
+            ) : null}
+          </View>
           <Text className="text-2xs text-neutral-400 mt-0.5">
-            {entry.isOverall ? 'PR' : 'DPR'}: {formatDateLabel(new Date(`${entry.reportDate}T00:00:00`))} · Submitted: {formatDateTimeLabel(new Date(entry.submittedAtISO))}
+            {entry.fromSite ? 'DPR' : entry.isOverall ? 'PR' : 'DPR'}: {formatDateLabel(new Date(`${entry.reportDate}T00:00:00`))} · Submitted: {formatDateTimeLabel(new Date(entry.submittedAtISO))}
           </Text>
         </View>
         <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={14} color="#D4D4D4" />
@@ -38,8 +45,11 @@ function HistoryRow({ entry, isLast }: { entry: DprSubmission; isLast: boolean }
       {expanded && (
         <View className="rounded-lg bg-neutral-50 border border-neutral-100 px-2.5 py-2 mb-2.5">
           {entry.submittedByName && (
-            <Text className="text-2xs font-semibold text-neutral-500 mb-1.5">Submitted by {entry.submittedByName}</Text>
+            <Text className="text-2xs font-semibold text-neutral-500 mb-1.5">
+              {entry.fromSite ? 'Added from site by' : 'Submitted by'} {entry.submittedByName}
+            </Text>
           )}
+          {entry.siteNote ? <Text className="text-2xs text-neutral-600 mb-1.5">Note: {entry.siteNote}</Text> : null}
 
           <View className="flex-row items-center justify-between mb-1.5">
             <View className="px-2 py-0.5 rounded-full bg-brand-navy self-start">

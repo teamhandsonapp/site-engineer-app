@@ -9,6 +9,7 @@ import { EmptyState } from '../../components/ui/EmptyState';
 import { DprTaskRow } from '../../components/dpr/DprTaskRow';
 import { DprHistorySection } from '../../components/dpr/DprHistorySection';
 import { DprWorkersAttendance } from '../../components/workforce/DprWorkersAttendance';
+import { DprAddTaskSheet } from '../../components/dpr/DprAddTaskSheet';
 import { DateField } from '../../components/ui/DateField';
 import { router, useLocalSearchParams } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -172,6 +173,7 @@ export default function DailyUpdatesLandingScreen() {
   const [activeDepartment, setActiveDepartment] = useState<string | null>(null);
   // Status tab on Today's list (null = first tab that has tasks).
   const [statusTab, setStatusTab] = useState<StatusTabKey | null>(null);
+  const [addTaskOpen, setAddTaskOpen] = useState(false);
   // Which of today's tasks this engineer already has an admin-approved
   // "Contact Admin" edit grant for — unlocks DprTaskRow's own locked form
   // for just that (task, day), see its isLockedForEngineer.
@@ -269,10 +271,43 @@ export default function DailyUpdatesLandingScreen() {
 
   return (
     <KeyboardAvoider style={{ backgroundColor: '#FAFAFA' }}>
-      <View className="px-4 pt-4 pb-2">
-        <Text className="text-lg font-extrabold text-neutral-900">{formatHeaderDate(todayKey)}</Text>
-        <Text className="text-xs text-neutral-400 mt-0.5">{weekLabel}</Text>
+      <View className="px-4 pt-4 pb-2 flex-row items-start gap-2">
+        <View className="flex-1" style={{ minWidth: 0 }}>
+          <Text className="text-lg font-extrabold text-neutral-900" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+            {formatHeaderDate(todayKey)}
+          </Text>
+          <Text className="text-xs text-neutral-400 mt-0.5" numberOfLines={1}>{weekLabel}</Text>
+        </View>
+        {/* "+ Add task": a task that started on site before it shows here (same people who submit DPRs see this screen). */}
+        {selectedProjectId ? (
+          <Pressable
+            testID="dpr-add-task-button"
+            onPress={() => setAddTaskOpen(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Add task"
+            className="flex-row items-center gap-1 rounded-xl bg-brand-navy px-3"
+            style={{ minHeight: 40 }}
+          >
+            <Ionicons name="add" size={16} color="#fff" />
+            <Text className="text-xs font-bold text-white">Add task</Text>
+          </Pressable>
+        ) : null}
       </View>
+
+      {selectedProjectId && state.status === 'signed-in' ? (
+        <DprAddTaskSheet
+          visible={addTaskOpen}
+          projectId={selectedProjectId}
+          todayKey={todayKey}
+          todayListIds={new Set(allDprTasks.map((t) => t.id))}
+          userId={state.profile.id}
+          onClose={() => setAddTaskOpen(false)}
+          onAdded={() => {
+            setStatusTab('in_progress');
+            void load();
+          }}
+        />
+      ) : null}
 
       {loading ? (
         <View className="flex-1 items-center justify-center">
