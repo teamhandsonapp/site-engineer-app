@@ -10,12 +10,14 @@ import { DprTaskRow } from '../../components/dpr/DprTaskRow';
 import { DprHistorySection } from '../../components/dpr/DprHistorySection';
 import { DprWorkersAttendance } from '../../components/workforce/DprWorkersAttendance';
 import { DprAddTaskSheet } from '../../components/dpr/DprAddTaskSheet';
+import { fetchProgressStatuses, PROGRESS_STATUS_META, PROGRESS_STATUS_ORDER, type ProgressStatus, type ProgressStatusInfo } from '../../lib/taskProgressStatus';
 import { DateField } from '../../components/ui/DateField';
 import { router, useLocalSearchParams } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { formatCardDateRange } from '../../lib/flowchart/delay';
 import {
   addDaysToKey,
+  fetchCompletedDprTasks,
   EMPTY_DPR_ENTRY,
   fetchTodayDprEntries,
   fetchTodaySubtasks,
@@ -95,17 +97,16 @@ function TaskSummaryRow({ task }: { task: DprTask }) {
 // "All" chip on the DPR list's department filter.
 const ALL_DEPARTMENTS = 'All';
 
-// Status tabs on Today's list. Completed tasks never reach this list.
-type StatusTabKey = 'yet' | 'in_progress' | 'on_hold';
-const STATUS_TABS: { key: StatusTabKey; label: string }[] = [
-  { key: 'yet', label: 'Yet to Start' },
-  { key: 'in_progress', label: 'In Progress' },
-  { key: 'on_hold', label: 'On Hold' },
-];
-function statusTabOf(status: DprTask['status']): StatusTabKey {
-  if (status === 'in_progress') return 'in_progress';
-  if (status === 'on_hold') return 'on_hold';
-  return 'yet'; // draft / ready / blocked
+// Status tabs (2026-11-13): the CALCULATED status (task_progress_statuses —
+// lib/taskProgressStatus.ts), not the old hand-picked one.
+type StatusTabKey = ProgressStatus;
+const STATUS_TABS: { key: StatusTabKey; label: string }[] = PROGRESS_STATUS_ORDER.map((key) => ({ key, label: PROGRESS_STATUS_META[key].label }));
+// Only used until the calculated status has loaded.
+function fallbackStatus(t: DprTask, todayKey: string): StatusTabKey {
+  if (t.status === 'completed') return 'completed';
+  if (t.status === 'in_progress') return 'in_progress';
+  if (t.status === 'on_hold') return 'on_hold';
+  return t.plannedStartDate && t.plannedStartDate < todayKey ? 'delayed' : 'yet_to_start';
 }
 
 // The DPR tab's single screen — no separate landing page + "New DPR" button
@@ -181,6 +182,8 @@ export default function DailyUpdatesLandingScreen() {
   // Today's subtasks per task — a day can now have SEVERAL, each with its
   // own text and Department, by explicit request (see DprSubtaskItem).
   const [subtasksByTask, setSubtasksByTask] = useState<Record<string, DprSubtaskItem[]>>({});
+  const [completedTasks, setCompletedTasks] = useState<DprTask[]>([]);
+  const [progressById, setProgressById] = useState<Map<string, ProgressStatusInfo>>(new Map());
 
   const load = useCallback(async () => {
     if (!selectedProjectId) {
@@ -199,6 +202,12 @@ export default function DailyUpdatesLandingScreen() {
       ]);
       setTasks(weekTasks);
       setUrgentTasks(urgent);
+      // Completed tab: tasks finished in the last 30 days, plus the calculated status of everything shown.
+      const done = await fetchCompletedDprTasks(selectedProjectId, addDaysToKey(todayKey, -30)).catch(() => [] as DprTask[]);
+      setCompletedTasks(done);
+      fetchProgressStatuses([...weekTasks, ...urgent, ...done].map((t) => t.id))
+        .then(setProgressById)
+        .catch(() => {}); // tabs fall back to the stored status until this loads
       // Urgent tasks aren't necessarily IN weekTasks (an urgent task can be
       // scheduled well outside this week) — their DPR entries (Dependency/
       // Comments/% Work Done Today) still need fetching, or a freshly
@@ -256,10 +265,13 @@ export default function DailyUpdatesLandingScreen() {
     new Map(allDprTasks.filter((t) => t.workId).map((t) => [t.workId as string, { workId: t.workId as string, workName: t.workName }])).values()
   );
   // Status tabs (2026-11-11): each task sits under its own status.
-  const statusCounts = Object.fromEntries(STATUS_TABS.map((s) => [s.key, allDprTasks.filter((t) => statusTabOf(t.status) === s.key).length])) as Record<StatusTabKey, number>;
+  const statusTabOf = (t: DprTask): StatusTabKey => progressById.get(t.id)?.status ?? fallbackStatus(t, todayKey);
+  // Today's list + recently completed tasks (for the Completed tab).
+  const tabTasks = [...allDprTasks, ...completedTasks.filter((c) => !allDprTasks.some((t) => t.id === c.id))];
+  const statusCounts = Object.fromEntries(STATUS_TABS.map((s) => [s.key, tabTasks.filter((t) => statusTabOf(t) === s.key).length])) as Record<StatusTabKey, number>;
   const activeStatus: StatusTabKey =
-    statusTab && statusCounts[statusTab] > 0 ? statusTab : (STATUS_TABS.find((s) => statusCounts[s.key] > 0)?.key ?? 'yet');
-  const statusTasks = allDprTasks.filter((t) => statusTabOf(t.status) === activeStatus);
+    statusTab && statusCounts[statusTab] > 0 ? statusTab : (STATUS_TABS.find((s) => statusCounts[s.key] > 0)?.key ?? 'yet_to_start');
+  const statusTasks = tabTasks.filter((t) => statusTabOf(t) === activeStatus);
   const listDepartments = Array.from(new Set(statusTasks.map((t) => t.workName)));
   const listDepartment = activeDepartment && listDepartments.includes(activeDepartment) ? activeDepartment : ALL_DEPARTMENTS;
   const listTasks = listDepartment === ALL_DEPARTMENTS ? statusTasks : statusTasks.filter((t) => t.workName === listDepartment);
@@ -372,28 +384,31 @@ export default function DailyUpdatesLandingScreen() {
                       dateKey={todayKey}
                       userId={state.profile.id}
                     />
-                    {/* Status tabs */}
-                    <View className="flex-row border-b border-neutral-200 mb-3">
+                    {/* Status tabs — calculated status; scroll sideways on small screens. */}
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} className="border-b border-neutral-200 mb-3">
                       {STATUS_TABS.map((s) => {
                         const active = s.key === activeStatus;
+                        const meta = PROGRESS_STATUS_META[s.key];
                         return (
                           <Pressable
                             key={s.key}
+                            testID={`dpr-status-tab-${s.key}`}
                             accessibilityRole="tab"
                             accessibilityState={{ selected: active }}
                             onPress={() => {
                               setStatusTab(s.key);
                               setActiveDepartment(null);
                             }}
-                            className="flex-1 flex-row items-center justify-center gap-1 py-2"
-                            style={{ borderBottomWidth: 2, borderBottomColor: active ? '#0F1F33' : 'transparent' }}
+                            className="flex-row items-center justify-center gap-1 py-2 px-3"
+                            style={{ borderBottomWidth: 2, borderBottomColor: active ? meta.color : 'transparent' }}
                           >
-                            <Text numberOfLines={1} className={`shrink text-xs font-bold ${active ? 'text-neutral-900' : 'text-neutral-400'}`}>{s.label}</Text>
-                            <Text className={`shrink-0 text-2xs font-bold ${active ? 'text-neutral-900' : 'text-neutral-400'}`}>({statusCounts[s.key]})</Text>
+                            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: meta.color }} />
+                            <Text numberOfLines={1} className={`text-xs font-bold ${active ? 'text-neutral-900' : 'text-neutral-400'}`}>{s.label}</Text>
+                            <Text className={`text-2xs font-bold ${active ? 'text-neutral-900' : 'text-neutral-400'}`}>({statusCounts[s.key]})</Text>
                           </Pressable>
                         );
                       })}
-                    </View>
+                    </ScrollView>
                     {listTasks.length === 0 && (
                       <Text className="text-xs text-neutral-400 mb-3">No tasks here.</Text>
                     )}
@@ -435,6 +450,7 @@ export default function DailyUpdatesLandingScreen() {
                         dprSubmittedAtISO={(entries[task.id] ?? EMPTY_DPR_ENTRY).dprSubmittedAtISO}
                         hasApprovedEditGrant={approvedGrants.has(task.id)}
                         onRequestEditAccess={(message) => handleRequestEditAccess(task, message)}
+                        progressStatus={progressById.get(task.id) ?? null}
                       />
                     ))}
                     {isAdminUser && <DprHistorySection projectId={selectedProjectId} />}

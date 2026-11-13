@@ -4,6 +4,8 @@ import { Text, TextInput } from '../ui/AppText';
 import { router } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
+import { ProgressStatusBadge } from '../ui/ProgressStatusBadge';
+import type { ProgressStatusInfo } from '../../lib/taskProgressStatus';
 import type { WorkOption } from '../../lib/flowchart/data';
 import { formatDateTimeLabel } from '../../lib/formatTime';
 import {
@@ -85,7 +87,10 @@ export function DprTaskRow({
   hasApprovedEditGrant,
   onRequestEditAccess,
   works,
+  progressStatus = null,
 }: {
+  // Calculated status (task_progress_statuses); shown as the row's status badge.
+  progressStatus?: ProgressStatusInfo | null;
   // The project's departments, fetched ONCE by the parent list (it used to be
   // one identical query per row).
   works: WorkOption[];
@@ -160,6 +165,11 @@ export function DprTaskRow({
             <Text className="text-2xs text-neutral-400 mt-0.5" numberOfLines={1}>
               {task.workName} · {shortDate(task.plannedStartDate)} → {shortDate(task.plannedEndDate)}
             </Text>
+            {progressStatus ? (
+              <View className="mt-1">
+                <ProgressStatusBadge info={progressStatus} size="sm" />
+              </View>
+            ) : null}
           </View>
           <View className="rounded-full px-2 py-0.5" style={{ backgroundColor: badge.bg }}>
             <Text className="text-2xs font-bold" style={{ color: badge.fg }}>{badge.label}</Text>
@@ -264,9 +274,13 @@ export function DprTaskRow({
       </View>
 
       <View className="flex-row items-center justify-between mb-2">
-        <View className="px-2 py-0.5 rounded-full bg-brand-navy self-start">
-          <Text className="text-2xs font-bold text-white">{STATUS_DISPLAY_LABEL[task.status]}</Text>
-        </View>
+        {progressStatus ? (
+          <ProgressStatusBadge info={progressStatus} showWhy />
+        ) : (
+          <View className="px-2 py-0.5 rounded-full bg-brand-navy self-start">
+            <Text className="text-2xs font-bold text-white">{STATUS_DISPLAY_LABEL[task.status]}</Text>
+          </View>
+        )}
         {percentComplete != null && (
           <Text className="text-2xs font-bold text-neutral-500">{percentComplete}% done today</Text>
         )}

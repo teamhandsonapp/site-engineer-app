@@ -26,6 +26,7 @@ import {
   type ZoomLevel,
 } from '../../lib/ganttLayout';
 import { getStatusColor } from '../../lib/statusColors';
+import { PROGRESS_STATUS_META, useProgressStatuses } from '../../lib/taskProgressStatus';
 import { EmptyState } from '../ui/EmptyState';
 
 // Planned bar sits above the Projected/Actual bar, touching (no gap) —
@@ -68,6 +69,8 @@ export function GanttChart({
   const headerScrollRef = useAnimatedRef<Animated.ScrollView>();
   const labelScrollRef = useAnimatedRef<Animated.ScrollView>();
   const [detailTaskId, setDetailTaskId] = useState<string | null>(null);
+  // Calculated status colours (same as DPR) for every task on the chart.
+  const progressById = useProgressStatuses(works.flatMap((w) => w.tasks.map((t) => t.id)));
 
   // RN's ScrollView only stretches to fill a flex parent along the cross
   // axis, not the scroll axis — a vertical ScrollView nested inside a
@@ -301,7 +304,8 @@ export function GanttChart({
                         })()
                       : null;
 
-                    const statusColor = getStatusColor(t.status).dot;
+                    const calc = progressById.get(t.id);
+                    const statusColor = calc ? PROGRESS_STATUS_META[calc.status].color : getStatusColor(t.status).dot;
                     const projectedStart = toLocalCalendarDate(delay.projectedStart);
                     const projectedFinish = toLocalCalendarDate(delay.projectedFinish);
                     const dueDateObj = t.dueDate ? parseDateKey(t.dueDate) : null;

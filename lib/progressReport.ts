@@ -81,6 +81,8 @@ export async function savePr(
       delay_reason_comments: kept,
       submitted_by: userId,
       updated_at: nowIso,
+      // PR-filled days count as filled for the calculated status (task_progress_status).
+      source: 'pr',
     })),
     { onConflict: 'task_id,report_date' }
   );

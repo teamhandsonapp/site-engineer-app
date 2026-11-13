@@ -22,6 +22,8 @@ import { CommentPicker } from '../../components/dpr/CommentPicker';
 import { DprDelayBreakdown } from '../../components/dpr/DprDelayBreakdown';
 import { DateField } from '../../components/ui/DateField';
 import { TaskWorkersAttendance, type TaskAttendanceState } from '../../components/workforce/TaskWorkersAttendance';
+import { ProgressStatusBadge } from '../../components/ui/ProgressStatusBadge';
+import { fetchProgressStatuses, type ProgressStatusInfo } from '../../lib/taskProgressStatus';
 import { SubtaskListEditor } from '../../components/dpr/SubtaskListEditor';
 import { formatDateLabel, formatDateTimeLabel } from '../../lib/formatTime';
 import { fetchGeneralParameterReport, type GeneralParameterReportData } from '../../lib/reports/generalParameterReport';
@@ -53,7 +55,6 @@ import {
   type DprHistoryEntry,
   type DprSubtaskItem,
   type DprTask,
-  type TaskStatus,
 } from '../../lib/dprEntries';
 
 // Full-page DPR editor, by explicit correction — a task spans several real
@@ -67,30 +68,8 @@ import {
 // props, since a navigated page has no live connection back to the list
 // screen's own state.
 
-const STATUS_DISPLAY_LABEL: Record<TaskStatus, string> = {
-  draft: 'Pending',
-  ready: 'Pending',
-  blocked: 'Pending',
-  in_progress: 'In Progress',
-  on_hold: 'On Hold',
-  completed: 'Completed',
-};
-
-// A single dropdown replacing the old pill+conditional-action-buttons row,
-// by explicit request — 'ready' is the real DB value behind the "Pending"
-// label shown/selected here. update_task_status still enforces every real
-// transition rule server-side (completed-lock, ready/on_hold-before-
-// in_progress, cross-trade prerequisites), so offering all 4 up front is
-// safe — an invalid pick just comes back as statusError.
-// "Pending" isn't offered here, by explicit request — it's the natural
-// starting state a task is already in before work begins, not something you
-// manually switch a task back to. STATUS_DISPLAY_LABEL above still shows
-// "Pending" as the current label for a task that's genuinely in that state.
-const STATUS_DROPDOWN_OPTIONS: { value: TaskStatus; label: string }[] = [
-  { value: 'in_progress', label: 'In Progress' },
-  { value: 'on_hold', label: 'On Hold' },
-  { value: 'completed', label: 'Completed' },
-];
+// Status is no longer picked by hand (2026-11-13): it's calculated from the
+// dates and submitted DPRs (lib/taskProgressStatus.ts) and shown with "Why?".
 
 function dayGap(fromKey: string, toKey: string): number {
   const from = new Date(`${fromKey}T00:00:00Z`).getTime();
@@ -187,7 +166,21 @@ export default function DprEditScreen() {
     if (!taskId) return;
     const found = await fetchDprTaskById(taskId, todayDateKey());
     if (found) setTask(found.task);
+    refreshProgress();
   }
+
+  // Calculated status (dates + submitted DPRs) — refreshed on load, after a
+  // submit, and after task-level changes.
+  const [progress, setProgress] = useState<ProgressStatusInfo | null>(null);
+  const refreshProgress = useCallback(() => {
+    if (!taskId) return;
+    fetchProgressStatuses([taskId])
+      .then((m) => setProgress(m.get(taskId) ?? null))
+      .catch(() => {});
+  }, [taskId]);
+  useEffect(() => {
+    refreshProgress();
+  }, [refreshProgress]);
 
   // Preconstruction/Construction/Cumulative delay breakdown — task-level,
   // same across every day page, same real fetch the Task Based Report
@@ -243,8 +236,6 @@ export default function DprEditScreen() {
   // Comment typed for each selected Reason for Delay (category -> text).
   const [reasonComments, setReasonComments] = useState<Partial<Record<DprDependencyCategory, string>>>({});
   const [statusError, setStatusError] = useState<string | null>(null);
-  const [changingStatus, setChangingStatus] = useState(false);
-  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   // Save/submit failures — shown as a banner under the buttons, NOT the
   // full-screen `error` state (which would replace the form and lose typing).
@@ -342,20 +333,6 @@ export default function DprEditScreen() {
     const entry = entries[index];
     if (!entry) return;
     setSubtasksByDate((prev) => ({ ...prev, [entry.reportDate]: next }));
-  }
-
-  async function handleStatusPress(target: TaskStatus) {
-    if (!taskId) return;
-    setChangingStatus(true);
-    setStatusError(null);
-    try {
-      await updateTaskStatusRpc(taskId, target);
-      await refreshTaskOnly();
-    } catch (err) {
-      setStatusError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setChangingStatus(false);
-    }
   }
 
   async function handleSetActualStart(isoDate: string) {
@@ -491,6 +468,7 @@ export default function DprEditScreen() {
       setEntries((prev) => prev.map((e, i) => (i === index ? { ...e, fields: { ...e.fields, dprSubmittedAtISO: nowIso } } : e)));
       setDraft((d) => ({ ...d, dprSubmittedAtISO: nowIso }));
       toast.success('DPR submitted');
+      refreshProgress();
       reloadDelayData();
     } catch (err) {
       setSaveError(`Couldn't submit this DPR — ${err instanceof Error ? err.message : String(err)}. Nothing was marked submitted; try again.`);
@@ -844,63 +822,14 @@ export default function DprEditScreen() {
                 </View>
 
                 <View style={{ zIndex: 10, gap: space.sm }}>
-                  <FormField label="Status" error={statusError}>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={`Status: ${STATUS_DISPLAY_LABEL[task.status]}${task.status !== 'completed' ? '. Change' : ''}`}
-                      onPress={() => task.status !== 'completed' && setStatusDropdownOpen((v) => !v)}
-                      disabled={changingStatus}
-                      style={({ pressed }) => ({
-                        minHeight: 42,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        borderWidth: 1,
-                        borderColor: colors.borderStrong,
-                        borderRadius: radius.sm,
-                        paddingHorizontal: space.md,
-                        backgroundColor: pressed ? colors.surfaceMuted : colors.surface,
-                        opacity: changingStatus ? 0.5 : 1,
-                      })}
-                    >
-                      <AppText variant="bodyStrong">{STATUS_DISPLAY_LABEL[task.status]}</AppText>
-                      {changingStatus ? (
-                        <ActivityIndicator size="small" color={colors.navy} />
-                      ) : task.status !== 'completed' ? (
-                        <Ionicons name={statusDropdownOpen ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />
-                      ) : null}
-                    </Pressable>
-                    {/* Expands in normal flow (pushes content down) rather than
-                        floating over it — by explicit correction. */}
-                    {statusDropdownOpen && (
-                      <View style={{ borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, overflow: 'hidden' }}>
-                        {STATUS_DROPDOWN_OPTIONS.map((opt, i) => {
-                          const active = task.status === opt.value;
-                          return (
-                            <Pressable
-                              key={opt.value}
-                              accessibilityRole="button"
-                              accessibilityState={{ selected: active }}
-                              onPress={() => {
-                                setStatusDropdownOpen(false);
-                                void handleStatusPress(opt.value);
-                              }}
-                              style={({ pressed }) => ({
-                                minHeight: 40,
-                                justifyContent: 'center',
-                                paddingHorizontal: space.md,
-                                borderTopWidth: i ? 1 : 0,
-                                borderTopColor: colors.divider,
-                                backgroundColor: active ? colors.navy : pressed ? colors.surfaceMuted : colors.surface,
-                              })}
-                            >
-                              <AppText variant="body" tone={active ? 'inverse' : 'default'}>
-                                {opt.label}
-                              </AppText>
-                            </Pressable>
-                          );
-                        })}
-                      </View>
+                  {/* Status is calculated from dates + DPRs (task_progress_statuses) — no manual picker (2026-11-13). */}
+                  <FormField label="Status" error={statusError} hint="Set automatically from the planned dates and submitted DPRs.">
+                    {progress ? (
+                      <ProgressStatusBadge info={progress} showWhy />
+                    ) : (
+                      <AppText variant="caption" tone="muted">
+                        Calculating…
+                      </AppText>
                     )}
                   </FormField>
 

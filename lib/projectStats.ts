@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import { isPilotVisible } from './pilot';
 import { fetchAllPendingClientAlerts } from './dependencyAlerts';
 import { fetchProcurementSchedule } from './tasks/procurementSchedule';
+import { fetchProgressStatuses, type ProgressStatusInfo } from './taskProgressStatus';
 
 // Every formula here is ported from admin-web's real dashboard, not
 // invented fresh for mobile — see app/(app)/projects/page.tsx (global) and
@@ -77,9 +78,13 @@ export async function fetchAllProjectStats(): Promise<{ projects: ProjectStat[];
   if (tasksRes.error) throw new Error(tasksRes.error.message);
 
   const now = new Date();
+  // Calculated status (same as DPR / Gantt): Completed = 100% done or marked
+  // completed. Falls back to tasks.status if the view can't be read.
+  const rows = (tasksRes.data ?? []) as unknown as RawTaskRow[];
+  const calc = await fetchProgressStatuses(rows.map((r) => r.id)).catch(() => new Map<string, ProgressStatusInfo>());
 
   const byProject = new Map<string, { total: number; completed: number; overdue: number }>();
-  for (const row of (tasksRes.data ?? []) as unknown as RawTaskRow[]) {
+  for (const row of rows) {
     const work = normalizeWork(row.work);
     const projectId = work?.project_id;
     if (!projectId) continue;
@@ -87,8 +92,10 @@ export async function fetchAllProjectStats(): Promise<{ projects: ProjectStat[];
     if (!byProject.has(projectId)) byProject.set(projectId, { total: 0, completed: 0, overdue: 0 });
     const bucket = byProject.get(projectId)!;
     bucket.total += 1;
-    if (row.status === 'completed') bucket.completed += 1;
-    if (row.due_date && new Date(row.due_date) < now && row.status !== 'completed') bucket.overdue += 1;
+    const c = calc.get(row.id);
+    const done = c ? c.status === 'completed' : row.status === 'completed';
+    if (done) bucket.completed += 1;
+    if (!done && (c ? c.overdue : !!row.due_date && new Date(row.due_date) < now)) bucket.overdue += 1;
   }
 
   const pendingByProject = new Map<string, number>();

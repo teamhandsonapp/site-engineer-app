@@ -5,6 +5,8 @@ import { Card } from '../ui/Card';
 import type { TimelineWork } from '../../lib/projectTimeline';
 import type { TaskDelayInfo } from '../../lib/gantt/delayEngine';
 import { toLocalCalendarDate } from '../../lib/ganttLayout';
+import { useProgressStatuses } from '../../lib/taskProgressStatus';
+import { ProgressStatusBadge } from '../ui/ProgressStatusBadge';
 
 const STATUS_LABELS: Record<string, string> = {
   draft: 'Draft',
@@ -53,6 +55,8 @@ export function GanttDetailSheet({
   works: TimelineWork[];
   onClose: () => void;
 }) {
+  // Calculated status (same as DPR) for this task.
+  const progress = useProgressStatuses(task ? [task.id] : []).get(task?.id ?? '') ?? null;
   const taskLookup = useMemo(() => {
     const map = new Map<string, { taskCode: string; taskName: string; workName: string }>();
     for (const w of works) {
@@ -71,7 +75,7 @@ export function GanttDetailSheet({
     .map(([id, d]) => ({ ...(taskLookup.get(id) ?? { taskCode: '?', taskName: 'Unknown task', workName: '' }), totalDelayDays: d.totalDelayDays }))
     .sort((a, b) => b.totalDelayDays - a.totalDelayDays);
 
-  const statusLabel = STATUS_LABELS[task.status] ?? task.status;
+  const statusLabel = STATUS_LABELS[task.status] ?? task.status; // fallback until the calculated one loads
   const isDelayed = delay.totalDelayDays > 0;
 
   return (
@@ -87,8 +91,13 @@ export function GanttDetailSheet({
                 <View className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: task.workColor }} />
                 <Text className="shrink text-xs text-neutral-600" numberOfLines={1}>{task.workName}</Text>
                 <Text className="text-xs text-neutral-300">·</Text>
-                <Text className="shrink-0 text-xs text-neutral-600">{statusLabel}</Text>
+                {progress ? null : <Text className="shrink-0 text-xs text-neutral-600">{statusLabel}</Text>}
               </View>
+              {progress ? (
+                <View className="mt-2">
+                  <ProgressStatusBadge info={progress} showWhy />
+                </View>
+              ) : null}
 
               <View className="flex-row gap-2 mt-3">
                 <View className="flex-1 rounded-lg bg-neutral-50 px-2.5 py-2">
