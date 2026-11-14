@@ -472,7 +472,7 @@ function FlowchartScreenContent() {
               <Ionicons name="checkbox-outline" size={20} color="#15803D" />
               <View className="flex-1">
                 <Text className="text-sm font-semibold text-neutral-900">Download Checklist Excel</Text>
-                <Text className="text-2xs text-neutral-500">{filteredTasks.length} tasks · 5 checklist columns for comments</Text>
+                <Text className="text-2xs text-neutral-500">{filteredTasks.length} tasks · client checklist filled in from the app</Text>
               </View>
             </Pressable>
           ) : null}

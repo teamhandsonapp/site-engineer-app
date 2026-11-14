@@ -1797,6 +1797,7 @@ export function FlowchartCanvas({
         task={detailTask}
         taskTypes={taskTypes}
         projectId={projectId}
+        showClientChecklist={flowchartSet === 'flowchart-2'}
         canEdit={detailEditable}
         canEditChecklist={canEditChecklist}
         userId={pushedByUserId}

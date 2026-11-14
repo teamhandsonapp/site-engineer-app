@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx';
 import { countWorkingDaysBetween, workingDaysBetween } from '../workingDays';
 import { fetchBlockedDates } from '../reports/generalParameterReport';
 import type { FlowchartTask } from './types';
+import { fetchChecklistNotesForTasks, type ChecklistNoteKey, type ChecklistNotes } from './checklistNotes';
 
 // Flowchart "Excel" download (by client request, 2026-11-10): one row per
 // task with Task ID, Task Name, Planned Start/End, Actual Start/End, the
@@ -131,29 +132,32 @@ async function pickSaveDirectory(): Promise<string> {
 
 // Flowchart 2 "Checklist Excel" (client request, 2026-11-14): one row per
 // task — Task Name, Department (blank if none), Planned Start, Actual Start —
-// then the five pre-checklist points as wide, tall EMPTY cells so the client
-// can write comments on the printout.
-export const CHECKLIST_POINTS = [
-  'Drawing Approval from Arch, Consultant',
-  'Client Approval',
-  'Procurement Status',
-  'Procurement Lead time',
-  'Other Dependencies',
+// then the client's checklist points (Architect and Consultant as separate
+// columns, like the client's own sheet) as wide, tall cells, PRE-FILLED with
+// what's saved in the app (task_checklist_notes) so the client only updates
+// what changed.
+export const CHECKLIST_POINTS: { header: string; key: ChecklistNoteKey }[] = [
+  { header: 'Drawing Approval — Architect', key: 'architect' },
+  { header: 'Drawing Approval — Consultant', key: 'consultant' },
+  { header: 'Client Approval', key: 'client' },
+  { header: 'Procurement Status', key: 'procurementStatus' },
+  { header: 'Procurement Lead time', key: 'leadTime' },
+  { header: 'Other Dependencies', key: 'other' },
 ];
 
-export function buildChecklistWorkbook(tasks: FlowchartTask[]): XLSX.WorkBook {
-  const headers = ['S.No', 'Task Name', 'Department', 'Planned Start Date', 'Actual Start Date', ...CHECKLIST_POINTS];
+export function buildChecklistWorkbook(tasks: FlowchartTask[], notes: Map<string, ChecklistNotes>): XLSX.WorkBook {
+  const headers = ['S.No', 'Task Name', 'Department', 'Planned Start Date', 'Actual Start Date', ...CHECKLIST_POINTS.map((p) => p.header)];
   const rows: XLSX.CellObject[][] = [...tasks].sort(byActualStart).map((t, i) => [
     { t: 'n', v: i + 1 },
     { t: 's', v: t.taskName.trim() },
     { t: 's', v: t.workName && t.workName !== 'Unassigned' ? t.workName : '' },
     dateCell(t.plannedStartDate),
     dateCell(t.actualStartDate),
-    ...CHECKLIST_POINTS.map((): XLSX.CellObject => ({ t: 's', v: '' })),
+    ...CHECKLIST_POINTS.map((p): XLSX.CellObject => ({ t: 's', v: notes.get(t.id)?.[p.key] ?? '' })),
   ]);
   const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows] as unknown as unknown[][], { cellDates: true });
   // Big writing space: wide checklist columns and tall rows.
-  sheet['!cols'] = [{ wch: 6 }, { wch: 48 }, { wch: 18 }, { wch: 17 }, { wch: 17 }, ...CHECKLIST_POINTS.map(() => ({ wch: 34 }))];
+  sheet['!cols'] = [{ wch: 6 }, { wch: 48 }, { wch: 18 }, { wch: 17 }, { wch: 17 }, ...CHECKLIST_POINTS.map(() => ({ wch: 30 }))];
   sheet['!rows'] = [{ hpt: 30 }, ...rows.map(() => ({ hpt: 60 }))];
   sheet['!freeze'] = { xSplit: 2, ySplit: 1 };
   const book = XLSX.utils.book_new();
@@ -162,7 +166,8 @@ export function buildChecklistWorkbook(tasks: FlowchartTask[]): XLSX.WorkBook {
 }
 
 export async function exportChecklistExcel(tasks: FlowchartTask[], projectName: string): Promise<string> {
-  const book = buildChecklistWorkbook(tasks);
+  const notes = await fetchChecklistNotesForTasks(tasks.map((t) => t.id));
+  const book = buildChecklistWorkbook(tasks, notes);
   const stamp = new Date().toISOString().slice(0, 10);
   const baseName = `${(projectName || 'Project').replace(/[^\w@ -]+/g, '').trim()} - Flowchart 2 Checklist ${stamp}`;
   return saveWorkbook(book, baseName, 'Checklist (Excel)');
