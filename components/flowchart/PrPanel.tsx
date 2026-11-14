@@ -5,6 +5,8 @@ import { AppText } from '../ui/AppText';
 import { Button } from '../ui/Button';
 import { FormField, FormSection, TextField } from '../ui/Form';
 import { InlineError } from '../ui/States';
+import { DateField } from '../ui/DateField';
+import { updateTaskActualDate } from '../../lib/flowchart/data';
 import { colors, radius, space } from '../../lib/theme';
 import { formatDateLabel } from '../../lib/formatTime';
 import {
@@ -44,6 +46,11 @@ export function PrPanel({ taskId, userId, editable }: { taskId: string; userId: 
   const [confirmIssue, setConfirmIssue] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Actual Start / Actual End — saved the same way as the Edit tab
+  // (updateTaskActualDate: an Actual Start moves a not-started task to In progress).
+  const [actualStart, setActualStart] = useState<string | null>(null);
+  const [actualEnd, setActualEnd] = useState<string | null>(null);
+  const [savingDates, setSavingDates] = useState(false);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -54,6 +61,8 @@ export function PrPanel({ taskId, userId, editable }: { taskId: string; userId: 
         return;
       }
       setTask(found.task);
+      setActualStart(found.task.actualStartDate);
+      setActualEnd(found.task.actualEndDate);
       const [d, c] = await Promise.all([fetchPrDays(taskId, found.task.plannedStartDate, found.task.plannedEndDate), fetchChecklistProgress(taskId)]);
       setDays(d);
       setChecklist(c);
@@ -86,6 +95,33 @@ export function PrPanel({ taskId, userId, editable }: { taskId: string; userId: 
   const target = percentText.trim() === '' ? null : Number(percentText);
   const targetValid = target != null && Number.isInteger(target) && target >= 0 && target <= 100;
   const plan = targetValid ? planPr(days, target, mode) : null;
+
+  const datesChanged = actualStart !== task.actualStartDate || actualEnd !== task.actualEndDate;
+
+  async function handleSaveDates() {
+    if (!task) return;
+    setError(null);
+    setNotice(null);
+    if (actualEnd && !actualStart) {
+      setError('Enter the Actual Start before the Actual End.');
+      return;
+    }
+    if (actualStart && actualEnd && actualEnd < actualStart) {
+      setError('Actual End cannot be before Actual Start.');
+      return;
+    }
+    setSavingDates(true);
+    try {
+      if (actualStart !== task.actualStartDate) await updateTaskActualDate(taskId, 'actual_start_date', actualStart);
+      if (actualEnd !== task.actualEndDate) await updateTaskActualDate(taskId, 'actual_end_date', actualEnd);
+      setNotice('Actual dates saved — tap ⟳ on the flowchart to see them on the card');
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSavingDates(false);
+    }
+  }
 
   async function handleIssueAll() {
     setIssuing(true);
@@ -141,6 +177,24 @@ export function PrPanel({ taskId, userId, editable }: { taskId: string; userId: 
         <AppText variant="caption" tone="secondary">
           {filledDays.length} filled ({alreadyFilled}% so far) · {days.length - filledDays.length} empty
         </AppText>
+      </FormSection>
+
+      <FormSection compact title="Actual dates" icon="flag-outline">
+        <View style={{ flexDirection: 'row', gap: space.sm }}>
+          <View style={{ flex: 1 }}>
+            <DateField label="Actual Start" value={actualStart} editable={editable && !locked} maxDate={actualEnd} onChange={setActualStart} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <DateField label="Actual End" value={actualEnd} editable={editable && !locked && !!actualStart} minDate={actualStart} onChange={setActualEnd} />
+          </View>
+        </View>
+        {locked ? (
+          <AppText variant="caption" tone="secondary">
+            Actual dates can be entered once the pre-construction checklist is complete (Mark all as Issued below).
+          </AppText>
+        ) : editable && datesChanged ? (
+          <Button label="Save actual dates" icon="save-outline" variant="secondary" fullWidth busy={savingDates} onPress={handleSaveDates} />
+        ) : null}
       </FormSection>
 
       {locked ? (
