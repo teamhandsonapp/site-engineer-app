@@ -39,7 +39,7 @@ export default function GanttScreen() {
   const load = useCallback(async (projectId: string) => {
     try {
       setError(null);
-      setTimeline(await withTimeout(fetchProjectTimeline(projectId), FETCH_TIMEOUT_MS, "Couldn't reach the server — check your connection and try again."));
+      setTimeline(await withTimeout(fetchProjectTimeline(projectId, { onlyFlowchartSet: 'flowchart-2' }), FETCH_TIMEOUT_MS, "Couldn't reach the server — check your connection and try again."));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }

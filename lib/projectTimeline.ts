@@ -66,6 +66,7 @@ interface RawTaskRow {
   actual_end_date: string | null;
   task_type_id: string | null;
   accountability_type: AccountabilityType | null;
+  flowchart_set: string | null;
   work: { id: string; name: string; code: string; color: string; accountability_type: AccountabilityType | null } | null;
   dependency_items: RawDependencyItem[] | null;
 }
@@ -106,12 +107,15 @@ async function fetchBlockedDates(years: Set<number>): Promise<Set<string>> {
 // from admin-web's lib/utils/delay-engine.ts) to get real projected-start/
 // projected-finish/delay figures per task, and returns the taskTypeColors
 // map GanttTaskBars needs for the rare ACC/AV-tinted planned-bar case.
-export async function fetchProjectTimeline(projectId: string): Promise<ProjectTimelineData> {
+// `onlyFlowchartSet` (Gantt screen, client request 2026-11-14): show only that
+// board's tasks (e.g. 'flowchart-2' = the 70 Flowchart 2 tasks). Falls back
+// to every task when the project has none on that board.
+export async function fetchProjectTimeline(projectId: string, options?: { onlyFlowchartSet?: string }): Promise<ProjectTimelineData> {
   const { data, error } = await supabase
     .from('tasks')
     .select(`
       id, task_id, task_name, status, planned_start_date, due_date,
-      actual_start_date, actual_end_date, task_type_id, accountability_type,
+      actual_start_date, actual_end_date, task_type_id, accountability_type, flowchart_set,
       work:works!inner(id, name, code, color, accountability_type, project_id),
       dependency_items(category, item_label, completion:dependency_completions(status))
     `)
@@ -124,7 +128,9 @@ export async function fetchProjectTimeline(projectId: string): Promise<ProjectTi
   // Pilot mode (lib/pilot.ts, mirrors admin-web's lib/config/pilot.ts):
   // client asked to scope every display surface down to only 12 Civil-work
   // tasks for now, everything else stays in the DB untouched but hidden.
-  const rows = ((data ?? []) as unknown as RawTaskRow[]).filter((r) => isPilotVisible(r.task_id, r.work?.code));
+  let rows = ((data ?? []) as unknown as RawTaskRow[]).filter((r) => isPilotVisible(r.task_id, r.work?.code));
+  const onlySet = options?.onlyFlowchartSet;
+  if (onlySet && rows.some((r) => r.flowchart_set === onlySet)) rows = rows.filter((r) => r.flowchart_set === onlySet);
   const taskIds = new Set(rows.map((r) => r.id));
 
   const [depsRes, typesRes] = await Promise.all([
