@@ -427,10 +427,12 @@ export function TaskDetailSheet({
                     <Pressable
                       key={tab}
                       onPress={() => setActiveTab(tab)}
-                      className="flex-1 items-center py-1.5 rounded-md"
-                      style={{ backgroundColor: active ? '#0F1F33' : 'transparent' }}
+                      className="items-center py-1.5 px-1 rounded-md"
+                      // Width follows the label (not equal fifths), so "Prerequisites"
+                      // isn't squeezed edge to edge on a phone (2026-11-14).
+                      style={{ flexGrow: 1, flexShrink: 1, backgroundColor: active ? '#0F1F33' : 'transparent' }}
                     >
-                      <Text className="text-2xs font-bold" style={{ color: active ? '#fff' : '#525252' }}>
+                      <Text numberOfLines={1} className="text-2xs font-bold" style={{ color: active ? '#fff' : '#525252' }}>
                         {tab === 'edit' ? 'Edit' : tab === 'subtasks' ? 'Subtasks' : tab === 'checklist' ? 'Checklist' : tab === 'pr' ? 'PR' : 'Prerequisites'}
                       </Text>
                     </Pressable>

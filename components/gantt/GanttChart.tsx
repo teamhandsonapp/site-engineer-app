@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, RefreshControl, useWindowDimensions, View } from 'react-native';
 import { Text } from '../ui/AppText';
 import Animated, { useAnimatedRef, useAnimatedScrollHandler, scrollTo } from 'react-native-reanimated';
@@ -108,6 +108,9 @@ export function GanttChart({
   // rendered box and applying it explicitly removes that ambiguity rather
   // than depending on it, since this can't be checked on a real device.
   const [bodyHeight, setBodyHeight] = useState(0);
+  const [bodyWidth, setBodyWidth] = useState(0);
+  const bodyScrollRef = useAnimatedRef<Animated.ScrollView>();
+  const jumpedForZoom = useRef<ZoomLevel | null>(null);
 
   const today = useMemo(() => {
     const now = new Date();
@@ -144,6 +147,20 @@ export function GanttChart({
 
   const todayX = scale.dateToX(today);
   const showTodayMarker = todayX >= 0 && todayX <= scale.totalWidth;
+
+  // Open on today (red line ~3/4 across, so the last two weeks show) instead of the range start,
+  // which can be months back — once per zoom level, so a pull-to-refresh
+  // doesn't yank the view away from where the user scrolled (2026-11-14).
+  useEffect(() => {
+    if (!bodyWidth || !showTodayMarker || jumpedForZoom.current === zoom) return;
+    jumpedForZoom.current = zoom;
+    const x = Math.max(0, Math.min(todayX - bodyWidth * 0.75, scale.totalWidth - bodyWidth));
+    const id = setTimeout(() => {
+      (bodyScrollRef.current as unknown as { scrollTo?: (o: { x: number; y: number; animated: boolean }) => void } | null)?.scrollTo?.({ x, y: 0, animated: false });
+      (headerScrollRef.current as unknown as { scrollTo?: (o: { x: number; y: number; animated: boolean }) => void } | null)?.scrollTo?.({ x, y: 0, animated: false });
+    }, 50);
+    return () => clearTimeout(id);
+  }, [bodyWidth, showTodayMarker, todayX, zoom, scale.totalWidth, bodyScrollRef, headerScrollRef]);
 
   const onBodyHorizontalScroll = useAnimatedScrollHandler({
     onScroll: (e) => {
@@ -274,9 +291,13 @@ export function GanttChart({
       <View
         className="absolute bg-white"
         style={{ top: TIMELINE_HEADER_HEIGHT, left: labelWidth, right: 0, bottom: 0 }}
-        onLayout={(e) => setBodyHeight(e.nativeEvent.layout.height)}
+        onLayout={(e) => {
+          setBodyHeight(e.nativeEvent.layout.height);
+          setBodyWidth(e.nativeEvent.layout.width);
+        }}
       >
         <Animated.ScrollView
+          ref={bodyScrollRef}
           horizontal
           style={{ flex: 1 }}
           onScroll={onBodyHorizontalScroll}
