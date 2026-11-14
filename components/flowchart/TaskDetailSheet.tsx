@@ -15,6 +15,7 @@ import { CATEGORIES, CATEGORY_LABEL } from '../../lib/taskDetail/constants';
 import { addDaysToKey, fetchSubtasksForTask, type DprSubtaskItem } from '../../lib/dprEntries';
 import { FLOOR_LEVEL_PRESETS, ROOM_TYPE_PRESETS, type AccountabilityType, type PositionedTask, type TaskTypeOption } from '../../lib/flowchart/types';
 import { ClientChecklistPanel } from './ClientChecklistPanel';
+import { PrPanel } from './PrPanel';
 
 const FULL_MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -25,7 +26,7 @@ function formatDateKeyLabel(key: string): string {
   return `${d} ${FULL_MONTHS[m - 1].slice(0, 3)} ${y}`;
 }
 
-type DetailTab = 'edit' | 'subtasks' | 'prerequisites' | 'checklist';
+type DetailTab = 'edit' | 'subtasks' | 'prerequisites' | 'checklist' | 'pr';
 
 // taskTypes (prop) is fetched ordered by default_duration_days ascending —
 // same deterministic A/B/C.../G-by-index labeling as CreateTaskSheet.tsx/
@@ -181,7 +182,7 @@ export function TaskDetailSheet({
   onTaskEdited,
   showClientChecklist = false,
 }: {
-  // Flowchart 2: adds the "Checklist" tab (client's six checklist points).
+  // Flowchart 2: adds the "Checklist" (client's six points) and "PR" tabs.
   showClientChecklist?: boolean;
   task: PositionedTask | null;
   taskTypes: TaskTypeOption[];
@@ -420,7 +421,7 @@ export function TaskDetailSheet({
                   where "Open" left this sheet entirely for a separate
                   full-page screen. */}
               <View className="flex-row bg-neutral-100 rounded-lg p-0.5 mb-3">
-                {((showClientChecklist ? ['subtasks', 'prerequisites', 'checklist', 'edit'] : ['subtasks', 'prerequisites', 'edit']) as DetailTab[]).map((tab) => {
+                {((showClientChecklist ? ['subtasks', 'prerequisites', 'checklist', 'pr', 'edit'] : ['subtasks', 'prerequisites', 'edit']) as DetailTab[]).map((tab) => {
                   const active = activeTab === tab;
                   return (
                     <Pressable
@@ -430,7 +431,7 @@ export function TaskDetailSheet({
                       style={{ backgroundColor: active ? '#0F1F33' : 'transparent' }}
                     >
                       <Text className="text-2xs font-bold" style={{ color: active ? '#fff' : '#525252' }}>
-                        {tab === 'edit' ? 'Edit' : tab === 'subtasks' ? 'Subtasks' : tab === 'checklist' ? 'Checklist' : 'Prerequisites'}
+                        {tab === 'edit' ? 'Edit' : tab === 'subtasks' ? 'Subtasks' : tab === 'checklist' ? 'Checklist' : tab === 'pr' ? 'PR' : 'Prerequisites'}
                       </Text>
                     </Pressable>
                   );
@@ -605,6 +606,10 @@ export function TaskDetailSheet({
                     </View>
                   )}
                 </View>
+              )}
+
+              {activeTab === 'pr' && showClientChecklist && (
+                <PrPanel taskId={task.id} userId={userId} editable={canEditChecklist} />
               )}
 
               {activeTab === 'checklist' && showClientChecklist && (
