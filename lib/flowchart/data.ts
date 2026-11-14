@@ -32,6 +32,8 @@ interface RawTaskRow {
   milestone_id: string | null;
   flowchart_set: string | null;
   flowchart_section_title?: string | null;
+  flowchart_divider_below?: boolean | null;
+  flowchart_card_color?: string | null;
   work: { id: string; name: string; code: string; accountability_type: AccountabilityType | null } | null;
 }
 
@@ -69,7 +71,7 @@ const TASK_SELECT = `
   actual_start_date, actual_end_date, current_planned_start_date, current_due_date,
   cascade_delay_days,
   accountability_type, task_type_id, manual_position_x, manual_position_y,
-  hidden_from_flowchart, room_type, floor_level, milestone_id, flowchart_set, flowchart_section_title,
+  hidden_from_flowchart, room_type, floor_level, milestone_id, flowchart_set, flowchart_section_title, flowchart_divider_below, flowchart_card_color,
   work:works!inner(id, name, code, accountability_type, project_id)
 `;
 
@@ -101,6 +103,8 @@ function mapRawTaskRow(t: RawTaskRow): FlowchartTask {
     floorLevel: t.floor_level,
     milestoneId: t.milestone_id,
     sectionTitle: t.flowchart_section_title ?? null,
+    dividerBelow: !!t.flowchart_divider_below,
+    cardColor: t.flowchart_card_color ?? null,
   };
 }
 

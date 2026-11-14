@@ -1266,6 +1266,31 @@ export function FlowchartCanvas({
                 milestone={task.milestoneId ? milestoneById.get(task.milestoneId) : null}
               />
             ))}
+            {/* Divider lines (tasks.flowchart_divider_below): a horizontal line
+                across the whole board, halfway between this card and the next
+                row down — e.g. below "Roof beam casting (east side)" on Flowchart 2. */}
+            {tasks
+              .filter((t) => t.dividerBelow)
+              .map((t) => {
+                const bottom = t.y + NODE_HEIGHT;
+                const nextY = tasks.reduce((m, o) => (o.y > bottom && o.y < m ? o.y : m), Number.POSITIVE_INFINITY);
+                const lineY = Number.isFinite(nextY) ? (bottom + nextY) / 2 : bottom + 20;
+                return (
+                  <View
+                    key={`divider-${t.id}`}
+                    pointerEvents="none"
+                    style={{
+                      position: 'absolute',
+                      left: bounds.minX - 40,
+                      top: lineY - 1.5,
+                      width: bounds.maxX - bounds.minX + 80,
+                      height: 3,
+                      borderRadius: 2,
+                      backgroundColor: canvasTheme === 'black' ? '#E5E7EB' : '#0F1F33',
+                    }}
+                  />
+                );
+              })}
             {/* Section titles (e.g. "West side") — a small navy pill just
                 above the card that starts the section (tasks.flowchart_section_title).
                 Drawn here, not inside TaskNode, because the card clips its overflow. */}
@@ -1669,7 +1694,10 @@ export function FlowchartCanvas({
       {searchOpen && (
         <FormModal visible onRequestClose={() => setSearchOpen(false)}>
             <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 360 }}>
-              <View className="bg-white rounded-2xl p-4" style={{ maxHeight: '70%' }}>
+              {/* No maxHeight '70%' here: it resolved against the short wrapper
+                  (~180px) and squashed the result list below to 0px, so search
+                  showed nothing. The list's own maxHeight 320 caps the card. */}
+              <View className="bg-white rounded-2xl p-4">
                 <Text className="text-sm font-bold text-neutral-900 mb-3">Jump to task</Text>
                 <View className="flex-row items-center gap-2 bg-neutral-50 rounded-xl border border-neutral-200 px-3 py-2.5 mb-3">
                   <Ionicons name="search-outline" size={16} color="#a3a3a3" />

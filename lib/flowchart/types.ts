@@ -62,6 +62,10 @@ export interface FlowchartTask {
   milestoneId: string | null;
   // Small title drawn above this task's card (e.g. "West side"); null = none.
   sectionTitle?: string | null;
+  // Draw a horizontal divider line across the board just below this card.
+  dividerBelow?: boolean;
+  // Optional card background override (e.g. light red), else the Task Type colour.
+  cardColor?: string | null;
 }
 
 // Series link (task_dependencies) — a real, enforced ordering relationship.

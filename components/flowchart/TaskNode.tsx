@@ -114,7 +114,8 @@ export function TaskNode({
   // not plain white, which would be a visible mismatch from admin-web.
   const typeColor = task.taskTypeId ? typeColors[task.taskTypeId] ?? null : null;
   const boxMix = getTaskBoxBackground(typeColor, task.workAccountabilityType);
-  const textColor = boxMix?.textColor ?? '#171717';
+  // A per-task colour (tasks.flowchart_card_color, e.g. light red) wins over the type colour.
+  const textColor = task.cardColor ? '#171717' : boxMix?.textColor ?? '#171717';
 
   // NativeWind's className styling doesn't reach react-native-reanimated's
   // Animated.View reliably (confirmed live: the box rendered with zero
@@ -139,7 +140,7 @@ export function TaskNode({
     // zoom or stacking. Still loses to the interaction states below it.
     borderWidth: isSelected || isPendingLinkSource ? 2 : milestone ? 2.5 : 1,
     borderColor: isSelected ? '#F0A227' : isPendingLinkSource ? '#0F1F33' : milestone ? milestone.color : '#000000',
-    backgroundColor: boxMix?.background ?? '#F9FAFB',
+    backgroundColor: task.cardColor ?? boxMix?.background ?? '#F9FAFB',
     // A backstop for the padding/box-size change below, not a style choice
     // on its own — if a rare, unusually long real task name still needs
     // more room than the estimate gives it, this clips cleanly at the
