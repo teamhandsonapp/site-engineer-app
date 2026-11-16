@@ -3,6 +3,7 @@
 // Data from lib/sitePhotos.ts (sample photos + this phone's DPR photos).
 
 import { useMemo, useState } from 'react';
+import { useBackStep } from '../../lib/useBackStep';
 import { Image, Modal, ScrollView, useWindowDimensions, View } from 'react-native';
 import { Pressable } from '../ui/Pressable';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -78,6 +79,13 @@ export function SitePhotosBrowser({ projectId, projectName, onExit }: { projectI
     ...(room ? [{ label: room, onPress: () => setWall(null) }] : []),
     ...(wall ? [{ label: wall, onPress: () => {} }] : []),
   ];
+
+  // Phone back: close the photo viewer, else up one level (wall → room → floor → Files).
+  useBackStep(() => {
+    if (viewerIndex != null) setViewerIndex(null);
+    else up();
+    return true;
+  });
 
   function up() {
     if (wall) setWall(null);

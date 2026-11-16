@@ -10,6 +10,7 @@ import { useProject } from '../../lib/ProjectContext';
 import { useAuth } from '../../lib/AuthContext';
 import { fetchProjectFiles, getProjectFileUrl, uploadProjectFile } from '../../lib/projectFiles';
 import { SitePhotosBrowser } from '../../components/files/SitePhotosBrowser';
+import { useBackStep } from '../../lib/useBackStep';
 import { DrawingsManager } from '../../components/drawingFiles/DrawingsManager';
 import { LOCATION_TREE, WALLS, roomsFor, useSitePhotos } from '../../lib/sitePhotos';
 
@@ -770,6 +771,17 @@ export default function FilesScreen() {
       setUploading(false);
     }
   }
+
+  // Phone back steps up one level here instead of leaving Files for Home.
+  // Drawings / Site photos handle their own levels (they return to this list on exit).
+  useBackStep(() => {
+    if (drawingsOpen || sitePhotosOpen) return false;
+    if (openFile) setOpenFile(null);
+    else if (path.length > 0) setPath(path.slice(0, -1));
+    else if (projectId && !isClient) setProjectId(null);
+    else return false;
+    return true;
+  });
 
   if (openFile) {
     const kind = KIND_STYLE[openFile.kind];

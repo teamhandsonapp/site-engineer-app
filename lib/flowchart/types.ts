@@ -49,6 +49,9 @@ export interface FlowchartTask {
   // yet — not for the main date-range chip, which always shows the original.
   currentPlannedStartDate: string | null;
   currentDueDate: string | null;
+  // When the site expects the task to really start (e.g. "client says 16 Nov").
+  // Only feeds the blue projected-dates chip (lib/flowchart/projected.ts).
+  expectedStartDate?: string | null;
   cascadeDelayDays: number | null;
   accountabilityType: AccountabilityType | null; // task-level override
   workAccountabilityType: AccountabilityType | null; // resolved: task's own ?? work's default
@@ -74,6 +77,8 @@ export interface FlowchartSeriesEdge {
   taskId: string; // the blocked task
   dependsOnTaskId: string; // the prerequisite
   type: DependencyType;
+  /** Soft link: drawn for reference only (grey dashed) — no date push, no warning. */
+  soft?: boolean;
 }
 
 // Parallel link (task_parallel_links) — symmetric, non-blocking, visual only.

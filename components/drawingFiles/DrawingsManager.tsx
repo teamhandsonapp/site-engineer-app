@@ -20,6 +20,7 @@ import {
   type ProjectLocation,
 } from '../../lib/drawingFiles';
 import { DrawingDetail } from './DrawingDetail';
+import { useBackStep } from '../../lib/useBackStep';
 import { DrawingUploadSheet } from './DrawingUploadSheet';
 import { Chip, KindBadge } from './parts';
 
@@ -166,6 +167,16 @@ export function DrawingsManager({
   // Always the freshest copy (after an edit, load() replaces `files`).
   const openFile = openFileId ? (files ?? []).find((f) => f.id === openFileId) ?? null : null;
   const setOpenFile = (f: DrawingFile | null) => setOpenFileId(f?.id ?? null);
+  // Phone back: file → list → department/floor folder → out of Drawings.
+  useBackStep(() => {
+    if (openFileId) setOpenFileId(null);
+    else if (uploadOpen) setUploadOpen(false);
+    else if (view === 'department' && deptId) setDeptId(null);
+    else if (view === 'location' && locId) setLocId((byId.get(locId) as { parentId?: string | null } | undefined)?.parentId ?? null);
+    else onExit();
+    return true;
+  });
+
   if (openFile) {
     return (
       <DrawingDetail

@@ -9,6 +9,7 @@ import { useFocusEffect } from 'expo-router';
 import { appRoleFor, useAuth } from '../../lib/AuthContext';
 import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
 import { EdgeLayer } from './EdgeLayer';
+import { FLOWCHART_2_GROUPS, groupOutline } from '../../lib/flowchart/boardGroups';
 import { TaskNode } from './TaskNode';
 import { TaskDetailSheet } from './TaskDetailSheet';
 import { TaskActionMenu } from './TaskActionMenu';
@@ -31,9 +32,16 @@ import {
   pushTasksUrgent,
   seedDependencyItems,
   updateDependencyType,
+  updateTaskPlannedDates,
   updateTaskPosition,
+  isFlowchart2Set,
+  FLOWCHART_2_SET,
 } from '../../lib/flowchart/data';
 import { linkProblem } from '../../lib/flowchart/linkTypes';
+import { ripplePlannedDates } from '../../lib/flowchart/plannedRipple';
+import { computeProjectedDates, runningDelayDays, shouldShowProjected } from '../../lib/flowchart/projected';
+import { CHECKLIST_NOTE_FIELDS, fetchChecklistNotesForTasks, type ChecklistNotes } from '../../lib/flowchart/checklistNotes';
+import { ChecklistPeek } from './ChecklistPeek';
 import { LinkInfoSheet } from './LinkInfoSheet';
 import { LinkLegend } from './LinkLegend';
 import { getTaskTypeColors } from '../../lib/flowchart/taskTypeColor';
@@ -203,7 +211,7 @@ export function FlowchartCanvas({
   // sheet instead of Open navigating away to a separate full-page screen;
   // they just default to a different starting tab, matching each entry's
   // old purpose (Open = view the checklist, Edit = edit task fields).
-  const [detailInitialTab, setDetailInitialTab] = useState<'edit' | 'subtasks' | 'prerequisites'>('edit');
+  const [detailInitialTab, setDetailInitialTab] = useState<'edit' | 'subtasks' | 'prerequisites' | 'checklist'>('edit');
   const [actionMenuTaskId, setActionMenuTaskId] = useState<string | null>(null);
   const [edgeDeleteConfirmId, setEdgeDeleteConfirmId] = useState<string | null>(null);
   // Series link whose info sheet is open / whose type is being changed.
@@ -520,6 +528,11 @@ export function FlowchartCanvas({
           await updateDependencyType(edge.id, type);
           setSeriesEdges((prev) => prev.map((e) => (e.id === edge.id ? { ...e, type } : e)));
         }
+        for (const d of action.dates ?? []) {
+          const [s, e] = isUndo ? d.before : d.after;
+          await updateTaskPlannedDates(d.id, s, e);
+          setTasks((prev) => prev.map((t) => (t.id === d.id ? { ...t, plannedStartDate: s, dueDate: e } : t)));
+        }
         return;
       }
       case 'deleteParallelLink': {
@@ -571,6 +584,47 @@ export function FlowchartCanvas({
   }
 
   const typeColors = useMemo(() => getTaskTypeColors(taskTypes), [taskTypes]);
+  // Blue "projected dates" chip — Flowchart 2 only (2026-11-14). Worked out
+  // fresh from the current dates + links, so editing a date or a link moves
+  // every downstream chip straight away.
+  const projectedById = useMemo(
+    () => (isFlowchart2Set(flowchartSet) ? computeProjectedDates(tasks, seriesEdges) : new Map()),
+    [flowchartSet, tasks, seriesEdges]
+  );
+  const linkedTaskIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const e of seriesEdges) { ids.add(e.taskId); ids.add(e.dependsOnTaskId); }
+    return ids;
+  }, [seriesEdges]);
+
+  // Client-checklist wheel (Flowchart 2): shown only on cards whose checklist
+  // has something written; tapping it opens a read-only pop-up (ChecklistPeek).
+  // Re-read whenever the task sheet closes, so a checklist just saved there
+  // shows straight away.
+  const [checklistNotesById, setChecklistNotesById] = useState<Map<string, ChecklistNotes>>(new Map());
+  const [peekTaskId, setPeekTaskId] = useState<string | null>(null);
+  const taskIdsKey = useMemo(() => tasks.map((t) => t.id).join(','), [tasks]);
+  useEffect(() => {
+    if (!isFlowchart2Set(flowchartSet) || detailTaskId !== null || !taskIdsKey) return;
+    let cancelled = false;
+    fetchChecklistNotesForTasks(taskIdsKey.split(','))
+      .then((notes) => {
+        if (cancelled) return;
+        setChecklistNotesById(notes);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [flowchartSet, detailTaskId, taskIdsKey]);
+  const checklistDotsById = useMemo(() => {
+    const out = new Map<string, boolean[]>();
+    for (const [id, n] of checklistNotesById) {
+      const dots = CHECKLIST_NOTE_FIELDS.map((f) => !!n[f.key]?.trim());
+      if (dots.some(Boolean)) out.set(id, dots);
+    }
+    return out;
+  }, [checklistNotesById]);
 
   const bounds = useMemo(() => computeBounds(tasks), [tasks]);
   // "Task N of M" position indicator + jump-to-task search — by explicit
@@ -864,6 +918,16 @@ export function FlowchartCanvas({
         return;
       }
     } else {
+      // Already linked the same way round → just change that link's type
+      // (2026-11-15: picking SS for an FS pair used to be refused).
+      // Whichever order the two were tapped in, the link keeps its direction.
+      const existing = seriesEdges.find(
+        (e) => (e.dependsOnTaskId === source && e.taskId === target) || (e.dependsOnTaskId === target && e.taskId === source)
+      );
+      if (existing) {
+        await changeLinkType(existing.id, type);
+        return;
+      }
       // Self, duplicate (either direction) and circular links are refused
       // with a plain message (the database refuses them too).
       const problem = linkProblem(seriesEdges, source, target);
@@ -926,11 +990,29 @@ export function FlowchartCanvas({
     setSeriesEdges((prev) => prev.map((e) => (e.id === edgeId ? { ...e, type } : e)));
     try {
       await updateDependencyType(edgeId, type);
-      pushHistory({ type: 'changeSeriesLinkType', taskId: edge.taskId, dependsOnTaskId: edge.dependsOnTaskId, before: edge.type, after: type });
     } catch (err) {
       setSeriesEdges((prev) => prev.map((e) => (e.id === edgeId ? { ...e, type: edge.type } : e)));
       setLinkError(`Couldn't change the link type — ${err instanceof Error ? err.message : 'check your connection'}.`);
+      return;
     }
+    // Flowchart 2: the planned dates follow the new link type, down the chain.
+    const dates: { id: string; before: [string | null, string | null]; after: [string | null, string | null] }[] = [];
+    if (isFlowchart2Set(flowchartSet)) {
+      const newEdges = seriesEdges.map((e) => (e.id === edgeId ? { ...e, type } : e));
+      const moved = ripplePlannedDates(tasks, newEdges, edge.taskId);
+      try {
+        for (const [id, d] of moved) {
+          const t = tasks.find((x) => x.id === id);
+          await updateTaskPlannedDates(id, d.start, d.end);
+          dates.push({ id, before: [t?.plannedStartDate ?? null, t?.dueDate ?? null], after: [d.start, d.end] });
+        }
+      } catch (err) {
+        setLinkError(`Link changed, but some planned dates couldn't be saved — ${err instanceof Error ? err.message : 'check your connection'}. Refresh to see the saved state.`);
+      }
+      const byId = new Map(dates.map((d) => [d.id, d.after]));
+      setTasks((prev) => prev.map((t) => (byId.has(t.id) ? { ...t, plannedStartDate: byId.get(t.id)![0], dueDate: byId.get(t.id)![1] } : t)));
+    }
+    pushHistory({ type: 'changeSeriesLinkType', taskId: edge.taskId, dependsOnTaskId: edge.dependsOnTaskId, before: edge.type, after: type, ...(dates.length ? { dates } : {}) });
   }
 
   function confirmSeriesEdgeDelete() {
@@ -955,6 +1037,12 @@ export function FlowchartCanvas({
     setDetailTaskId(taskId);
     setDetailEditable(false);
     setDetailInitialTab('prerequisites');
+  }
+
+  // Tapping a card's checklist wheel opens the read-only checklist pop-up.
+  function handleOpenChecklist(taskId: string) {
+    setActionMenuTaskId(null);
+    setPeekTaskId(taskId);
   }
 
   function handleEditTask(taskId: string) {
@@ -1212,6 +1300,16 @@ export function FlowchartCanvas({
   // given, so filtering the task list alone also hides every edge leading
   // out of the focused milestone.
   const renderedTasks = focusedMilestoneId ? visibleTasks.filter((t) => t.milestoneId === focusedMilestoneId) : visibleTasks;
+  // Flowchart 2 group outlines ("Structural Civil Works" …): drawn behind the
+  // cards, and handed to the link router so links keep clear of them.
+  const groupZones = flowchartSet === FLOWCHART_2_SET
+    ? FLOWCHART_2_GROUPS.flatMap((g) => {
+        const r = groupOutline(g, renderedTasks, NODE_WIDTH * nodeScale, NODE_HEIGHT * nodeScale, nodeScale);
+        if (!r) return [];
+        const members = new Set(renderedTasks.filter((t) => g.taskCodes.includes(t.taskId)).map((t) => t.id));
+        return [{ label: g.label, box: { id: `group:${g.label}`, x: r.left, y: r.top, w: r.width, h: r.height }, members }];
+      })
+    : [];
 
   // Where the first floating overlay (milestone chips / hint bars) starts —
   // just below however many toolbar rows are showing.
@@ -1239,7 +1337,45 @@ export function FlowchartCanvas({
             {gridArea && (
               <GridBackground offsetX={gridArea.x} offsetY={gridArea.y} width={gridArea.width} height={gridArea.height} theme={canvasTheme} scale={gridArea.scale} />
             )}
+            {/* Outlined groups (2026-11-16), e.g. "Structural Civil Works" around five
+                stacks — only on the full Flowchart 2 board (not a filtered column view). */}
+            {groupZones.map(({ label, box: b }) => {
+                return (
+                  <View
+                    key={`group-${label}`}
+                    pointerEvents="none"
+                    style={{
+                      position: 'absolute',
+                      left: b.x,
+                      top: b.y,
+                      width: b.w,
+                      height: b.h,
+                      borderWidth: 2.5,
+                      borderColor: canvasTheme === 'black' ? '#E5E7EB' : '#0F1F33',
+                      borderStyle: 'dashed',
+                      borderRadius: 18,
+                    }}
+                  >
+                    <View
+                      style={{
+                        position: 'absolute',
+                        top: -14 * nodeScale,
+                        left: 18 * nodeScale,
+                        paddingHorizontal: 10 * nodeScale,
+                        paddingVertical: 3 * nodeScale,
+                        borderRadius: 8,
+                        backgroundColor: '#F0A227',
+                      }}
+                    >
+                      <Text numberOfLines={1} style={{ fontSize: 15 * nodeScale, fontWeight: '800', color: '#0F1F33' }}>
+                        {label}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
             <EdgeLayer
+              avoidZones={groupZones}
               tasks={renderedTasks}
               seriesEdges={seriesEdges}
               parallelEdges={parallelEdges}
@@ -1264,6 +1400,10 @@ export function FlowchartCanvas({
                 isSelected={selectedTaskIds.has(task.id) || milestoneStartId === task.id || milestonePickedIds.has(task.id)}
                 selectionNumber={selectMode && selectedTaskIds.has(task.id) ? selectedOrder.indexOf(task.id) + 1 : undefined}
                 milestone={task.milestoneId ? milestoneById.get(task.milestoneId) : null}
+                projected={shouldShowProjected(task, projectedById.get(task.id), linkedTaskIds.has(task.id)) ? projectedById.get(task.id) : null}
+                runningDelayDays={runningDelayDays(projectedById.get(task.id))}
+                checklistDots={checklistDotsById.get(task.id)}
+                onChecklistPress={handleOpenChecklist}
               />
             ))}
             {/* Divider lines (tasks.flowchart_divider_below): a horizontal line
@@ -1825,7 +1965,11 @@ export function FlowchartCanvas({
         task={detailTask}
         taskTypes={taskTypes}
         projectId={projectId}
-        showClientChecklist={flowchartSet === 'flowchart-2'}
+        showClientChecklist={isFlowchart2Set(flowchartSet)}
+        durationPreds={detailTask && flowchartSet === FLOWCHART_2_SET ? seriesEdges.filter((e) => e.taskId === detailTask.id && !e.soft).flatMap((e) => {
+          const p = tasks.find((t) => t.id === e.dependsOnTaskId);
+          return p ? [{ name: p.taskName, type: e.type, plannedStartDate: p.plannedStartDate, dueDate: p.dueDate }] : [];
+        }) : undefined}
         canEdit={detailEditable}
         canEditChecklist={canEditChecklist}
         userId={pushedByUserId}
@@ -1849,6 +1993,14 @@ export function FlowchartCanvas({
           }
         }}
       />
+
+      {peekTaskId && (
+        <ChecklistPeek
+          taskName={tasks.find((t) => t.id === peekTaskId)?.taskName ?? ''}
+          notes={checklistNotesById.get(peekTaskId) ?? null}
+          onClose={() => setPeekTaskId(null)}
+        />
+      )}
 
       {createTaskOpen && (
         <CreateTaskSheet

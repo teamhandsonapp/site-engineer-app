@@ -19,3 +19,7 @@ export function isPilotVisible(taskId: string, workCode: string | null | undefin
   if (workCode !== 'CIVIL') return true;
   return CIVIL_PILOT_TASK_IDS.includes(taskId);
 }
+
+// Reports (2026-11-15): the status reports cover only the Flowchart 2 board's
+// tasks (the 80 FC2-xx tasks), not the original flowchart's.
+export const REPORT_FLOWCHART_SET = 'flowchart-2';

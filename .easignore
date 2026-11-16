@@ -20,3 +20,18 @@
 
 # Project notes (not part of app builds)
 /docs
+
+# Building without git (EAS_NO_VCS=1, 2026-11-16): this file is the only
+# ignore list then, so also leave out what .gitignore normally keeps out.
+node_modules/
+.expo/
+dist/
+web-build/
+/secrets/
+*.jks
+*.keystore
+*.p8
+*.p12
+*.key
+*.pem
+.mcp.json

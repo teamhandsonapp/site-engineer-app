@@ -1,3 +1,4 @@
+import { REPORT_FLOWCHART_SET } from '../pilot';
 import { Platform } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -141,6 +142,7 @@ async function buildProcurementHtml(projectId: string, projectName: string): Pro
       .from('tasks')
       .select('task_id, task_name, task_type_id, planned_start_date, current_planned_start_date, work:works!inner(name, project_id)')
       .eq('work.project_id', projectId)
+      .eq('flowchart_set', REPORT_FLOWCHART_SET)
       .is('deleted_at', null)
       .not('task_type_id', 'is', null),
   ]);

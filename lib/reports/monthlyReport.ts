@@ -1,5 +1,5 @@
 import { supabase } from '../supabase';
-import { isPilotVisible } from '../pilot';
+import { isPilotVisible, REPORT_FLOWCHART_SET } from '../pilot';
 
 // Ported from admin-web's lib/data/monthly-report.ts getMonthlyReportData()
 // — same delay-by-department/delay-by-person/targeted-quantity breakdown,
@@ -122,6 +122,7 @@ async function fetchTasksForProject(projectId: string): Promise<BaseTaskRow[]> {
         work:works!inner(name, code, project_id)
       `)
       .eq('work.project_id', projectId)
+      .eq('flowchart_set', REPORT_FLOWCHART_SET)
       .is('deleted_at', null)
       .range(from, to)
   );

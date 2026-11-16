@@ -2,9 +2,13 @@ import { View } from 'react-native';
 import { Text } from '../ui/AppText';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS } from 'react-native-reanimated';
-import Svg, { Line, Polygon } from 'react-native-svg';
+import Svg, { Polygon, Polyline } from 'react-native-svg';
+import { longestRun, offsetRoute, routeEdge, type Box, type Pt } from '../../lib/flowchart/edgeRoute';
 import { NODE_WIDTH, NODE_HEIGHT } from '../../lib/flowchart/layout';
 import { LINK_COLOR, LINK_STYLE, LINK_WARNING_COLOR, linkDateWarning } from '../../lib/flowchart/linkTypes';
+
+// Soft links (2026-11-15): grey, reference only.
+const SOFT_LINK_COLOR = '#9CA3AF';
 import type { FlowchartParallelEdge, FlowchartSeriesEdge, PositionedTask } from '../../lib/flowchart/types';
 
 // Label position: the line's middle, pushed off the line along its normal —
@@ -68,43 +72,23 @@ const LABEL_W = 30;
 const LABEL_H = 18;
 const LABEL_GAP = 10;
 
-// nodeScale mirrors TaskNode's own prop (1 unless clampToSafeBitmapBudget
-// had to shrink an unusually large graph) — a line's endpoint must land on
-// the CENTER of whatever size TaskNode is actually rendering that task's
-// box at right now, not always NODE_WIDTH/HEIGHT's fixed full size, or
-// every connector would visibly miss a shrunk box's true center.
-function center(t: PositionedTask, nodeScale: number) {
-  return { x: t.x + (NODE_WIDTH * nodeScale) / 2, y: t.y + (NODE_HEIGHT * nodeScale) / 2 };
-}
-
-// See TemplateEdgeLayer.tsx's identical arrowheadPoints() for the full
-// rationale (pulled back to the target box's real edge via a ray/box
-// intersection, not the box's exact center which task nodes would render
-// over and hide entirely).
-function arrowheadPoints(from: { x: number; y: number }, to: { x: number; y: number }, nodeScale: number): string {
-  const dx = from.x - to.x;
-  const dy = from.y - to.y;
-  const halfW = (NODE_WIDTH * nodeScale) / 2;
-  const halfH = (NODE_HEIGHT * nodeScale) / 2;
-  const t = Math.min(dx !== 0 ? halfW / Math.abs(dx) : Infinity, dy !== 0 ? halfH / Math.abs(dy) : Infinity);
-  const tipX = to.x + dx * t;
-  const tipY = to.y + dy * t;
-
-  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+function arrowheadPoints(route: Pt[], nodeScale: number): string {
+  // Tip at the route's end (the target box's edge), pointing along the last run.
+  const tip = route[route.length - 1];
+  const prev = route[route.length - 2];
+  const dx = prev.x - tip.x;
+  const dy = prev.y - tip.y;
+  const len = Math.hypot(dx, dy) || 1;
   const ux = dx / len;
   const uy = dy / len;
-  const px = -uy;
-  const py = ux;
   const arrowLen = 9 * nodeScale;
-  const arrowHalfWidth = 4 * nodeScale;
-  const backX = tipX + ux * arrowLen;
-  const backY = tipY + uy * arrowLen;
-  const c1x = backX + px * arrowHalfWidth;
-  const c1y = backY + py * arrowHalfWidth;
-  const c2x = backX - px * arrowHalfWidth;
-  const c2y = backY - py * arrowHalfWidth;
-  return `${tipX},${tipY} ${c1x},${c1y} ${c2x},${c2y}`;
+  const half = 4 * nodeScale;
+  const bx = tip.x + ux * arrowLen;
+  const by = tip.y + uy * arrowLen;
+  return `${tip.x},${tip.y} ${bx - uy * half},${by + ux * half} ${bx + uy * half},${by - ux * half}`;
 }
+
+const pts = (r: Pt[]) => r.map((p) => `${p.x},${p.y}`).join(' ');
 
 // A tappable edge badge, built from react-native-gesture-handler's own
 // Gesture.Tap() — NOT a plain react-native <Pressable>. This whole layer
@@ -149,7 +133,10 @@ export function EdgeLayer({
   onSeriesLabelPress,
   nodeScale,
   showLabels = true,
+  avoidZones = [],
 }: {
+  /** Group outlines links should keep clear of (Flowchart 2). */
+  avoidZones?: { box: Box; members: Set<string> }[];
   tasks: PositionedTask[];
   seriesEdges: FlowchartSeriesEdge[];
   parallelEdges: FlowchartParallelEdge[];
@@ -161,13 +148,20 @@ export function EdgeLayer({
   showLabels?: boolean;
 }) {
   const byId = new Map(tasks.map((t) => [t.id, t]));
+  // Right-angle routes (2026-11-15): straight runs with square bends in the gaps.
+  const boxes: Box[] = tasks.map((t) => ({ id: t.id, x: t.x, y: t.y, w: NODE_WIDTH * nodeScale, h: NODE_HEIGHT * nodeScale }));
+  const boxById = new Map(boxes.map((b) => [b.id, b]));
+  const gaps = { gapBelow: 10 * nodeScale, gapAbove: 31 * nodeScale, colGap: 13 * nodeScale };
+  const route = (fromId: string, toId: string) => routeEdge(boxById.get(fromId)!, boxById.get(toId)!, boxes, gaps, avoidZones);
 
   const seriesLines = seriesEdges
     .map((e) => {
       const from = byId.get(e.dependsOnTaskId); // prerequisite
       const to = byId.get(e.taskId); // blocked task
       if (!from || !to) return null;
-      return { edge: e, from: center(from, nodeScale), to: center(to, nodeScale), warning: linkDateWarning(e.type, from, to) };
+      const r = route(from.id, to.id);
+      const run = longestRun(r);
+      return { edge: e, route: r, from: run.from, to: run.to, warning: e.soft ? null : linkDateWarning(e.type, from, to) };
     })
     .filter((v): v is NonNullable<typeof v> => v !== null);
   const labelPos = showLabels ? placeLabels(seriesLines.map((l) => ({ id: l.edge.id, from: l.from, to: l.to })), nodeScale) : new Map();
@@ -177,60 +171,45 @@ export function EdgeLayer({
       const a = byId.get(e.taskAId);
       const b = byId.get(e.taskBId);
       if (!a || !b) return null;
-      return { edge: e, from: center(a, nodeScale), to: center(b, nodeScale) };
+      const r = route(a.id, b.id);
+      const run = longestRun(r);
+      return { edge: e, route: r, from: run.from, to: run.to };
     })
     .filter((v): v is NonNullable<typeof v> => v !== null);
 
   return (
     <>
       <Svg style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }}>
-        {seriesLines.map(({ edge, from, to }) => {
+        {seriesLines.map(({ edge, route: r }) => {
           const style = LINK_STYLE[edge.type];
+          if (edge.soft) {
+            // Soft link: thin grey dashed line, reference only.
+            return <Polyline key={edge.id} points={pts(r)} fill="none" stroke={SOFT_LINK_COLOR} strokeWidth={1.5} strokeDasharray="6,4" />;
+          }
           if (style.double) {
-            // SS: two parallel lines, 2.5px either side of the centre line.
-            const len = Math.hypot(to.x - from.x, to.y - from.y) || 1;
-            const ox = (-(to.y - from.y) / len) * 2.5 * nodeScale;
-            const oy = ((to.x - from.x) / len) * 2.5 * nodeScale;
+            // SS: two parallel lines, 2.5px either side of the route.
             return [1, -1].map((k) => (
-              <Line
-                key={`${edge.id}-${k}`}
-                x1={from.x + ox * k}
-                y1={from.y + oy * k}
-                x2={to.x + ox * k}
-                y2={to.y + oy * k}
-                stroke={LINK_COLOR}
-                strokeWidth={1.5}
-              />
+              <Polyline key={`${edge.id}-${k}`} points={pts(offsetRoute(r, 2.5 * nodeScale * k))} fill="none" stroke={LINK_COLOR} strokeWidth={1.5} strokeLinejoin="miter" />
             ));
           }
           return (
-            <Line
+            <Polyline
               key={edge.id}
-              x1={from.x}
-              y1={from.y}
-              x2={to.x}
-              y2={to.y}
+              points={pts(r)}
+              fill="none"
               stroke={LINK_COLOR}
               strokeWidth={style.cap === 'round' ? 3 : 2}
               strokeDasharray={style.dash}
               strokeLinecap={style.cap ?? 'butt'}
+              strokeLinejoin="miter"
             />
           );
         })}
-        {seriesLines.map(({ edge, from, to }) => (
-          <Polygon key={`arrow-${edge.id}`} points={arrowheadPoints(from, to, nodeScale)} fill={LINK_COLOR} />
+        {seriesLines.map(({ edge, route: r }) => (
+          <Polygon key={`arrow-${edge.id}`} points={arrowheadPoints(r, nodeScale)} fill={edge.soft ? SOFT_LINK_COLOR : LINK_COLOR} />
         ))}
-        {parallelLines.map(({ edge, from, to }) => (
-          <Line
-            key={edge.id}
-            x1={from.x}
-            y1={from.y}
-            x2={to.x}
-            y2={to.y}
-            stroke={PARALLEL_EDGE_COLOR}
-            strokeWidth={2}
-            strokeDasharray="6,5"
-          />
+        {parallelLines.map(({ edge, route: r }) => (
+          <Polyline key={edge.id} points={pts(r)} fill="none" stroke={PARALLEL_EDGE_COLOR} strokeWidth={2} strokeDasharray="6,5" />
         ))}
       </Svg>
 
@@ -257,12 +236,12 @@ export function EdgeLayer({
       {seriesLines.map(({ edge, warning }) => {
         const pos = labelPos.get(edge.id);
         if (!pos) return null;
-        const tint = warning ? LINK_WARNING_COLOR : LINK_COLOR;
+        const tint = warning ? LINK_WARNING_COLOR : edge.soft ? SOFT_LINK_COLOR : LINK_COLOR;
         const style = {
           position: 'absolute' as const,
-          left: pos.left,
+          left: edge.soft ? pos.left - LABEL_W * 0.35 * nodeScale : pos.left,
           top: pos.top,
-          width: LABEL_W * nodeScale,
+          width: LABEL_W * (edge.soft ? 1.7 : 1) * nodeScale,
           height: LABEL_H * nodeScale,
           alignItems: 'center' as const,
           justifyContent: 'center' as const,
@@ -291,7 +270,7 @@ export function EdgeLayer({
             }}
           >
             <Text style={{ fontSize: 10 * nodeScale, lineHeight: 13 * nodeScale, fontWeight: '700', color: warning ? LINK_WARNING_COLOR : '#111827' }}>
-              {warning ? `${edge.type}!` : edge.type}
+              {warning ? `${edge.type}!` : edge.soft ? `${edge.type} soft` : edge.type}
             </Text>
           </View>
         );

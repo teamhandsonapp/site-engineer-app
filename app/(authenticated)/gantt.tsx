@@ -5,7 +5,7 @@ import { router } from 'expo-router';
 import { appRoleFor, useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
 import { fetchProjectTimeline, type ProjectTimelineData } from '../../lib/projectTimeline';
-import { GanttChart } from '../../components/gantt/GanttChart';
+import { BASELINE_COLOR, GanttChart, LATE_COLOR, ON_TIME_COLOR } from '../../components/gantt/GanttChart';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ZOOM_LEVELS, type ZoomLevel } from '../../lib/ganttLayout';
 import { withTimeout } from '../../lib/withTimeout';
@@ -118,15 +118,20 @@ export default function GanttScreen() {
               );
             })}
           </View>
-          <View className="flex-row flex-wrap gap-2.5">
-            <View className="flex-row items-center gap-1">
-              <View className="w-3.5 h-2.5 rounded-sm" style={{ backgroundColor: '#1E293B' }} />
-              <Text className="text-2xs text-neutral-500">Planned dates</Text>
-            </View>
-            <View className="flex-row items-center gap-1">
-              <View className="w-3.5 h-2.5 rounded-sm" style={{ backgroundColor: '#DC2626' }} />
-              <Text className="text-2xs text-neutral-500">Actual dates</Text>
-            </View>
+          <View className="flex-row flex-wrap gap-2.5 items-center">
+            {(
+              [
+                ['Late', 1, 10, LATE_COLOR],
+                ['On time', 1, 10, ON_TIME_COLOR],
+                ['Light = still to do', 0.35, 10, '#475569'],
+                ['Planned (baseline)', 1, 5, BASELINE_COLOR],
+              ] as const
+            ).map(([label, opacity, h, color]) => (
+              <View key={label} className="flex-row items-center gap-1">
+                <View style={{ width: 16, height: h, borderRadius: 3, backgroundColor: color, opacity }} />
+                <Text className="text-2xs text-neutral-500">{label}</Text>
+              </View>
+            ))}
           </View>
         </View>
       </View>

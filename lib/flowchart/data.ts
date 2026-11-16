@@ -21,6 +21,7 @@ interface RawTaskRow {
   actual_end_date: string | null;
   current_planned_start_date: string | null;
   current_due_date: string | null;
+  expected_start_date: string | null;
   cascade_delay_days: number | null;
   accountability_type: AccountabilityType | null;
   task_type_id: string | null;
@@ -40,10 +41,16 @@ interface RawTaskRow {
 // Live task boards: the original flowchart and "Flowchart 2" (tasks tagged
 // flowchart_set = 'flowchart-2', supabase/flowchart-2-paper-tasks.sql). Both
 // are real tasks (DPR, Gantt); each board only shows its own.
-export type FlowchartBoard = 'main' | 'fc2';
+// 'fc2test' = a full copy of Flowchart 2 (codes FC2T-xx, 2026-11-15) for
+// safety: a backup of Flowchart 2 as it was before "Duration (days)" planning.
+export type FlowchartBoard = 'main' | 'fc2' | 'fc2test';
 export const FLOWCHART_2_SET = 'flowchart-2';
+export const FLOWCHART_2_TEST_SET = 'flowchart-2-test';
+export function isFlowchart2Set(set: string | null | undefined): boolean {
+  return set === FLOWCHART_2_SET || set === FLOWCHART_2_TEST_SET;
+}
 export function flowchartSetForBoard(board: FlowchartBoard): string | null {
-  return board === 'fc2' ? FLOWCHART_2_SET : null;
+  return board === 'fc2' ? FLOWCHART_2_SET : board === 'fc2test' ? FLOWCHART_2_TEST_SET : null;
 }
 
 interface RawDependencyRow {
@@ -51,6 +58,7 @@ interface RawDependencyRow {
   task_id: string;
   depends_on_task_id: string;
   type: DependencyType;
+  is_soft?: boolean | null;
 }
 
 interface RawParallelLinkRow {
@@ -69,7 +77,7 @@ export interface FlowchartData {
 const TASK_SELECT = `
   id, task_id, task_name, description, planned_start_date, due_date,
   actual_start_date, actual_end_date, current_planned_start_date, current_due_date,
-  cascade_delay_days,
+  expected_start_date, cascade_delay_days,
   accountability_type, task_type_id, manual_position_x, manual_position_y,
   hidden_from_flowchart, room_type, floor_level, milestone_id, flowchart_set, flowchart_section_title, flowchart_divider_below, flowchart_card_color,
   work:works!inner(id, name, code, accountability_type, project_id)
@@ -91,6 +99,7 @@ function mapRawTaskRow(t: RawTaskRow): FlowchartTask {
     actualEndDate: t.actual_end_date,
     currentPlannedStartDate: t.current_planned_start_date,
     currentDueDate: t.current_due_date,
+    expectedStartDate: t.expected_start_date,
     cascadeDelayDays: t.cascade_delay_days,
     accountabilityType: t.accountability_type,
     workAccountabilityType: t.accountability_type ?? t.work?.accountability_type ?? null,
@@ -122,19 +131,31 @@ export async function fetchTaskTypes(): Promise<TaskTypeOption[]> {
     .map((t) => ({ id: t.id, name: t.name, defaultDurationDays: t.default_duration_days }));
 }
 
+// Links, with the soft-link flag when the database has it (is_soft column,
+// migration 20261115090000). Falls back to the plain columns if that column
+// isn't there yet, so the board never breaks on an older database.
+async function fetchDependencyRows() {
+  const withSoft = await supabase.from('task_dependencies').select('id, task_id, depends_on_task_id, type, is_soft');
+  if (!withSoft.error || !/is_soft/.test(withSoft.error.message)) return withSoft;
+  return supabase.from('task_dependencies').select('id, task_id, depends_on_task_id, type');
+}
+
 // One fetch per table (tasks, task_dependencies, task_parallel_links,
 // task_types), same "plain function wrapping supabase.from()" convention as
 // fetchProjectTimeline (lib/projectTimeline.ts) — RLS does the real project
 // scoping for all four (task_dependencies/task_parallel_links policies were
 // added specifically for this feature, see admin-web/supabase/rls-policies.sql).
 export async function fetchFlowchartData(projectId: string, board: FlowchartBoard = 'main'): Promise<FlowchartData> {
+  // The test board's rows are soft-deleted on purpose (like the archived
+  // sets) so DPR, reports, task lists, Gantt and admin-web never show the
+  // copies; only this board reads them back, by their own flowchart_set.
+  const tasksQuery =
+    board === 'fc2test'
+      ? supabase.from('tasks').select(TASK_SELECT).eq('work.project_id', projectId).eq('flowchart_set', FLOWCHART_2_TEST_SET)
+      : supabase.from('tasks').select(TASK_SELECT).eq('work.project_id', projectId).is('deleted_at', null);
   const [tasksRes, depsRes, parallelRes, typesRes] = await Promise.all([
-    supabase
-      .from('tasks')
-      .select(TASK_SELECT)
-      .eq('work.project_id', projectId)
-      .is('deleted_at', null),
-    supabase.from('task_dependencies').select('id, task_id, depends_on_task_id, type'),
+    tasksQuery,
+    fetchDependencyRows(),
     supabase.from('task_parallel_links').select('id, task_a_id, task_b_id'),
     supabase.from('task_types').select('id, name, default_duration_days').order('default_duration_days', { ascending: true }),
   ]);
@@ -158,7 +179,7 @@ export async function fetchFlowchartData(projectId: string, board: FlowchartBoar
       isPilotVisible(t.task_id, t.work?.code) &&
       !t.hidden_from_flowchart &&
       // Each board shows only its own tasks (Flowchart 2 = flowchart_set 'flowchart-2').
-      (board === 'fc2' ? t.flowchart_set === FLOWCHART_2_SET : t.flowchart_set !== FLOWCHART_2_SET)
+      (board === 'main' ? !isFlowchart2Set(t.flowchart_set) : t.flowchart_set === flowchartSetForBoard(board))
   );
   const taskIds = new Set(rawTasks.map((t) => t.id));
 
@@ -171,7 +192,7 @@ export async function fetchFlowchartData(projectId: string, board: FlowchartBoar
   // from ever appearing.
   const seriesEdges: FlowchartSeriesEdge[] = ((depsRes.data ?? []) as unknown as RawDependencyRow[])
     .filter((d) => taskIds.has(d.task_id) && taskIds.has(d.depends_on_task_id))
-    .map((d) => ({ id: d.id, taskId: d.task_id, dependsOnTaskId: d.depends_on_task_id, type: d.type }));
+    .map((d) => ({ id: d.id, taskId: d.task_id, dependsOnTaskId: d.depends_on_task_id, type: d.type, soft: !!d.is_soft }));
 
   const parallelEdges: FlowchartParallelEdge[] = ((parallelRes.data ?? []) as unknown as RawParallelLinkRow[])
     .filter((p) => taskIds.has(p.task_a_id) && taskIds.has(p.task_b_id))
@@ -323,6 +344,13 @@ export async function updateTaskPlannedDates(
   if (error) throw new Error(error.message);
 }
 
+// Expected Start (tasks.expected_start_date) — only feeds the blue
+// "projected dates" chip (lib/flowchart/projected.ts); changes nothing else.
+export async function updateTaskExpectedStart(taskId: string, value: string | null): Promise<void> {
+  const { error } = await supabase.from('tasks').update({ expected_start_date: value }).eq('id', taskId);
+  if (error) throw new Error(error.message);
+}
+
 // NOTE: admin-web's own actual-date edit also triggers a server-side cascade
 // (cascadePlannedDatesFromActualDelay in admin-web/app/actions/tasks.ts) that
 // forward-shifts every downstream task's current_planned_start_date/
@@ -441,11 +469,32 @@ export interface CreateTaskInput {
   flowchartSet?: string | null;
 }
 
+// Flowchart 2 task IDs are department-wise (2026-11-16): CIV-01, ELE-07, PLB-04 …
+// A new task gets the next number in its department and keeps it for good.
+const FC2_ID_PREFIX: Record<string, string> = {
+  CIVIL: 'CIV', ELEC: 'ELE', PLUM: 'PLB', FLOOR: 'FLR', FABRI: 'FAB', GLAZ: 'GLZ', LIGHTV: 'LTV',
+  NETW: 'NET', ROOF: 'ROF', SOUND: 'SND', HVAC: 'HVC', FURN: 'FUR', WBODY: 'WTB',
+};
+
+export function fc2IdPrefix(workCode: string): string {
+  return FC2_ID_PREFIX[workCode] ?? workCode.replace(/[^A-Z]/gi, '').slice(0, 3).toUpperCase();
+}
+
+export async function nextFlowchart2TaskId(workCode: string): Promise<string> {
+  const prefix = fc2IdPrefix(workCode);
+  const { data, error } = await supabase.from('tasks').select('task_id').like('task_id', `${prefix}-%`);
+  if (error) throw new Error(error.message);
+  const max = Math.max(0, ...(data ?? []).map((r: { task_id: string }) => Number(r.task_id.slice(prefix.length + 1)) || 0));
+  return `${prefix}-${String(max + 1).padStart(2, '0')}`;
+}
+
 // taskId generation matches admin-web's createTaskCore exactly
 // (`${workCode}-${last 6 digits of Date.now()}`) — same human-readable-code
 // convention on both platforms, not a separate scheme invented for mobile.
 export async function createTask(input: CreateTaskInput): Promise<FlowchartTask> {
-  const taskId = `${input.workCode}-${Date.now().toString().slice(-6)}`;
+  const taskId = input.flowchartSet === FLOWCHART_2_SET
+    ? await nextFlowchart2TaskId(input.workCode)
+    : `${input.workCode}-${Date.now().toString().slice(-6)}`;
   const { data, error } = await supabase
     .from('tasks')
     .insert({
@@ -532,7 +581,9 @@ export async function duplicateTask(sourceTaskId: string): Promise<FlowchartTask
   const work = Array.isArray(source.work) ? source.work[0] : source.work;
   if (!work) throw new Error('Source task has no department to copy.');
 
-  const taskId = `${work.code}-${Date.now().toString().slice(-6)}`;
+  const taskId = source.flowchart_set === FLOWCHART_2_SET
+    ? await nextFlowchart2TaskId(work.code)
+    : `${work.code}-${Date.now().toString().slice(-6)}`;
   // Nudge the copy near the source rather than wherever safeLayout's
   // "brand new task" fallback would stack it — only when the source itself
   // has a real position; a source with no manual position yet just leaves
@@ -553,7 +604,7 @@ export async function duplicateTask(sourceTaskId: string): Promise<FlowchartTask
       work_id: source.work_id,
       hidden_from_flowchart: source.hidden_from_flowchart,
       // A copy stays on the same board (original flowchart or Flowchart 2).
-      flowchart_set: source.flowchart_set === FLOWCHART_2_SET ? FLOWCHART_2_SET : null,
+      flowchart_set: isFlowchart2Set(source.flowchart_set) ? source.flowchart_set : null,
       manual_position_x: manualPositionX,
       manual_position_y: manualPositionY,
       status: 'draft',

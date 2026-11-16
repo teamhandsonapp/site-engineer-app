@@ -1,5 +1,5 @@
 import { supabase } from '../supabase';
-import { isPilotVisible } from '../pilot';
+import { isPilotVisible, REPORT_FLOWCHART_SET } from '../pilot';
 import { isCategoryNotRequired, isItemDone, type AccountabilityType, type CompletionStatus, type DependencyCategory, type QuantityUnit } from '../taskDetail/constants';
 import { QUANTITY_LABELS } from './taskReport';
 import type { DateRange } from './dateRange';
@@ -103,6 +103,7 @@ export async function fetchRangeTaskReport(projectId: string, range: DateRange):
       .from('tasks')
       .select(RANGE_TASK_SELECT)
       .eq('work.project_id', projectId)
+      .eq('flowchart_set', REPORT_FLOWCHART_SET)
       .is('deleted_at', null)
       .gte('due_date', range.from)
       .lte('due_date', range.to)

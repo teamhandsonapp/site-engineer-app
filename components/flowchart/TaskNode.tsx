@@ -4,12 +4,13 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useDerivedValue, type SharedValue } from 'react-native-reanimated';
 import { runOnJS } from 'react-native-reanimated';
 import { NODE_WIDTH, NODE_HEIGHT } from '../../lib/flowchart/layout';
-import { resolveDelayChip, formatActualDateRange, formatCardDateRange, splitTaskName } from '../../lib/flowchart/delay';
+import { formatActualDateRange, formatCardDateRange, splitTaskName } from '../../lib/flowchart/delay';
+import type { ProjectedRange } from '../../lib/flowchart/projected';
+import { delaySplit, formatDelaySplit } from '../../lib/flowchart/delaySplit';
 import { getTaskBoxBackground } from '../../lib/flowchart/taskTypeColor';
 import type { PositionedTask } from '../../lib/flowchart/types';
+import { ChecklistWheel } from './ChecklistWheel';
 
-const ACC_BADGE_STYLE = { bg: '#111111', text: '#ffffff', border: '#111111' };
-const ACV_BADGE_STYLE = { bg: '#ffffff', text: '#111111', border: '#9CA3AF' };
 
 export function TaskNode({
   task,
@@ -24,6 +25,11 @@ export function TaskNode({
   isSelected,
   selectionNumber,
   milestone,
+  projected,
+  runningDelayDays = 0,
+  hidePlanned = false,
+  checklistDots,
+  onChecklistPress,
   // 1 for every normal project (the overwhelmingly common case) — only ever
   // smaller than 1 when clampToSafeBitmapBudget (lib/flowchart/layout.ts)
   // had to shrink an unusually large graph to stay under Android's bitmap
@@ -56,6 +62,16 @@ export function TaskNode({
   // the same already-proven-clear -20 tier, so the two never compete for
   // the same corner.
   milestone?: { name: string; color: string } | null;
+  // Projected start–end (blue chip, Flowchart 2) — null/undefined = hidden.
+  projected?: ProjectedRange | null;
+  /** Not started yet and the projected start has passed: days overdue. */
+  runningDelayDays?: number;
+  /** Hide the yellow planned chip (the task before has real dates, so the blue projected chip replaces it). */
+  hidePlanned?: boolean;
+  // Client-checklist wheel (Flowchart 2): one flag per checklist point —
+  // undefined = no icon. Tapping it opens that task's Checklist tab.
+  checklistDots?: boolean[];
+  onChecklistPress?: (taskId: string) => void;
   nodeScale: number;
 }) {
   const isDragging = useDerivedValue(() => draggingNodeId.value === task.id);
@@ -96,6 +112,15 @@ export function TaskNode({
     });
 
   const gesture = Gesture.Race(longPress, tap);
+
+  // Its own Tap, nested inside the card's detector: the innermost gesture
+  // activates first, so tapping the wheel opens the checklist instead of
+  // the card's action menu.
+  const checklistTap = Gesture.Tap()
+    .maxDuration(400)
+    .onEnd((_e, success) => {
+      if (success && onChecklistPress) runOnJS(onChecklistPress)(task.id);
+    });
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
@@ -174,11 +199,23 @@ export function TaskNode({
   const fontXs = { fontSize: 11 * nodeScale, lineHeight: 15 * nodeScale };
 
   const { category, action } = splitTaskName(task.taskName);
-  const delayChip = resolveDelayChip(task);
   const dateRange = formatCardDateRange(task.plannedStartDate, task.dueDate);
   const actualDateRange = formatActualDateRange(task.actualStartDate, task.actualEndDate);
-  const badge = task.workAccountabilityType === 'ACC' ? ACC_BADGE_STYLE : task.workAccountabilityType === 'ACV' ? ACV_BADGE_STYLE : null;
-  const badgeLabel = task.workAccountabilityType === 'ACC' ? 'AC' : 'AV';
+  // Actual-date chip is always the red "Actual" colour — the green
+  // "finished on time" variant was removed by request (2026-11-15).
+  const actualChipBg = '#FCA5A5';
+  const actualChipText = '#7F1D1D';
+  // Dates only on the actual chip — no "+Nd"/"−Nd", by request 2026-11-14.
+  const actualLabel = actualDateRange;
+  // Finished late → pre-construction / construction / total delay lines under the actual chip
+  // (every day counted — lib/flowchart/delaySplit.ts).
+  const split = delaySplit({
+    plannedStart: task.currentPlannedStartDate ?? task.plannedStartDate,
+    plannedEnd: task.currentDueDate ?? task.dueDate,
+    actualStart: task.actualStartDate,
+    actualEnd: task.actualEndDate,
+  });
+  const delaySplitLabel = split && split.total > 0 ? formatDelaySplit(split) : null;
 
   return (
     <GestureDetector gesture={gesture}>
@@ -201,56 +238,12 @@ export function TaskNode({
             estimate) always implies actual dates exist too (see
             ownDelayDays in lib/flowchart/delay.ts), so those two
             frequently appear together on the near row. */}
-        {(delayChip || actualDateRange) && (
-          <View className="absolute left-0 right-0 flex-row justify-center items-center" style={{ top: -20 * nodeScale, gap: 6 * nodeScale }}>
-            {delayChip && (
-              <View
-                className="rounded-full flex-row"
-                style={{ paddingHorizontal: 6 * nodeScale, paddingVertical: 2 * nodeScale, backgroundColor: '#FEE2E2', borderWidth: delayChip.isOwnDelay ? 1.5 : 0, borderColor: '#000' }}
-              >
-                <Text className="font-bold text-red-700" style={font2xs}>+{delayChip.days}d</Text>
-              </View>
-            )}
-            {actualDateRange && (
-              <View className="rounded-full" style={{ paddingHorizontal: 6 * nodeScale, paddingVertical: 2 * nodeScale, backgroundColor: '#FCA5A5' }}>
-                <Text className="font-bold text-red-900" style={font2xs}>{actualDateRange}</Text>
-              </View>
-            )}
-          </View>
-        )}
-        <View className="absolute left-0 right-0 items-center" style={{ top: -40 * nodeScale }}>
-          <View className="rounded-full" style={{ paddingHorizontal: 6 * nodeScale, paddingVertical: 2 * nodeScale, backgroundColor: '#FEF08A' }}>
-            <Text className="font-bold text-yellow-900" style={font2xs}>{dateRange}</Text>
-          </View>
-        </View>
+        {/* The old floating chips above the box (+Nd delay with a black
+            border, actual dates, planned dates) were removed 2026-11-15: the
+            box's overflow:hidden clipped them, leaving only a black edge
+            poking into the card's top. The same dates show inside the card. */}
 
-        {/* AC/AV badge — ABOVE the box now, not sharing the taskId's own row
-            inside it, by explicit (repeated) request. Pinned to the same
-            -20 offset the delay/actual-date chip row already uses (proven
-            clear of the row above on all 311 real tasks) rather than a new
-            tier of its own, which would need its own from-scratch
-            clearance check this environment can't run. Its own
-            `right: 0, top` sibling to that row's `left-0 right-0` — both
-            absolutely positioned, so they coexist without affecting each
-            other's layout; only overlaps if a delay/actual chip run wide
-            enough to reach the right edge, which none of the 311 real ones
-            do today. */}
-        {badge && (
-          <View
-            className="absolute rounded"
-            style={{
-              top: -20 * nodeScale,
-              right: 0,
-              paddingHorizontal: 6 * nodeScale,
-              paddingVertical: 2 * nodeScale,
-              backgroundColor: badge.bg,
-              borderWidth: 1.5,
-              borderColor: badge.border,
-            }}
-          >
-            <Text className="font-bold" style={[font2xs, { color: badge.text }]}>{badgeLabel}</Text>
-          </View>
-        )}
+        {/* AC/AV badge above the box removed 2026-11-15 (the box clipped it to a black corner). */}
 
         {/* Selection order (1, 2, 3…) in select mode. */}
         {selectionNumber ? (
@@ -291,6 +284,29 @@ export function TaskNode({
           </View>
         )}
 
+        {/* Task ID, top-left inside the card (2026-11-16), e.g. "CIV-05". */}
+        <Text
+          testID={`flowchart-node-code-${task.taskId}`}
+          numberOfLines={1}
+          style={{ position: 'absolute', top: 6 * nodeScale, left: 9 * nodeScale, fontSize: 10 * nodeScale, fontWeight: '800', color: textColor, opacity: 0.8 }}
+        >
+          {task.taskId}
+        </Text>
+
+        {/* Client-checklist wheel, top-right inside the card (Flowchart 2). */}
+        {checklistDots && (
+          <GestureDetector gesture={checklistTap}>
+            <View
+              testID={`flowchart-node-checklist-${task.taskId}`}
+              accessibilityRole="button"
+              accessibilityLabel="Open checklist"
+              style={{ position: 'absolute', top: 3 * nodeScale, right: 3 * nodeScale, padding: 2 * nodeScale, zIndex: 4 }}
+            >
+              <ChecklistWheel size={16 * nodeScale} filled={checklistDots} />
+            </View>
+          </GestureDetector>
+        )}
+
         {/* taskId/category/action now center as one block (boxStyle's own
             justifyContent/alignItems: 'center') instead of the old
             left-aligned stack — textAlign: 'center' on each is still needed
@@ -315,12 +331,14 @@ export function TaskNode({
             #FEF08A/yellow-900 pairing as the floating chip above the box
             and the Task Detail screen's own date pill, so "yellow = planned
             date" reads as one consistent signal everywhere it shows up. */}
-        <View
-          className="rounded-full self-center"
-          style={{ backgroundColor: '#FEF08A', paddingHorizontal: 6 * nodeScale, paddingVertical: 1 * nodeScale, marginBottom: 2 * nodeScale }}
-        >
-          <Text numberOfLines={1} className="font-bold" style={[font2xs, { color: '#713F12', textAlign: 'center' }]}>{dateRange}</Text>
-        </View>
+        {!hidePlanned && (
+          <View
+            className="rounded-full self-center"
+            style={{ backgroundColor: '#FEF08A', paddingHorizontal: 6 * nodeScale, paddingVertical: 1 * nodeScale, marginBottom: 2 * nodeScale }}
+          >
+            <Text numberOfLines={1} className="font-bold" style={[font2xs, { color: '#713F12', textAlign: 'center' }]}>{dateRange}</Text>
+          </View>
+        )}
         {/* Actual start – end, red, right under the yellow planned pill —
             by request 2026-11-10. Inside the box for the same reason as the
             planned pill: the floating actual chip above the box gets covered
@@ -328,10 +346,61 @@ export function TaskNode({
         {actualDateRange && (
           <View
             className="rounded-full self-center"
-            style={{ backgroundColor: '#FCA5A5', paddingHorizontal: 6 * nodeScale, paddingVertical: 1 * nodeScale, marginBottom: 2 * nodeScale }}
+            style={{ backgroundColor: actualChipBg, paddingHorizontal: 6 * nodeScale, paddingVertical: 1 * nodeScale, marginBottom: 2 * nodeScale }}
           >
-            <Text numberOfLines={1} className="font-bold" style={[font2xs, { color: '#7F1D1D', textAlign: 'center' }]}>{actualDateRange}</Text>
+            <Text numberOfLines={1} className="font-bold" style={[font2xs, { color: actualChipText, textAlign: 'center' }]}>{actualLabel}</Text>
           </View>
+        )}
+        {delaySplitLabel?.map((line, i) => (
+          <Text
+            key={line}
+            testID={i === 0 ? `flowchart-node-delay-split-${task.taskId}` : undefined}
+            numberOfLines={2}
+            className="font-bold"
+            style={[font2xs, { color: '#B91C1C', textAlign: 'center', marginBottom: 2 * nodeScale }]}
+          >
+            {line}
+          </Text>
+        ))}
+        {/* Projected start – end, blue (2026-11-14): the planned length pushed
+            later by the delays coming down the links (lib/flowchart/projected.ts). */}
+        {projected && (
+          <View
+            testID={`flowchart-node-projected-${task.taskId}`}
+            className="rounded-full self-center"
+            style={{ backgroundColor: '#BFDBFE', paddingHorizontal: 6 * nodeScale, paddingVertical: 1 * nodeScale, marginBottom: 2 * nodeScale }}
+          >
+            <Text numberOfLines={1} className="font-bold" style={[font2xs, { color: '#1E3A8A', textAlign: 'center' }]}>
+              {/* Dates only — no "+Nd" on the blue chip, by request 2026-11-14. */}
+              {formatCardDateRange(projected.start, projected.end)}
+            </Text>
+          </View>
+        )}
+        {/* Running "not started" delay (red), right under the blue chip —
+            the box is tall enough for this extra line (NODE_HEIGHT 128). */}
+        {runningDelayDays > 0 && (
+          <Text
+            testID={`flowchart-node-running-delay-${task.taskId}`}
+            numberOfLines={1}
+            className="font-bold"
+            style={[font2xs, { color: '#B91C1C', textAlign: 'center', marginBottom: 2 * nodeScale }]}
+          >
+            Not started · {runningDelayDays} {runningDelayDays === 1 ? 'day' : 'days'} delay running
+          </Text>
+        )}
+        {/* Every other not-started task with a projected date (2026-11-15):
+            how far the projection is behind the plan (projected − planned start). */}
+        {runningDelayDays <= 0 && projected && !task.actualStartDate && (
+          <Text
+            testID={`flowchart-node-projected-delay-${task.taskId}`}
+            numberOfLines={1}
+            className="font-bold"
+            style={[font2xs, { color: projected.delayDays > 0 ? '#B91C1C' : '#525252', textAlign: 'center', marginBottom: 2 * nodeScale }]}
+          >
+            {projected.delayDays > 0
+              ? `Not started · ${projected.delayDays} ${projected.delayDays === 1 ? 'day' : 'days'} delay`
+              : 'Not started · on time'}
+          </Text>
         )}
         {/* Task code (TASK-001 / CIVIL-123456) hidden — names only, by request 2026-11-09. */}
         {/* category wraps up to 2 lines instead of truncating at 1 — a long

@@ -95,6 +95,9 @@ function MilestoneChipRow({
   );
 }
 
+// Status filter (2026-11-15): show only these tasks; the rest are hidden in place.
+export const STATUS_FILTER_OPTIONS = ['Completed', 'Upcoming', 'Delayed'] as const;
+
 const PLANNED_DATE_MODES: PlannedDateMode[] = ['start', 'complete', 'happening'];
 
 // Custom date-range filter with a calendar (DateField already opens the
@@ -178,6 +181,10 @@ export function FlowchartFilterModal({
   onChangeDateMode,
   onChangeDateFrom,
   onChangeDateTo,
+  statusFilter,
+  onChangeStatus,
+  shownCount,
+  totalCount,
   onClear,
   onClose,
 }: {
@@ -198,13 +205,19 @@ export function FlowchartFilterModal({
   onChangeDateMode: (v: PlannedDateMode | null) => void;
   onChangeDateFrom: (v: string) => void;
   onChangeDateTo: (v: string) => void;
+  statusFilter: string | null;
+  onChangeStatus: (v: string | null) => void;
+  // Footer count (2026-11-15), e.g. "Plumbing · 5 of 80 tasks".
+  shownCount: number;
+  totalCount: number;
   onClear: () => void;
   onClose: () => void;
 }) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
-        <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 400, maxHeight: '80%', overflow: 'hidden' }}>
+      {/* Side panel on the right (2026-11-15) so the board stays visible behind it. */}
+      <Pressable className="flex-1 items-end justify-center pr-3" style={{ backgroundColor: 'rgba(0,0,0,0.08)' }} onPress={onClose}>
+        <Pressable onPress={() => {}} style={{ width: 300, maxWidth: '88%', maxHeight: '85%', overflow: 'hidden' }}>
           {/* Filters list may shrink (minHeight 0) so Done / Clear all stay inside the box on small phones / large text. */}
           <Card style={{ flexShrink: 1, minHeight: 0 }}>
             <View className="flex-row items-center justify-between mb-3">
@@ -215,6 +228,7 @@ export function FlowchartFilterModal({
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
+              <ChipRow label="Status" options={[...STATUS_FILTER_OPTIONS]} value={statusFilter} onChange={onChangeStatus} />
               <ChipRow label="Floor" options={FLOOR_LEVEL_PRESETS} value={floor} onChange={onChangeFloor} />
               <ChipRow label="Department" options={departments} value={department} onChange={onChangeDepartment} />
               <ChipRow label="Room" options={ROOM_TYPE_PRESETS} value={room} onChange={onChangeRoom} />
@@ -229,7 +243,14 @@ export function FlowchartFilterModal({
               />
             </ScrollView>
 
-            <View className="flex-row justify-between items-center pt-2 border-t border-neutral-100">
+            <View className="pt-2 border-t border-neutral-100">
+              <Text testID="flowchart-filter-count" className="text-xs font-bold text-neutral-800 mb-1.5" numberOfLines={2}>
+                {[statusFilter, department, floor, room].filter(Boolean).join(' · ') || 'All tasks'}
+                {' — '}
+                {shownCount} of {totalCount} task{totalCount === 1 ? '' : 's'}
+              </Text>
+            </View>
+            <View className="flex-row justify-between items-center">
               <Pressable onPress={onClear} className="px-3 py-2">
                 <Text className="text-xs font-semibold text-neutral-500">Clear all</Text>
               </Pressable>

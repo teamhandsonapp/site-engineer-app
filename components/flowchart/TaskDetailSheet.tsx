@@ -16,6 +16,8 @@ import { addDaysToKey, fetchSubtasksForTask, type DprSubtaskItem } from '../../l
 import { FLOOR_LEVEL_PRESETS, ROOM_TYPE_PRESETS, type AccountabilityType, type PositionedTask, type TaskTypeOption } from '../../lib/flowchart/types';
 import { ClientChecklistPanel } from './ClientChecklistPanel';
 import { PrPanel } from './PrPanel';
+import { planFromDuration, type DurationPred } from '../../lib/flowchart/durationPlan';
+import { daysBetween } from '../../lib/flowchart/projected';
 
 const FULL_MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -138,6 +140,7 @@ interface EditableFields {
   dueDate: string;
   actualStartDate: string;
   actualEndDate: string;
+  expectedStartDate: string;
   taskTypeId: string | null;
   // The per-task override — null means "no override, inherit from the
   // Work's own default" (see task.workAccountabilityType, the resolved
@@ -159,6 +162,7 @@ function toEditable(task: PositionedTask): EditableFields {
     dueDate: task.dueDate ?? '',
     actualStartDate: task.actualStartDate ?? '',
     actualEndDate: task.actualEndDate ?? '',
+    expectedStartDate: task.expectedStartDate ?? '',
     taskTypeId: task.taskTypeId,
     accountabilityType: task.accountabilityType,
     roomType: task.roomType,
@@ -181,7 +185,11 @@ export function TaskDetailSheet({
   onClose,
   onTaskEdited,
   showClientChecklist = false,
+  durationPreds,
 }: {
+  // Tasks linked into this one (with their planned dates) — used by the
+  // "Duration (days)" trial (lib/flowchart/durationPlan.ts).
+  durationPreds?: DurationPred[];
   // Flowchart 2: adds the "Checklist" (client's six points) and "PR" tabs.
   showClientChecklist?: boolean;
   task: PositionedTask | null;
@@ -221,11 +229,15 @@ export function TaskDetailSheet({
   // this sheet itself uses to save.
   onTaskEdited: (taskId: string, before: EditableTaskFields, after: EditableTaskFields) => void;
 }) {
+  // Flowchart 2 tasks don't use the big pre-construction checklist — only the
+  // client's six points (Checklist tab) — so Prerequisites is hidden there and
+  // "Open" starts on Checklist instead (2026-11-14).
+  const startTab: DetailTab = showClientChecklist && initialTab === 'prerequisites' ? 'checklist' : initialTab;
   const [form, setForm] = useState<EditableFields | null>(task ? toEditable(task) : null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [works, setWorks] = useState<WorkOption[]>([]);
-  const [activeTab, setActiveTab] = useState<DetailTab>(initialTab);
+  const [activeTab, setActiveTab] = useState<DetailTab>(startTab);
 
   // Subtasks tab — one section per planned calendar day, by explicit
   // request: "its planned date is Aug 14 to 17, 4 days, so it needs to
@@ -259,10 +271,16 @@ export function TaskDetailSheet({
   const [itemsLoading, setItemsLoading] = useState(false);
   const [itemsError, setItemsError] = useState<string | null>(null);
 
+  // Duration trial: start the box from the saved planned dates (every day counted).
+  const initialDuration = (t: PositionedTask | null) =>
+    t?.plannedStartDate && t.dueDate ? String(daysBetween(t.plannedStartDate, t.dueDate) + 1) : '';
+  const [durationText, setDurationText] = useState(() => initialDuration(task));
+
   useEffect(() => {
     setForm(task ? toEditable(task) : null);
+    setDurationText(initialDuration(task));
     setError(null);
-    setActiveTab(initialTab);
+    setActiveTab(startTab);
     setSubtasksByDate({});
     setSubtasksFetched(false);
     setItems([]);
@@ -312,6 +330,14 @@ export function TaskDetailSheet({
 
   if (!task || !form) return null;
 
+  // "Duration (days)" planning — Flowchart 2 only (the canvas passes durationPreds there).
+  const useDuration = !!durationPreds;
+  const hasDatedPred = useDuration && planFromDuration(1, durationPreds ?? []) !== null;
+  const durationPlan = useDuration ? planFromDuration(Number(durationText), durationPreds ?? [], hasDatedPred ? null : form.plannedStartDate || null) : null;
+  function applyDuration(text: string, ownStart: string | null) {
+    const plan = planFromDuration(Number(text), durationPreds ?? [], hasDatedPred ? null : ownStart);
+    setForm((f) => (f ? { ...f, plannedStartDate: plan?.start ?? (hasDatedPred ? '' : ownStart ?? ''), dueDate: plan?.end ?? '' } : f));
+  }
   const delayChip = resolveDelayChip(task);
   const selectedType = taskTypes.find((t) => t.id === form.taskTypeId);
 
@@ -341,6 +367,7 @@ export function TaskDetailSheet({
       dueDate: task.dueDate,
       actualStartDate: task.actualStartDate,
       actualEndDate: task.actualEndDate,
+      expectedStartDate: task.expectedStartDate ?? null,
       taskTypeId: task.taskTypeId,
       accountabilityType: task.accountabilityType,
       roomType: task.roomType,
@@ -353,6 +380,7 @@ export function TaskDetailSheet({
       dueDate: form.dueDate || null,
       actualStartDate: form.actualStartDate || null,
       actualEndDate: form.actualEndDate || null,
+      expectedStartDate: form.expectedStartDate || null,
       taskTypeId: form.taskTypeId,
       accountabilityType: form.accountabilityType,
       roomType: form.roomType,
@@ -421,7 +449,7 @@ export function TaskDetailSheet({
                   where "Open" left this sheet entirely for a separate
                   full-page screen. */}
               <View className="flex-row bg-neutral-100 rounded-lg p-0.5 mb-3">
-                {((showClientChecklist ? ['subtasks', 'prerequisites', 'checklist', 'pr', 'edit'] : ['subtasks', 'prerequisites', 'edit']) as DetailTab[]).map((tab) => {
+                {((showClientChecklist ? ['subtasks', 'checklist', 'pr', 'edit'] : ['subtasks', 'prerequisites', 'edit']) as DetailTab[]).map((tab) => {
                   const active = activeTab === tab;
                   return (
                     <Pressable
@@ -472,6 +500,61 @@ export function TaskDetailSheet({
                 editable={canEdit}
               />
 
+              {useDuration ? (
+                <View className="mb-3">
+                  {/* Planned Start / End pickers are back on every task (2026-11-15), next to
+                      the Duration box: picking Start keeps the days and moves End; picking End
+                      updates the days. Typing days still sets both from the linked task(s). */}
+                  <View className="flex-row gap-2 mb-2">
+                    <View className="flex-1">
+                      <DateField
+                        label="Planned Start"
+                        value={form.plannedStartDate || null}
+                        editable={canEdit}
+                        onChange={(iso) => {
+                          const days = Number(durationText);
+                          const plan = days > 0 ? planFromDuration(days, [], iso) : null;
+                          setForm((f) => (f ? { ...f, plannedStartDate: iso, dueDate: plan?.end ?? f.dueDate } : f));
+                        }}
+                      />
+                    </View>
+                    <View className="flex-1">
+                      <DateField
+                        label="Planned End"
+                        value={form.dueDate || null}
+                        minDate={form.plannedStartDate || null}
+                        editable={canEdit}
+                        onChange={(iso) => {
+                          setForm((f) => (f ? { ...f, dueDate: iso } : f));
+                          if (form.plannedStartDate) setDurationText(String(daysBetween(form.plannedStartDate, iso) + 1));
+                        }}
+                      />
+                    </View>
+                  </View>
+                  <Text className="text-xs text-neutral-400 mb-1">Duration (days)</Text>
+                  <TextInput
+                    value={durationText}
+                    onChangeText={(v) => {
+                      const clean = v.replace(/[^0-9]/g, '');
+                      setDurationText(clean);
+                      applyDuration(clean, form.plannedStartDate || null);
+                    }}
+                    editable={canEdit}
+                    keyboardType="number-pad"
+                    placeholder="e.g. 10"
+                    className="border border-neutral-200 rounded-lg px-3 py-2 text-sm text-neutral-900 mb-1"
+                  />
+                  <Text className="text-2xs text-neutral-500">
+                    {durationPlan && durationPlan.start === form.plannedStartDate && durationPlan.end === form.dueDate
+                      ? `Planned: ${formatCardDateRange(durationPlan.start, durationPlan.end)} · from ${durationPlan.from}`
+                      : form.plannedStartDate && form.dueDate
+                        ? `Planned: ${formatCardDateRange(form.plannedStartDate, form.dueDate)} · dates picked by hand`
+                      : hasDatedPred
+                        ? 'Enter the number of days — planned dates are set from the task(s) linked before this one.'
+                        : 'Nothing dated is linked before this task — pick its Planned Start, then enter the days.'}
+                  </Text>
+                </View>
+              ) : (
               <View className="flex-row gap-2 mb-3">
                 <View className="flex-1">
                   <DateField
@@ -491,6 +574,7 @@ export function TaskDetailSheet({
                   />
                 </View>
               </View>
+              )}
 
               <DropdownPicker
                 key={`${task.id}-procurement`}
@@ -571,6 +655,22 @@ export function TaskDetailSheet({
                   />
                 </View>
               </View>
+              {/* Expected Start (Flowchart 2) — when the site expects the task to
+                  really start; drives the blue projected-dates chip on this and
+                  every linked task after it. Ignored once Actual Start is set. */}
+              {showClientChecklist && (
+                <View className="mb-1 pt-2">
+                  <DateField
+                    label="Expected Start"
+                    value={form.expectedStartDate || null}
+                    editable={canEdit}
+                    onChange={(iso) => setForm((f) => (f ? { ...f, expectedStartDate: iso } : f))}
+                  />
+                  <Text className="text-2xs text-neutral-400 mt-1">
+                    Optional. Moves the blue projected dates on this task and every linked task after it.
+                  </Text>
+                </View>
+              )}
               {/* Drawings linked from File Manager › Drawings (+ register sheets tagged to this task). */}
               <TaskDrawingsSection projectId={projectId} taskId={task.id} workId={task.workId} canEdit={canEditChecklist} userId={userId} />
               </>

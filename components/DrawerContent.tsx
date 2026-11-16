@@ -9,7 +9,6 @@ import { NewProjectModal } from './NewProjectModal';
 import { appRoleFor, isFieldRole, roleLabel, useAuth } from '../lib/AuthContext';
 import { useProject } from '../lib/ProjectContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useSafeBottomOffset } from '../lib/useSafeBottomOffset';
 import { openPrivacyPolicy } from '../lib/legal';
 import { LOCATION_FEATURES_ENABLED } from '../lib/featureFlags';
 
@@ -178,11 +177,12 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
   // control here it's genuinely costly to mis-tap (signs the user out),
   // so it gets the largest margin of any bottom-anchored element in the
   // app rather than the generic default.
-  const bottomPadding = useSafeBottomOffset(20);
+  // Floating panel: the gap below it already clears the gesture bar.
+  const bottomPadding = 14;
   // Real top inset instead of a fixed pt-14 — notch (iPhone 13, 47pt) and
   // Dynamic Island (iPhone 17 Pro Max, ~62pt) phones differ, and a fixed
   // value either crowds the island or leaves a gap on older phones.
-  const { top: topInset } = useSafeAreaInsets();
+  const { top: topInset, bottom: bottomInset } = useSafeAreaInsets();
 
   // App Progress is listed first in the menu (above Home) by request. Only
   // the menu order changes — Home stays the first screen of the drawer, so
@@ -198,13 +198,17 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
     // drawer's real height once the menu list got long, pushing Log Out
     // below the fold instead of letting the Nav ScrollView below scroll
     // internally.
-    <View className="flex-1 bg-brand-navy overflow-hidden">
+    // Floating rounded panel (2026-11-16): a gap above (below the status bar),
+    // below (above the gesture bar) and on the left, like Discord's sidebar,
+    // instead of running edge to edge under the clock and the gesture line.
+    <View style={{ flex: 1, paddingTop: topInset + 8, paddingBottom: bottomInset + 8, paddingLeft: 8 }}>
+    <View className="flex-1 bg-brand-navy overflow-hidden" style={{ borderRadius: 22 }}>
       {/* Brand bar */}
       {/* Breathing room under the status bar/punch-hole: Android 15 draws
           the app edge-to-edge (e.g. CMF Phone 2 Pro), so topInset is the
           status bar itself — +24 keeps the brand clear of it like the
           system's own apps do, instead of butting against the clock. */}
-      <View className="flex-row items-center gap-3 border-b border-white/10 px-5 pb-5" style={{ paddingTop: Math.max(topInset, 20) + 24 }}>
+      <View className="flex-row items-center gap-3 border-b border-white/10 px-5 pb-5" style={{ paddingTop: 22 }}>
         <Logo size={38} />
         <View>
           <Text className="text-md font-bold tracking-tight text-white">PMC Portal</Text>
@@ -240,7 +244,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
           requiring a scroll to find it — the more robust fix for an
           action this important, not just "now it's technically reachable
           if you scroll all the way down." */}
-      <ScrollView className="flex-1" contentContainerClassName="px-3 pt-5 pb-4">
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 16, paddingBottom: 16 }}>
         {/* white/55 (~5.9:1) — was white/30 (~2.7:1), a clear AA failure. */}
         <Text className="px-2 pb-2 text-2xs font-bold uppercase tracking-[1.4px] text-white/55">
           Menu
@@ -282,6 +286,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
           openProject(projectId);
         }}
       />
+    </View>
     </View>
   );
 

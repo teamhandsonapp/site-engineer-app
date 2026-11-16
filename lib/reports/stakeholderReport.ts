@@ -1,5 +1,5 @@
 import { supabase } from '../supabase';
-import { isPilotVisible } from '../pilot';
+import { isPilotVisible, REPORT_FLOWCHART_SET } from '../pilot';
 import { isCategoryNotRequired, type AccountabilityType, type CompletionStatus, type DependencyCategory } from '../taskDetail/constants';
 import { fetchContacts, type Contact, type ContactCategory } from '../contacts';
 
@@ -127,6 +127,7 @@ export async function fetchStakeholderReport(projectId: string, filter: Stakehol
       .from('tasks')
       .select(STAKEHOLDER_TASK_SELECT)
       .eq('work.project_id', projectId)
+      .eq('flowchart_set', REPORT_FLOWCHART_SET)
       .neq('status', 'completed')
       .is('deleted_at', null)
       .range(from, from + PAGE_SIZE - 1);

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import { Text } from '../../components/ui/AppText';
 import { router } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -24,6 +24,10 @@ import { formatDateLabel } from '../../lib/reports/dateRange';
 import { FlowchartCanvas, type CanvasViewMemory } from '../../components/flowchart/FlowchartCanvas';
 import { FlowchartFilterModal } from '../../components/flowchart/FlowchartFilterModal';
 import { FilteredTaskList } from '../../components/flowchart/FilteredTaskList';
+import { ChecklistSheetView } from '../../components/flowchart/ChecklistSheetView';
+import { SheetReportView } from '../../components/flowchart/SheetReportView';
+import { stackNames, withStack } from '../../lib/flowchart/stackName';
+import { matchesStatusFilter, type StatusFilter } from '../../lib/flowchart/sheetStatus';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { FormModal } from '../../components/ui/FormModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -94,7 +98,9 @@ function FlowchartScreenContent() {
   // them) view-only, never linked to DPR/checklists.
   const [taskSet, setTaskSet] = useState<FlowchartSetKey | null>(null);
   // Which live board: the original flowchart or Flowchart 2.
-  const [board, setBoard] = useState<FlowchartBoard>('main');
+  const [board, setBoard] = useState<FlowchartBoard>('fc2');
+  // Phones (2026-11-16): the button rows scroll sideways and use short labels instead of overflowing.
+  const narrow = useWindowDimensions().width < 500;
   const [archive, setArchive] = useState<{ data: FlowchartData | null; loading: boolean; error: string | null }>({
     data: null,
     loading: false,
@@ -125,6 +131,12 @@ function FlowchartScreenContent() {
   const [deptFilter, setDeptFilter] = useState<string | null>(null);
   const [roomFilter, setRoomFilter] = useState<string | null>(null);
   const [milestoneFilter, setMilestoneFilter] = useState<string | null>(null);
+  // Status filter: Completed / Upcoming / Delayed (same rules as Reports).
+  // (no Actual Start). Hides the other tasks without moving anything.
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  // Flowchart 2 extra views: "Sheet View" (the 7 checklist points as an
+  // autosaving table) and "Reports" (that sheet as a downloadable report).
+  const [boardView, setBoardView] = useState<'chart' | 'sheet' | 'reports'>('chart');
   const [dateMode, setDateMode] = useState<PlannedDateMode | null>(null);
   const [dateFrom, setDateFrom] = useState<string | null>(null);
   const [dateTo, setDateTo] = useState<string | null>(null);
@@ -227,16 +239,38 @@ function FlowchartScreenContent() {
   // project where the filter's never been opened).
   const allDepartments = Array.from(new Set((data?.tasks ?? []).map((t) => t.workName)));
   const plannedDateFilterActive = dateMode !== null && dateFrom !== null && dateTo !== null && dateFrom <= dateTo;
-  const hasActiveFilter = floorFilter !== null || deptFilter !== null || roomFilter !== null || milestoneFilter !== null || plannedDateFilterActive;
+  const hasActiveFilter = statusFilter !== null || floorFilter !== null || deptFilter !== null || roomFilter !== null || milestoneFilter !== null || plannedDateFilterActive;
+  const todayKey = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
   const filteredTasks = (data?.tasks ?? []).filter(
     (t) =>
       (floorFilter === null || t.floorLevel === floorFilter) &&
       (deptFilter === null || t.workName === deptFilter) &&
       (roomFilter === null || t.roomType === roomFilter) &&
       (milestoneFilter === null || t.milestoneId === milestoneFilter) &&
-      (!plannedDateFilterActive || matchesPlannedDateFilter(t, dateMode!, dateFrom!, dateTo!))
+      (!plannedDateFilterActive || matchesPlannedDateFilter(t, dateMode!, dateFrom!, dateTo!)) &&
+      (statusFilter === null || matchesStatusFilter(t, statusFilter as StatusFilter, todayKey))
   );
   const filteredTaskIds = new Set(filteredTasks.map((t) => t.id));
+  const filterOn = hasActiveFilter;
+  // Filter on (2026-11-15, client): the matching tasks are shown in ONE
+  // column, in date order (planned start, else planned end, else actual
+  // start; undated last). Display only: positions are never saved, and the
+  // board is read-only while a filter is on.
+  const dateKey = (t: (typeof filteredTasks)[number]) => t.plannedStartDate ?? t.dueDate ?? t.actualStartDate ?? null;
+  const columnTasks = [...filteredTasks]
+    .sort((a, b) => {
+      const ka = dateKey(a);
+      const kb = dateKey(b);
+      if (ka !== kb) return ka === null ? 1 : kb === null ? -1 : ka.localeCompare(kb);
+      return a.taskId.localeCompare(b.taskId, undefined, { numeric: true });
+    })
+    .map((t, i) => ({ ...t, manualPositionX: 0, manualPositionY: i * 148, sectionTitle: null, dividerBelow: false }));
+  // Sheet View / Reports: "Stack - Task name" (stack = the column's black heading).
+  const stackById = stackNames(data?.tasks ?? []);
+  const sheetTasks = columnTasks.map((t) => ({ ...t, taskName: withStack(t.taskName, stackById.get(t.id)) }));
   const filteredSeriesEdges = (data?.seriesEdges ?? []).filter((e) => filteredTaskIds.has(e.taskId) && filteredTaskIds.has(e.dependsOnTaskId));
   const filteredParallelEdges = (data?.parallelEdges ?? []).filter((e) => filteredTaskIds.has(e.taskAId) && filteredTaskIds.has(e.taskBId));
   const filterSummary = {
@@ -291,7 +325,7 @@ function FlowchartScreenContent() {
     }
   }
 
-  // Flowchart 2 "Download A3 PDF": the board as cards + arrows on A3 portrait
+  // Flowchart 2 "Download A3 PDF": the board as cards + arrows on A3 landscape
   // pages (lib/flowchart/a3Pdf.ts). Uses whatever is shown (filter applies).
   async function handleDownloadA3Pdf() {
     setExcelExporting(true);
@@ -322,6 +356,7 @@ function FlowchartScreenContent() {
     setDeptFilter(null);
     setRoomFilter(null);
     setMilestoneFilter(null);
+    setStatusFilter(null);
     setDateMode(null);
     setDateFrom(null);
     setDateTo(null);
@@ -343,8 +378,9 @@ function FlowchartScreenContent() {
 
       {/* Boards: the original flowchart and Flowchart 2 (site sheet 3 Nov 2026). */}
       <View className="flex-row px-3 pt-2" style={{ backgroundColor: CANVAS_THEMES[canvasTheme].bg }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexShrink: 1 }} contentContainerStyle={{ paddingRight: 8 }}>
         <View className="flex-row rounded-xl p-1" style={{ backgroundColor: isDark ? '#1F1F1F' : '#F1F3F6' }}>
-          {(['main', 'fc2'] as FlowchartBoard[]).map((b) => {
+          {(['fc2', 'fc2test', 'main'] as FlowchartBoard[]).map((b) => {
             const active = board === b;
             return (
               <Pressable
@@ -357,16 +393,17 @@ function FlowchartScreenContent() {
                 }}
                 accessibilityRole="tab"
                 accessibilityState={{ selected: active }}
-                className="items-center justify-center rounded-lg px-4"
-                style={{ minHeight: 36, backgroundColor: active ? (isDark ? '#141414' : '#fff') : 'transparent' }}
+                className="items-center justify-center rounded-lg"
+                style={{ minHeight: 36, paddingHorizontal: narrow ? 10 : 16, backgroundColor: active ? (isDark ? '#141414' : '#fff') : 'transparent' }}
               >
                 <Text className="text-xs font-bold" style={{ color: active ? (isDark ? '#F5F5F5' : '#0F1F33') : '#9CA3AF' }}>
-                  {b === 'main' ? 'Flowchart' : 'Flowchart 2'}
+                  {b === 'main' ? 'Flowchart' : b === 'fc2' ? 'Flowchart 2' : 'Flowchart 2 (Test)'}
                 </Text>
               </Pressable>
             );
           })}
         </View>
+        </ScrollView>
         <View className="flex-1" />
         <Pressable
           testID="flowchart-refresh"
@@ -391,6 +428,7 @@ function FlowchartScreenContent() {
         className="flex-row items-center gap-2 px-3 pt-2 pb-1.5"
         style={{ backgroundColor: CANVAS_THEMES[canvasTheme].bg }}
       >
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ gap: 8, alignItems: 'center' }}>
         {taskSet === null && data && data.tasks.length > 0 ? (
           <Pressable
             testID="flowchart-filter"
@@ -398,17 +436,43 @@ function FlowchartScreenContent() {
             className="flex-row items-center gap-1.5 px-3 rounded-xl border"
             style={{
               minHeight: 40,
-              backgroundColor: hasActiveFilter ? '#0F1F33' : isDark ? '#141414' : '#fff',
-              borderColor: hasActiveFilter ? '#0F1F33' : isDark ? '#242424' : '#E5E5E5',
+              backgroundColor: filterOn ? '#0F1F33' : isDark ? '#141414' : '#fff',
+              borderColor: filterOn ? '#0F1F33' : isDark ? '#242424' : '#E5E5E5',
             }}
           >
-            <Ionicons name="filter-outline" size={15} color={hasActiveFilter ? '#fff' : isDark ? '#E5E5E5' : '#374151'} />
-            <Text className="text-xs font-bold" style={{ color: hasActiveFilter ? '#fff' : isDark ? '#E5E5E5' : '#374151' }}>
-              Filter{hasActiveFilter ? ` (${filteredTasks.length})` : ''}
+            <Ionicons name="filter-outline" size={15} color={filterOn ? '#fff' : isDark ? '#E5E5E5' : '#374151'} />
+            <Text className="text-xs font-bold" style={{ color: filterOn ? '#fff' : isDark ? '#E5E5E5' : '#374151' }}>
+              Filter{filterOn ? ` (${filteredTasks.length})` : ''}
             </Text>
           </Pressable>
         ) : null}
-        <View className="flex-1" />
+        {taskSet === null && board !== 'main' && data && data.tasks.length > 0
+          ? ([
+              ['sheet', 'Sheet View', 'grid-outline'],
+              ['reports', 'Reports', 'document-text-outline'],
+            ] as const).map(([view, label, icon]) => {
+              const on = boardView === view;
+              return (
+                <Pressable
+                  key={view}
+                  testID={`flowchart-${view}-view`}
+                  onPress={() => setBoardView(on ? 'chart' : view)}
+                  className="flex-row items-center gap-1.5 px-3 rounded-xl border"
+                  style={{
+                    minHeight: 40,
+                    backgroundColor: on ? '#0F1F33' : isDark ? '#141414' : '#fff',
+                    borderColor: on ? '#0F1F33' : isDark ? '#242424' : '#E5E5E5',
+                  }}
+                >
+                  <Ionicons name={on ? 'git-network-outline' : icon} size={15} color={on ? '#fff' : isDark ? '#E5E5E5' : '#374151'} />
+                  <Text className="text-xs font-bold" style={{ color: on ? '#fff' : isDark ? '#E5E5E5' : '#374151' }}>
+                    {on ? (narrow ? 'Chart' : 'Flowchart View') : narrow && view === 'sheet' ? 'Sheet' : label}
+                  </Text>
+                </Pressable>
+              );
+            })
+          : null}
+        </ScrollView>
         <Pressable
           testID="flowchart-eye"
           onPress={() => toggleShowSets()}
@@ -458,7 +522,7 @@ function FlowchartScreenContent() {
               <Text className="text-2xs text-neutral-500">{filteredTasks.length} task{filteredTasks.length === 1 ? '' : 's'}{hasActiveFilter ? ' (filtered)' : ''}</Text>
             </View>
           </Pressable>
-          {board === 'fc2' ? (
+          {board !== 'main' ? (
             <Pressable
               testID="flowchart-more-checklist-excel"
               onPress={() => {
@@ -476,7 +540,7 @@ function FlowchartScreenContent() {
               </View>
             </Pressable>
           ) : null}
-          {board === 'fc2' ? (
+          {board !== 'main' ? (
             <Pressable
               testID="flowchart-more-a3pdf"
               onPress={() => {
@@ -490,7 +554,7 @@ function FlowchartScreenContent() {
               <Ionicons name="document-outline" size={20} color="#B91C1C" />
               <View className="flex-1">
                 <Text className="text-sm font-semibold text-neutral-900">Download A3 PDF</Text>
-                <Text className="text-2xs text-neutral-500">Flowchart drawing, A3 portrait{hasActiveFilter ? ' (filtered)' : ''}</Text>
+                <Text className="text-2xs text-neutral-500">Flowchart drawing, A3 landscape{hasActiveFilter ? ' (filtered)' : ''}</Text>
               </View>
             </Pressable>
           ) : null}
@@ -660,7 +724,31 @@ function FlowchartScreenContent() {
             </Pressable>
           )}
 
-          {hasActiveFilter && viewMode === 'list' ? (
+          {boardView === 'sheet' && board !== 'main' ? (
+            <ChecklistSheetView tasks={sheetTasks} editable={isStaff} userId={profile?.id ?? null} />
+          ) : boardView === 'reports' && board !== 'main' ? (
+            <SheetReportView
+              tasks={sheetTasks}
+              projectName={projectName}
+              topFilterText={[statusFilter, deptFilter, floorFilter, roomFilter, milestoneFilter ? milestones.find((m) => m.id === milestoneFilter)?.name : null, filterSummary.plannedDate]
+                .filter(Boolean)
+                .join(' · ')}
+              pageFilters={{
+                departments: allDepartments,
+                department: deptFilter,
+                floor: floorFilter,
+                room: roomFilter,
+                milestones,
+                milestoneId: milestoneFilter,
+                plannedDateText: filterSummary.plannedDate,
+                onDepartment: setDeptFilter,
+                onFloor: setFloorFilter,
+                onRoom: setRoomFilter,
+                onMilestone: setMilestoneFilter,
+                onOpenFilters: () => setFilterModalOpen(true),
+              }}
+            />
+          ) : hasActiveFilter && viewMode === 'list' ? (
             <FilteredTaskList tasks={filteredTasks} />
           ) : (
             <FlowchartCanvas
@@ -670,17 +758,17 @@ function FlowchartScreenContent() {
               // prop alone would silently keep showing the old task set.
               key={`${board}-${
                 hasActiveFilter
-                  ? `filtered-${floorFilter}-${deptFilter}-${roomFilter}-${milestoneFilter}-${dateMode}-${dateFrom}-${dateTo}`
+                  ? `filtered-${statusFilter}-${floorFilter}-${deptFilter}-${roomFilter}-${milestoneFilter}-${dateMode}-${dateFrom}-${dateTo}`
                   : 'unfiltered'
               }-r${refreshKey}`}
               projectId={selectedProjectId}
               viewMemory={viewMemory}
               flowchartSet={flowchartSetForBoard(board)}
-              initialTasks={hasActiveFilter ? filteredTasks : data.tasks}
+              initialTasks={hasActiveFilter ? columnTasks : data.tasks}
               seriesEdges={hasActiveFilter ? filteredSeriesEdges : data.seriesEdges}
               parallelEdges={hasActiveFilter ? filteredParallelEdges : data.parallelEdges}
               taskTypes={data.taskTypes}
-              canEdit={isStaff}
+              canEdit={isStaff && !hasActiveFilter}
               canvasTheme={canvasTheme}
               onCanvasThemeChange={setCanvasTheme}
             />
@@ -704,6 +792,10 @@ function FlowchartScreenContent() {
             onChangeDateMode={setDateMode}
             onChangeDateFrom={setDateFrom}
             onChangeDateTo={setDateTo}
+            statusFilter={statusFilter}
+            onChangeStatus={setStatusFilter}
+            shownCount={filteredTasks.length}
+            totalCount={data.tasks.length}
             onClear={handleClearFilters}
             onClose={() => setFilterModalOpen(false)}
           />

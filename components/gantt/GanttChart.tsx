@@ -23,45 +23,57 @@ import {
 } from '../../lib/ganttLayout';
 import { EmptyState } from '../ui/EmptyState';
 
-// 2026-11-13: two labelled bars per task (baseline vs actual):
-//   top    dark "Planned  29 Oct – 4 Nov · 7d"   (planned start -> planned end)
-//   bottom red  "Actual   2 Nov – 11 Nov · 10d"  (actual start -> actual end, or -> today while running)
-// so the two lengths can be compared at a glance. Text sits inside the bar
-// when it fits, otherwise just to the right of it.
-const DUAL_BAR_HEIGHT = 18;
-const DUAL_BAR_GAP = 3;
-const PLANNED_BAR_TOP = (ROW_HEIGHT - DUAL_BAR_HEIGHT * 2 - DUAL_BAR_GAP) / 2;
-const ACTUAL_BAR_TOP = PLANNED_BAR_TOP + DUAL_BAR_HEIGHT + DUAL_BAR_GAP;
-const PLANNED_COLOR = '#1E293B';
-const ACTUAL_COLOR = '#DC2626';
+// 2026-11-15: bars styled like the client's Gantt reference.
+//   Top bar (red = late vs planned finish, blue = on time / early) = the task as it is really running:
+//     solid = done (actual start -> actual end, or -> today while running)
+//     light = still to do (today -> projected finish), or the whole
+//             projected span when the task hasn't started yet.
+//   Thin grey bar right under it = the planned dates (baseline).
+//   The "+N days" tag under the task name is the difference.
+const BAR_TOP = 16;
+const BAR_HEIGHT = 16;
+const BASE_TOP = BAR_TOP + BAR_HEIGHT + 3;
+const BASE_HEIGHT = 6;
+export const BASELINE_COLOR = '#9CA3AF';
+export const LATE_COLOR = '#DC2626';
+export const ON_TIME_COLOR = '#2563EB';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const dayLabel = (d: Date) => `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+const shiftDay = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 
-function LabelledBar({ top, left, width, color, text }: { top: number; left: number; width: number; color: string; text: string }) {
-  // ~5.6px per character at 10px bold, plus padding.
-  const fits = width >= text.length * 5.6 + 12;
+function Bar({ left, width, top, height, color, opacity = 1, radius = 4 }: { left: number; width: number; top: number; height: number; color: string; opacity?: number; radius?: number }) {
   return (
-    <>
-      <View
-        className="absolute"
-        style={{ top, left, width, height: DUAL_BAR_HEIGHT, borderRadius: 4, backgroundColor: color, justifyContent: 'center', overflow: 'hidden' }}
-      >
-        {fits ? (
-          <Text numberOfLines={1} style={{ color: '#fff', fontSize: 10, fontWeight: '700', paddingHorizontal: 6 }}>
-            {text}
-          </Text>
-        ) : null}
-      </View>
-      {!fits ? (
-        <Text
-          numberOfLines={1}
-          className="absolute"
-          style={{ top: top + 2, left: left + width + 4, color, fontSize: 10, fontWeight: '700' }}
-        >
-          {text}
-        </Text>
-      ) : null}
-    </>
+    <View
+      pointerEvents="none"
+      style={{ position: 'absolute', left, top, width: Math.max(width, 3), height, backgroundColor: color, opacity, borderRadius: radius }}
+    />
+  );
+}
+
+// Baseline difference (2026-11-15, client's Gantt reference): finish vs the
+// planned finish, every day counted. Finished → actual end; otherwise the
+// projected finish. "+2 days" red (late), "-1 day" green (early), "0 days" grey.
+function finishVariance(
+  t: { dueDate: string | null; actualEndDate: string | null },
+  delay: TaskDelayInfo | undefined
+): number | null {
+  if (!t.dueDate) return null;
+  const end = t.actualEndDate ? parseDateKey(t.actualEndDate) : delay ? toLocalCalendarDate(delay.projectedFinish) : null;
+  return end ? differenceInCalendarDays(end, parseDateKey(t.dueDate)) : null;
+}
+
+function VarianceTag({ days }: { days: number | null }) {
+  if (days === null) return null;
+  const late = days > 0;
+  const early = days < 0;
+  const text = `${late ? '+' : ''}${days} ${Math.abs(days) === 1 ? 'day' : 'days'}`;
+  return (
+    <View
+      className="self-start rounded px-1.5 mt-0.5"
+      style={{ backgroundColor: late ? '#FEE2E2' : early ? '#DCFCE7' : '#F3F4F6' }}
+    >
+      <Text style={{ fontSize: 10, fontWeight: '700', color: late ? '#B91C1C' : early ? '#15803D' : '#6B7280' }}>{text}</Text>
+    </View>
   );
 }
 
@@ -279,6 +291,7 @@ export function GanttChart({
                   <Text className="text-xs text-neutral-700" numberOfLines={2}>
                     {t.taskName}
                   </Text>
+                  <VarianceTag days={finishVariance(t, delayById[t.id])} />
                 </View>
               ))}
             </View>
@@ -342,36 +355,41 @@ export function GanttChart({
                       );
                     }
 
-                    // Planned (baseline) bar.
-                    const plannedBar = t.plannedStartDate && t.dueDate
-                      ? (() => {
-                          const start = parseDateKey(t.plannedStartDate!);
-                          const due = parseDateKey(t.dueDate!);
-                          const left = scale.dateToX(start);
-                          const days = differenceInCalendarDays(due, start) + 1;
-                          return {
-                            left,
-                            width: Math.max(scale.dateToX(due) - left + scale.pxPerDay, 3),
-                            text: `Planned ${dayLabel(start)} – ${dayLabel(due)} · ${days}d`,
-                          };
-                        })()
+                    const today = toLocalCalendarDate(new Date());
+                    const days = (a: Date, b: Date) => differenceInCalendarDays(b, a) + 1;
+                    const planned = t.plannedStartDate && t.dueDate
+                      ? { start: parseDateKey(t.plannedStartDate), end: parseDateKey(t.dueDate) }
                       : null;
-
-                    // Actual bar: actual start -> actual end, or -> today while still running.
-                    const actualBar = t.actualStartDate
-                      ? (() => {
-                          const start = parseDateKey(t.actualStartDate!);
-                          const today = toLocalCalendarDate(new Date());
-                          const end = t.actualEndDate ? parseDateKey(t.actualEndDate) : today >= start ? today : start;
-                          const left = scale.dateToX(start);
-                          const days = differenceInCalendarDays(end, start) + 1;
-                          return {
-                            left,
-                            width: Math.max(scale.dateToX(end) - left + scale.pxPerDay, 3),
-                            text: `Actual ${dayLabel(start)} – ${t.actualEndDate ? dayLabel(end) : 'today'} · ${days}d`,
-                          };
-                        })()
-                      : null;
+                    const projStart = toLocalCalendarDate(delay.projectedStart);
+                    const projEnd = toLocalCalendarDate(delay.projectedFinish);
+                    // Done part (solid) and still-to-do part (light).
+                    let done: { start: Date; end: Date } | null = null;
+                    let todo: { start: Date; end: Date } | null = null;
+                    if (t.actualStartDate) {
+                      const aStart = parseDateKey(t.actualStartDate);
+                      if (t.actualEndDate) {
+                        done = { start: aStart, end: parseDateKey(t.actualEndDate) };
+                      } else {
+                        done = { start: aStart, end: today >= aStart ? today : aStart };
+                        if (projEnd > done.end) todo = { start: shiftDay(done.end, 1), end: projEnd };
+                      }
+                    } else {
+                      todo = { start: projStart, end: projEnd >= projStart ? projEnd : projStart };
+                    }
+                    // Colour by status (Civil Works' department colour is grey): late red, else blue.
+                    const variance = finishVariance(t, delay);
+                    const color = variance !== null && variance > 0 ? LATE_COLOR : ON_TIME_COLOR;
+                    const x = scale.dateToX;
+                    const px = scale.pxPerDay;
+                    const span = (r: { start: Date; end: Date }) => ({ left: x(r.start), width: x(r.end) - x(r.start) + px });
+                    const barStart = done?.start ?? todo!.start;
+                    const barEnd = todo?.end ?? done!.end;
+                    const rightEdge = Math.max(x(barEnd) + px, planned ? x(planned.end) + px : 0);
+                    const label = t.actualEndDate
+                      ? `${days(barStart, barEnd)}d · ${dayLabel(barStart)} – ${dayLabel(barEnd)}`
+                      : t.actualStartDate
+                        ? `Running · ${dayLabel(barStart)} – ${dayLabel(barEnd)}`
+                        : `Not started · ${dayLabel(barStart)} – ${dayLabel(barEnd)}`;
 
                     return (
                       <Pressable
@@ -380,16 +398,16 @@ export function GanttChart({
                         className="border-b border-neutral-50"
                         style={{ height: ROW_HEIGHT }}
                       >
-                        {plannedBar && (
-                          <LabelledBar top={PLANNED_BAR_TOP} left={plannedBar.left} width={plannedBar.width} color={PLANNED_COLOR} text={plannedBar.text} />
-                        )}
-                        {actualBar ? (
-                          <LabelledBar top={ACTUAL_BAR_TOP} left={actualBar.left} width={actualBar.width} color={ACTUAL_COLOR} text={actualBar.text} />
-                        ) : plannedBar ? (
-                          <Text className="absolute" style={{ top: ACTUAL_BAR_TOP + 2, left: plannedBar.left, fontSize: 10, color: '#9CA3AF', fontStyle: 'italic' }}>
-                            Not started
-                          </Text>
-                        ) : null}
+                        {done && <Bar {...span(done)} top={BAR_TOP} height={BAR_HEIGHT} color={color} />}
+                        {todo && <Bar {...span(todo)} top={BAR_TOP} height={BAR_HEIGHT} color={color} opacity={0.35} />}
+                        {planned && <Bar {...span(planned)} top={BASE_TOP} height={BASE_HEIGHT} color={BASELINE_COLOR} radius={3} />}
+                        <Text
+                          numberOfLines={1}
+                          className="absolute"
+                          style={{ top: BAR_TOP + 1, left: rightEdge + 6, fontSize: 10, fontWeight: '600', color: '#374151' }}
+                        >
+                          {label}
+                        </Text>
                         <CategoryHealthBoxes items={t.checklistItems} />
                       </Pressable>
                     );

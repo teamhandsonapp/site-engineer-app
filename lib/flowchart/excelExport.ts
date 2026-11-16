@@ -140,9 +140,11 @@ export const CHECKLIST_POINTS: { header: string; key: ChecklistNoteKey }[] = [
   { header: 'Drawing Approval — Architect', key: 'architect' },
   { header: 'Drawing Approval — Consultant', key: 'consultant' },
   { header: 'Client Approval', key: 'client' },
-  { header: 'Procurement Status', key: 'procurementStatus' },
+  { header: 'Contractor — Procurement Delay', key: 'procurementStatus' },
   { header: 'Procurement Lead time', key: 'leadTime' },
-  { header: 'Other Dependencies', key: 'other' },
+  { header: 'Roof Erection Process', key: 'other' },
+  { header: 'Contractor — Workers Delay', key: 'contractorDelay' },
+  { header: 'Contractor Finalization', key: 'contractorClientFinalization' },
 ];
 
 export function buildChecklistWorkbook(tasks: FlowchartTask[], notes: Map<string, ChecklistNotes>): XLSX.WorkBook {
@@ -182,7 +184,7 @@ export async function exportFlowchartExcel(tasks: FlowchartTask[], projectName: 
   return saveWorkbook(book, baseName, 'Tasks (Excel)');
 }
 
-async function saveWorkbook(book: XLSX.WorkBook, baseName: string, dialogTitle: string): Promise<string> {
+export async function saveWorkbook(book: XLSX.WorkBook, baseName: string, dialogTitle: string): Promise<string> {
 
   if (Platform.OS === 'web') {
     XLSX.writeFile(book, `${baseName}.xlsx`, { bookType: 'xlsx', cellDates: true });

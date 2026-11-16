@@ -143,8 +143,11 @@ export function buildAxisMap(values: number[], boxSize: number, targetGapPx: num
     // SECTION_BREAK_EXTRA_PX of visible space, so a separate group (e.g. a
     // row of parallel tasks placed below the main chart) reads as its own
     // block instead of being squeezed flush against the chart above it.
+    // 2026-11-14: every distinct row/column now gets the full box + gap,
+    // growing a tighter stored gap too — the cards got bigger (220×150)
+    // than the stored grid (231×148), and "never grow" made them touch.
     const newGap =
-      origGap >= SECTION_BREAK_MIN_GAP ? boxSize + targetGapPx + SECTION_BREAK_EXTRA_PX : Math.min(origGap, boxSize + targetGapPx);
+      origGap >= SECTION_BREAK_MIN_GAP ? boxSize + targetGapPx + SECTION_BREAK_EXTRA_PX : boxSize + targetGapPx;
     compressedPos.push(compressedPos[i - 1] + newGap);
   }
   return bucketOriginals.map((orig, i) => ({ orig, compressed: compressedPos[i] }));
@@ -295,7 +298,9 @@ export function layoutTasks(tasks: FlowchartTask[]): PositionedTask[] {
 // (boxSize + targetGapPx) absorbs this automatically so nothing overlaps,
 // but the "does text still fit without ellipsizing more than before"
 // question needs a real-device check.
-export const NODE_WIDTH = 205;
+// 205 -> 220 (2026-11-14): room for the red "Not started · N days delay
+// running" line on one line.
+export const NODE_WIDTH = 220;
 // Was 120, then 88, then 82, then 74 — that last trim assumed a wrapped
 // 2-line category AND the full 3-line action cap essentially never
 // happened together in practice; real feedback (and real overflow past
@@ -328,7 +333,12 @@ export const NODE_WIDTH = 205;
 // sets `overflow: 'hidden'` now as a backstop so content clips cleanly at
 // the border in the worst case instead of visibly spilling past it, but a
 // real-device check is still worth doing to confirm nothing needs 3 lines.
-export const NODE_HEIGHT = 106;
+// 106 -> 128 (2026-11-14): cards now carry up to three chips (planned,
+// actual or projected, running delay) inside the box, plus a 2-line name —
+// +22px gives that extra line its own room instead of squeezing the name.
+// 128 -> 150 (2026-11-14): room for the 3-line pre-construction /
+// construction / total delay text on finished late tasks.
+export const NODE_HEIGHT = 150;
 
 export interface Bounds {
   minX: number;
