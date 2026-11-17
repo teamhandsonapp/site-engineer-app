@@ -26,7 +26,6 @@ import { FlowchartFilterModal } from '../../components/flowchart/FlowchartFilter
 import { FilteredTaskList } from '../../components/flowchart/FilteredTaskList';
 import { ChecklistSheetView } from '../../components/flowchart/ChecklistSheetView';
 import { SheetReportView } from '../../components/flowchart/SheetReportView';
-import { stackNames, withStack } from '../../lib/flowchart/stackName';
 import { matchesStatusFilter, type StatusFilter } from '../../lib/flowchart/sheetStatus';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { FormModal } from '../../components/ui/FormModal';
@@ -269,8 +268,8 @@ function FlowchartScreenContent() {
     })
     .map((t, i) => ({ ...t, manualPositionX: 0, manualPositionY: i * 148, sectionTitle: null, dividerBelow: false }));
   // Sheet View / Reports: "Stack - Task name" (stack = the column's black heading).
-  const stackById = stackNames(data?.tasks ?? []);
-  const sheetTasks = columnTasks.map((t) => ({ ...t, taskName: withStack(t.taskName, stackById.get(t.id)) }));
+  // Stack-name prefix removed (2026-11-16, client): plain task names in Sheet View / Reports.
+  const sheetTasks = columnTasks;
   const filteredSeriesEdges = (data?.seriesEdges ?? []).filter((e) => filteredTaskIds.has(e.taskId) && filteredTaskIds.has(e.dependsOnTaskId));
   const filteredParallelEdges = (data?.parallelEdges ?? []).filter((e) => filteredTaskIds.has(e.taskAId) && filteredTaskIds.has(e.taskBId));
   const filterSummary = {
@@ -325,7 +324,7 @@ function FlowchartScreenContent() {
     }
   }
 
-  // Flowchart 2 "Download A3 PDF": the board as cards + arrows on A3 landscape
+  // Flowchart 2 "Download A3 PDF": the board as cards + arrows on A3 portrait
   // pages (lib/flowchart/a3Pdf.ts). Uses whatever is shown (filter applies).
   async function handleDownloadA3Pdf() {
     setExcelExporting(true);
@@ -449,7 +448,7 @@ function FlowchartScreenContent() {
         {taskSet === null && board !== 'main' && data && data.tasks.length > 0
           ? ([
               ['sheet', 'Sheet View', 'grid-outline'],
-              ['reports', 'Reports', 'document-text-outline'],
+              ['reports', 'Project Status', 'document-text-outline'],
             ] as const).map(([view, label, icon]) => {
               const on = boardView === view;
               return (
@@ -554,7 +553,7 @@ function FlowchartScreenContent() {
               <Ionicons name="document-outline" size={20} color="#B91C1C" />
               <View className="flex-1">
                 <Text className="text-sm font-semibold text-neutral-900">Download A3 PDF</Text>
-                <Text className="text-2xs text-neutral-500">Flowchart drawing, A3 landscape{hasActiveFilter ? ' (filtered)' : ''}</Text>
+                <Text className="text-2xs text-neutral-500">Flowchart drawing, A3 portrait{hasActiveFilter ? ' (filtered)' : ''}</Text>
               </View>
             </Pressable>
           ) : null}

@@ -7,6 +7,8 @@ import { formatActualDateRange, formatCardDateRange } from './delay';
 import { CHECKLIST_NOTE_FIELDS, fetchChecklistNotesForTasks, type ChecklistNotes } from './checklistNotes';
 import type { FlowchartSeriesEdge, FlowchartTask } from './types';
 import { longestRun, routeEdge, type Box, type Pt } from './edgeRoute';
+import { computeProjectedDates, shouldShowProjected } from './projected';
+import { FLOWCHART_2_GROUPS } from './boardGroups';
 
 // "Download A3 PDF" (Flowchart 2, ⋯ menu): the board drawn as cards + links
 // on A3 PORTRAIT pages (2026-11-16, client). Nothing is shrunk to fit: the
@@ -16,9 +18,9 @@ import { longestRun, routeEdge, type Box, type Pt } from './edgeRoute';
 // right-angle routing as the app; a link to another page becomes "→ p.N".
 
 // A3 portrait in PostScript points (expo-print) and in CSS px (96 dpi) for the layout.
-const A3_PT = { width: 1191, height: 842 };
-const PW = 1587;
-const PH = 1123;
+const A3_PT = { width: 842, height: 1191 };
+const PW = 1123;
+const PH = 1587;
 const M = 24;
 const HEAD = 54;
 const FOOT = 18;
@@ -70,10 +72,12 @@ function splitIntoBlocks(items: Placed[]): Placed[][] {
 
 // Per A3 portrait page: up to MAX_COLS board columns and MAX_ROWS rows, cut
 // where the fewest links cross. Fewer columns = bigger cards.
+// Two A3 portrait sheets (2026-11-16, client): the board's columns split in two halves,
+// all rows on each sheet, same card size on both.
 const MAX_COLS = 6;
-const MIN_COLS = 4;
-const MAX_ROWS = 10;
-const MIN_ROWS = 8;
+const MIN_COLS = 6;
+const MAX_ROWS = 99;
+const MIN_ROWS = 99;
 
 // Grid index -> consecutive index, skipping indexes nobody uses (the empty
 // rows/columns between groups on the board would otherwise print as blank space).
@@ -186,7 +190,8 @@ function pageHtml(
   pageCount: number,
   pageOf: Map<string, number>,
   nameOf: Map<string, string>,
-  notesOf: Map<string, ChecklistNotes>
+  notesOf: Map<string, ChecklistNotes>,
+  estOf: Map<string, string> = new Map()
 ): string {
   const { items, colOf, rowOf, nCols, nRows } = spec;
   const TOP = M + HEAD + 16;
@@ -195,10 +200,10 @@ function pageHtml(
   // A page with only a few columns keeps normal-size cards, centred.
   const colW = (PW - 2 * M) / Math.max(nCols, MAX_COLS);
   const offX = 0;
-  const rowH = (PH - TOP - M - FOOT) / Math.max(nRows, 6);
+  const rowH = (PH - TOP - M - FOOT) / Math.max(nRows, 1);
   const GAP_X = Math.max(22, colW * 0.14);
   const CW = colW - GAP_X;
-  const CH = Math.max(70, Math.min(rowH - 30, CW * 0.62, 170));
+  const CH = Math.max(36, Math.min(rowH - 12, CW * 0.62, 170));
   const padY = (rowH - CH) / 2;
   // Text grows with the card, limited by the card width.
   const nameFs = Math.max(9, Math.min(CH * 0.14, CW * 0.075, 15));
@@ -216,7 +221,7 @@ function pageHtml(
       const actual = formatActualDateRange(t.actualStartDate, t.actualEndDate);
       const wheel = checklistWheelSvg(notesOf.get(t.id), Math.max(12, Math.min(CH * 0.2, 18)));
       return `<div class="card" style="left:${p.x}px;top:${p.y}px;width:${CW}px;height:${CH}px">${wheel}
-  <div class="chips" style="font-size:${chipFs}px"><span class="chip plan">${esc(formatCardDateRange(t.plannedStartDate, t.dueDate))}</span>${actual ? `<span class="chip act">${esc(actual)}</span>` : ''}</div>
+  <div class="chips" style="font-size:${chipFs}px"><span class="chip plan">${esc(formatCardDateRange(t.plannedStartDate, t.dueDate))}</span>${actual ? `<span class="chip act">${esc(actual)}</span>` : ''}${estOf.get(t.id) ? `<span class="chip est">${esc(estOf.get(t.id)!)}</span>` : ''}</div>
   <div class="name" style="font-size:${nameFs}px;line-height:${nameFs * 1.17}px">${esc(t.taskName.trim())}</div>
   ${t.workName && t.workName !== 'Unassigned' ? `<div class="dept" style="font-size:${deptFs}px;line-height:${deptFs * 1.2}px">${esc(t.workName)}</div>` : ''}
 </div>${t.sectionTitle ? `<div class="title" style="left:${p.x}px;top:${p.y - 20}px">${esc(t.sectionTitle)}</div>` : ''}`;
@@ -275,17 +280,28 @@ function pageHtml(
     notes.push(`<div class="xref" style="left:${b.x + shift}px;top:${b.y - (title ? 18 : 13)}px;width:${CW - shift}px;text-align:${title ? 'left' : 'center'}">← ${esc(list.join(', '))}</div>`);
   }
 
+  // Board group outlines (Structural Civil Works, Parallel works …) when the whole group is on this page.
+  const groupsHtml = FLOWCHART_2_GROUPS.map((g) => {
+    const mine = items.filter((p) => g.taskCodes.includes(p.task.taskId));
+    if (mine.length === 0 || mine.length < g.taskCodes.length) return '';
+    const ps = mine.map((p) => pos.get(p.task.id)!);
+    const l = Math.min(...ps.map((q) => q.x)) - 8, t0 = Math.min(...ps.map((q) => q.y)) - 34;
+    const rgt = Math.max(...ps.map((q) => q.x)) + CW + 8, b = Math.max(...ps.map((q) => q.y)) + CH + 8;
+    return `<div class="grp" style="left:${l}px;top:${t0}px;width:${rgt - l}px;height:${b - t0}px"><span>${esc(g.label)}</span></div>`;
+  }).join('');
+
   const today = new Date();
   return `<div class="page">
   <div class="head">
     <div><h1>${esc(header)}</h1><div class="sub">${items.length} task${items.length === 1 ? '' : 's'} on this page${pageCount > 1 ? ` · Page ${pageNo} of ${pageCount}` : ''}</div></div>
-    <div class="legend"><span class="chip plan">Planned</span><span class="chip act">Actual</span><span>→ Finish-to-Start</span><span><b style="color:#9A3412">SS</b> Start-to-Start</span></div>
+    <div class="legend"><span class="chip plan">Planned</span><span class="chip act">Actual</span><span class="chip est">Estimated</span><span>→ Finish-to-Start</span><span><b style="color:#9A3412">SS</b> Start-to-Start</span></div>
   </div>
   <svg width="${PW}" height="${PH}">${lines}</svg>
+  ${groupsHtml}
   ${cards}
   ${notes.join('')}
   <svg class="top" width="${PW}" height="${PH}">${labels}</svg>
-  <div class="foot"><span>PMC Portal · A3 landscape</span><span>Generated ${today.getDate()} ${MON[today.getMonth()]} ${today.getFullYear()}</span></div>
+  <div class="foot"><span>PMC Portal · A3 portrait</span><span>Generated ${today.getDate()} ${MON[today.getMonth()]} ${today.getFullYear()}</span></div>
 </div>`;
 }
 
@@ -299,9 +315,17 @@ export function buildFlowchartA3Html(
   const pageOf = new Map<string, number>();
   specs.forEach((s, i) => s.items.forEach((p) => pageOf.set(p.task.id, i + 1)));
   const nameOf = new Map(tasks.map((t) => [t.id, t.taskName.trim()]));
-  const pages = specs.map((s, i) => pageHtml(s, edges, title, i + 1, specs.length, pageOf, nameOf, notesOf)).join('');
+  // Estimated (blue) dates, same rule as the board's cards.
+  const proj = computeProjectedDates(tasks, edges);
+  const linked = new Set(edges.flatMap((e) => [e.taskId, e.dependsOnTaskId]));
+  const estOf = new Map<string, string>();
+  for (const t of tasks) {
+    const p = proj.get(t.id);
+    if (shouldShowProjected(t, p, linked.has(t.id))) estOf.set(t.id, formatCardDateRange(p.start, p.end));
+  }
+  const pages = specs.map((s, i) => pageHtml(s, edges, title, i + 1, specs.length, pageOf, nameOf, notesOf, estOf)).join('');
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>
-  @page { size: A3 landscape; margin: 0; }
+  @page { size: A3 portrait; margin: 0; }
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   html, body { margin: 0; padding: 0; background: #fff; }
   body { font-family: "Segoe UI", Roboto, Arial, sans-serif; color: #1F2937; }
@@ -320,6 +344,9 @@ export function buildFlowchartA3Html(
   .chip { border-radius: 8px; padding: 0 6px; font-size: inherit; line-height: 1.3; font-weight: 700; white-space: nowrap; }
   .chip.plan { background: #FEF08A; color: #713F12; }
   .chip.act { background: #FCA5A5; color: #7F1D1D; }
+  .grp { position: absolute; border: 2px dashed #0F1F33; border-radius: 12px; z-index: 0; }
+  .grp span { position: absolute; top: -11px; left: 12px; background: #F0A227; color: #0F1F33; font-size: 11px; font-weight: 800; padding: 1px 8px; border-radius: 5px; }
+  .chip.est { background: #BFDBFE; color: #1E3A8A; }
   .name { font-size: 8.3px; line-height: 9.7px; font-weight: 700; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
   .dept { font-size: 6.6px; line-height: 7.6px; font-style: italic; color: #4B5563; }
   .title { position: absolute; background: #0F1F33; color: #fff; font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 4px; line-height: 13px; z-index: 2; }
@@ -358,7 +385,7 @@ export async function downloadFlowchartA3Pdf(tasks: FlowchartTask[], edges: Flow
     w.document.open();
     w.document.write(html.replace('</body>', '<script>window.onload=function(){setTimeout(function(){window.print()},400)}</script></body>'));
     w.document.close();
-    return 'Choose "Save as PDF", paper size A3 and Landscape in the print window.';
+    return 'Choose "Save as PDF", paper size A3 and Portrait in the print window.';
   }
   if (Platform.OS === 'android') {
     const { base64 } = await Print.printToFileAsync({ html, base64: true, ...A3_PT });

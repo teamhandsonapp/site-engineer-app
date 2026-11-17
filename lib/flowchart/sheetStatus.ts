@@ -6,7 +6,7 @@ import { daysFromTo, delaySplit, formatDelaySplit } from './delaySplit';
 //     Pre-con / Const / Total delay (same line as the card).
 //   "Not completed": every other task — no dates, only the status and delay:
 //     "Upcoming"            planned start still ahead
-//     "Delayed" + "Nd delay" not started past its planned start, or running
+//     "Pending" + "Nd delay" not started past its planned start, or running
 //                            (days past planned end, else how late it started)
 
 export interface SheetStatusTask {
@@ -44,17 +44,18 @@ export function sheetStatus(t: SheetStatusTask, today: string): { completed: She
   } else if (ps && today > ps) {
     days = daysFromTo(ps, today);
   }
-  // Late → "Delayed"; not late yet (running on time, or no dates) → "Upcoming".
-  return { completed: null, open: { dates: days > 0 ? 'Delayed' : 'Upcoming', delay: days > 0 ? `${days}d delay` : null } };
+  // Late → "Pending"; not late yet (running on time, or no dates) → "Upcoming".
+  return { completed: null, open: { dates: days > 0 ? 'Pending' : 'Upcoming', delay: days > 0 ? `${days}d delay` : null } };
 }
 
-/** One status filter for the board, Sheet View and Reports (2026-11-16): Completed, Upcoming or Delayed. */
-export type StatusFilter = 'Completed' | 'Upcoming' | 'Delayed';
-export const STATUS_FILTERS: StatusFilter[] = ['Completed', 'Upcoming', 'Delayed'];
+/** One status filter for the board, Sheet View and Reports (2026-11-16): Completed, Upcoming or Pending. */
+export type StatusFilter = 'Completed' | 'In progress' | 'Upcoming' | 'Pending';
+export const STATUS_FILTERS: StatusFilter[] = ['Completed', 'In progress', 'Upcoming', 'Pending'];
 
 export function matchesStatusFilter(t: SheetStatusTask, filter: StatusFilter, today: string): boolean {
   // Same three groups as Reports — every task is in exactly one.
   if (t.actualEndDate) return filter === 'Completed';
+  if (t.actualStartDate) return filter === 'In progress';
   const late = !!sheetStatus(t, today).open?.delay;
-  return filter === (late ? 'Delayed' : 'Upcoming');
+  return filter === (late ? 'Pending' : 'Upcoming');
 }

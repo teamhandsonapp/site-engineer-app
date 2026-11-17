@@ -141,10 +141,10 @@ export const CHECKLIST_POINTS: { header: string; key: ChecklistNoteKey }[] = [
   { header: 'Drawing Approval — Consultant', key: 'consultant' },
   { header: 'Client Approval', key: 'client' },
   { header: 'Contractor — Procurement Delay', key: 'procurementStatus' },
-  { header: 'Procurement Lead time', key: 'leadTime' },
+  { header: 'Material Procurement Status', key: 'leadTime' },
   { header: 'Roof Erection Process', key: 'other' },
   { header: 'Contractor — Workers Delay', key: 'contractorDelay' },
-  { header: 'Contractor Finalization', key: 'contractorClientFinalization' },
+  { header: 'Contractor / Vendor Finalization', key: 'contractorClientFinalization' },
 ];
 
 export function buildChecklistWorkbook(tasks: FlowchartTask[], notes: Map<string, ChecklistNotes>): XLSX.WorkBook {

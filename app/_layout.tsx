@@ -1,3 +1,4 @@
+import { ForceUpdateGate } from '../components/ForceUpdateGate';
 import '../global.css';
 
 import { useEffect, type ReactNode } from 'react';
@@ -129,11 +130,14 @@ function RootLayout() {
             <StatusBar style="light" />
             <NavigationLogger />
             <NotificationTapRouter />
+            {/* Force update: blocks old builds before anything else (2026-11-16). */}
+            <ForceUpdateGate>
             <AuthGate fontsReady={fontsReady}>
               <ProjectProvider>
                   <AppStack />
               </ProjectProvider>
             </AuthGate>
+            </ForceUpdateGate>
           </AuthProvider>
           </ToastProvider>
         </SafeAreaProvider>

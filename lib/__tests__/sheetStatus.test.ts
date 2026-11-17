@@ -9,8 +9,8 @@ describe('sheetStatus', () => {
     expect(s.open).toBeNull();
   });
 
-  it('not completed: Delayed with the delay count, or Upcoming', () => {
-    expect(sheetStatus({ ...plan, actualStartDate: null, actualEndDate: null }, '2026-11-05').open).toEqual({ dates: 'Delayed', delay: '10d delay' });
+  it('not completed: Pending with the delay count, or Upcoming', () => {
+    expect(sheetStatus({ ...plan, actualStartDate: null, actualEndDate: null }, '2026-11-05').open).toEqual({ dates: 'Pending', delay: '10d delay' });
     expect(sheetStatus({ ...plan, actualStartDate: null, actualEndDate: null }, '2026-10-20').open).toEqual({ dates: 'Upcoming', delay: null });
   });
 });

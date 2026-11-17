@@ -24,11 +24,11 @@ export const CHECKLIST_NOTE_FIELDS: { key: ChecklistNoteKey; label: string; colu
   { key: 'consultant', label: 'Drawing approval — Consultant', column: 'consultant', color: '#7C3AED' },
   { key: 'client', label: 'Client approval', column: 'client', color: '#DB2777' },
   { key: 'procurementStatus', label: 'Procurement delay', column: 'procurement_status', color: '#EA580C' },
-  { key: 'leadTime', label: 'Procurement lead time', column: 'lead_time', color: '#0D9488' },
+  { key: 'leadTime', label: 'Material Procurement Status', column: 'lead_time', color: '#0D9488' },
   { key: 'other', label: 'Roof Erection Process', column: 'other', color: '#CA8A04' },
   { key: 'contractorDelay', label: 'Workers delay', column: 'contractor_delay', color: '#B91C1C' },
   // 2026-11-16: next to Client approval in Sheet View.
-  { key: 'contractorClientFinalization', label: 'Contractor finalization', column: 'contractor_client_finalization', color: '#0891B2' },
+  { key: 'contractorClientFinalization', label: 'Contractor / Vendor Finalization', column: 'contractor_client_finalization', color: '#0891B2' },
 ];
 
 // Contractor (2026-11-16): Procurement delay and Workers delay are the

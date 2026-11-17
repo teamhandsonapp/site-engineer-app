@@ -1,5 +1,7 @@
 import { Platform } from 'react-native';
 import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as XLSX from 'xlsx';
 import { CHECKLIST_NOTE_FIELDS, CONTRACTOR_KEYS, contractorFor, SHEET_FIELD_ORDER, EMPTY_CHECKLIST_NOTES, type ChecklistNoteKey, type ChecklistNotes } from './checklistNotes';
 import { formatCardDateRange } from './delay';
@@ -18,10 +20,11 @@ export const SHEET_FIELDS = SHEET_FIELD_ORDER.map((k) => {
 });
 
 // Three groups only (2026-11-16, client) — every task is in exactly one, so they add up to the total:
-//   Delayed   = not finished and late (planned start passed, or running past its planned end)
+//   Pending   = not finished and late (planned start passed, or running past its planned end)
 //   Upcoming  = not finished and not late (start still ahead, running on time, or no dates yet)
 //   Completed = has an Actual End
-export type ReportStatus = 'Delayed' | 'Upcoming' | 'Completed';
+// 'In progress' (2026-11-16): has an Actual Start but no Actual End.
+export type ReportStatus = 'Pending' | 'In progress' | 'Upcoming' | 'Completed';
 
 export interface SheetReportRow {
   no: number;
@@ -51,7 +54,7 @@ export function sheetReportRows(
       taskCode: t.taskId,
       taskName: t.taskName.trim(),
       department: t.workName && t.workName !== 'Unassigned' ? t.workName : '',
-      status: done ? 'Completed' : st.open?.delay ? 'Delayed' : 'Upcoming',
+      status: done ? 'Completed' : t.actualStartDate ? 'In progress' : st.open?.delay ? 'Pending' : 'Upcoming',
       plannedDates: done ? formatCardDateRange(t.plannedStartDate, t.dueDate) : '',
       actualDates: done?.dates ?? '',
       delay,
@@ -70,9 +73,9 @@ export function sheetReportRows(
 // ─── Chart data (2026-11-16) ─────────────────────────────────────────────
 // Status colours in the app's own palette (2026-11-16, by request): brand navy,
 // brand amber, light slate. Always shown with a text label / count.
-export const STATUS_COLORS: Record<ReportStatus, string> = { Delayed: '#DC2626', Upcoming: '#94A3B8', Completed: '#0F1F33' };
+export const STATUS_COLORS: Record<ReportStatus, string> = { Pending: '#DC2626', 'In progress': '#F0A227', Upcoming: '#2563EB', Completed: '#16A34A' };
 export const DELAY_RED = '#DC2626';
-export const REPORT_STATUSES: ReportStatus[] = ['Delayed', 'Upcoming', 'Completed'];
+export const REPORT_STATUSES: ReportStatus[] = ['Pending', 'In progress', 'Upcoming', 'Completed'];
 
 export interface ReportSummary {
   total: number;
@@ -86,7 +89,7 @@ export interface ReportSummary {
   checklist: { key: ChecklistNoteKey; label: string; color: string; written: number }[];
   /** Reasons for delay, by who (the checklist column it is written in). Biggest first. */
   reasons: { key: ChecklistNoteKey; label: string; who: string; tasks: number; delayed: number; items: { taskName: string; text: string; delay: string; delayed: boolean }[] }[];
-  /** Delayed tasks with no reason written at all. */
+  /** Pending tasks with no reason written at all. */
   delayedNoReason: number;
 }
 
@@ -96,9 +99,9 @@ export const REASON_WHO: Record<ChecklistNoteKey, string> = {
   consultant: 'Consultant',
   client: 'Client',
   procurementStatus: 'Contractor — Procurement',
-  leadTime: 'Procurement lead time',
+  leadTime: 'Material Procurement Status',
   contractorDelay: 'Contractor — Workers',
-  contractorClientFinalization: 'Contractor finalization',
+  contractorClientFinalization: 'Contractor / Vendor Finalization',
   other: 'Roof Erection Process',
 };
 
@@ -143,6 +146,47 @@ export function responsibleText(r: SheetReportRow): string {
   return SHEET_FIELDS.filter((f) => r.notes[f.key]?.trim()).map((f) => whoFor(f.key, r)).join(', ');
 }
 
+// ─── Party report (2026-11-16, client) ──────────────────────────────────
+// "Report for: Architect" — only the tasks waiting on that party, with every
+// other party's reasons cleared, so the whole report (boxes, bars,
+// Dependencies, PDF) is about that party alone. Normal filters are separate.
+export function partyRows(rows: SheetReportRow[], party: string): SheetReportRow[] {
+  return rows.flatMap((r) => {
+    const keep = SHEET_FIELDS.filter((f) => r.notes[f.key]?.trim() && whoFor(f.key, r) === party).map((f) => f.key);
+    if (keep.length === 0) return [];
+    const notes: ChecklistNotes = { ...EMPTY_CHECKLIST_NOTES };
+    for (const k of keep) notes[k] = r.notes[k];
+    return [{ ...r, notes }];
+  });
+}
+
+const PARTY_ORDER = ['Architect', 'Consultant (MEP)', 'Consultant (Structural)', 'Consultant', 'Client'];
+/** Everyone named in the reasons, Architect / Consultants / Client first, then the rest A–Z. */
+export function reportParties(rows: SheetReportRow[]): string[] {
+  const all = new Set(rows.flatMap((r) => reasonEntries(r).map((e) => e.who)));
+  const rank = (w: string) => (PARTY_ORDER.includes(w) ? PARTY_ORDER.indexOf(w) : PARTY_ORDER.length);
+  return [...all].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+}
+
+export const reportTitle = (party?: string | null) => (party ? `${party} Report` : 'Project Status');
+
+/**
+ * File name that follows the filters (2026-11-16, client), e.g.
+ * "ROAST @ Kokapet - Architect - Upcoming Tasks Dependencies - 16 Nov 2026".
+ * `extra` = the other filters in use (department, floor, "… written"), added in brackets.
+ */
+export function reportFileName(projectName: string, party: string | null, status: string, extra: string[]): string {
+  const d = new Date();
+  const what = `${status === 'All' ? 'All Tasks' : `${status} Tasks`} Dependencies`;
+  const parts = [projectName || 'Project', party ?? 'Project Status', what + (extra.length ? ` (${extra.join(', ')})` : ''), fmtDate(d)];
+  return parts
+    .join(' - ')
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 150);
+}
+
 /** Who a reason points at; the contractor depends on the task's department ("Civil contractor — Workers"). */
 export function whoFor(key: ChecklistNoteKey, r: SheetReportRow): string {
   if (key === 'procurementStatus') return `${contractorFor(r.department)} — Procurement`;
@@ -179,7 +223,7 @@ export function reasonText(r: SheetReportRow): string {
 }
 
 export function summarizeReport(rows: SheetReportRow[]): ReportSummary {
-  const zero = (): Record<ReportStatus, number> => ({ Delayed: 0, Upcoming: 0, Completed: 0 });
+  const zero = (): Record<ReportStatus, number> => ({ Pending: 0, 'In progress': 0, Upcoming: 0, Completed: 0 });
   const byStatus = zero();
   const depts = new Map<string, { byStatus: Record<ReportStatus, number>; total: number; delayed: number; delayDays: number }>();
   for (const r of rows) {
@@ -226,20 +270,20 @@ function rowValues(r: SheetReportRow): (string | number)[] {
   return [r.no, r.taskCode, r.taskName, r.department, r.status, r.plannedDates, r.actualDates, r.delay, reasonEntries(r).map((e) => (reasonDetail(e) ? `${e.who}: ${e.text}` : e.who)).join('\n'), ...SHEET_FIELDS.map((f) => r.notes[f.key as ChecklistNoteKey])];
 }
 
-export async function exportSheetReportExcel(rows: SheetReportRow[], projectName: string, filterText: string): Promise<string> {
+export async function exportSheetReportExcel(rows: SheetReportRow[], projectName: string, filterText: string, party?: string | null, fileName?: string): Promise<string> {
   const body: (string | number)[][] = [];
   for (const s of REPORT_STATUSES) {
     const group = rows.filter((r) => r.status === s);
     if (group.length === 0) continue;
     body.push([`${s.toUpperCase()} — ${group.length} task${group.length === 1 ? '' : 's'}`], ...group.map(rowValues));
   }
-  const sheet = XLSX.utils.aoa_to_sheet([[`Flowchart 2 report — ${filterText}`], [], HEADERS, ...body]);
+  const sheet = XLSX.utils.aoa_to_sheet([[`${reportTitle(party)} — ${filterText}`], [], HEADERS, ...body]);
   sheet['!cols'] = [{ wch: 6 }, { wch: 9 }, { wch: 44 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 34 }, { wch: 50 }, ...SHEET_FIELDS.map(() => ({ wch: 28 }))];
   sheet['!freeze'] = { xSplit: 3, ySplit: 3 };
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, 'Report');
   const stamp = new Date().toISOString().slice(0, 10);
-  const baseName = `${(projectName || 'Project').replace(/[^\w@ -]+/g, '').trim()} - Flowchart 2 Report ${stamp}`;
+  const baseName = fileName || `${(projectName || 'Project').replace(/[^\w@ -]+/g, '').trim()} - ${reportTitle(party)} ${stamp}`;
   return saveWorkbook(book, baseName, 'Flowchart 2 Report (Excel)');
 }
 
@@ -256,19 +300,23 @@ const WHO_PDF_COLORS: Record<string, string> = {
   'Consultant (MEP)': '#7C3AED',
   'Consultant (Structural)': '#C026D3',
   Client: '#DB2777',
-  'Procurement lead time': '#0D9488',
-  'Contractor finalization': '#0891B2',
+  'Material Procurement Status': '#0D9488',
+  'Contractor / Vendor Finalization': '#0891B2',
   'No reason written': '#CBD5E1',
 };
 const PDF_CONTRACTOR = ['#EA580C', '#0EA5E9', '#16A34A', '#9333EA', '#B91C1C', '#0F766E'];
 const PDF_OTHER = ['#CA8A04', '#65A30D', '#0891B2', '#A16207'];
 
-function pdfBars(items: { who: string; tasks: number }[], total: number): string {
-  const contractors = items.map((x) => x.who).filter((w) => /contractor( — |$)/i.test(w)).sort();
-  const others = items.map((x) => x.who).filter((w) => !WHO_PDF_COLORS[w] && !contractors.includes(w));
-  const color = (w: string) =>
+function pdfColorFor(whos: string[]): (w: string) => string {
+  const contractors = whos.filter((w) => /contractor( — |$)/i.test(w)).sort();
+  const others = whos.filter((w) => !WHO_PDF_COLORS[w] && !contractors.includes(w));
+  return (w: string) =>
     WHO_PDF_COLORS[w] ??
     (contractors.includes(w) ? PDF_CONTRACTOR[contractors.indexOf(w) % PDF_CONTRACTOR.length] : PDF_OTHER[Math.max(0, others.indexOf(w)) % PDF_OTHER.length]);
+}
+
+function pdfBars(items: { who: string; tasks: number }[], total: number): string {
+  const color = pdfColorFor(items.map((x) => x.who));
   return items
     .map(
       (x) => `<div class="wb"><div class="wbl"><span${x.who === 'No reason written' ? ' class="muted"' : ''}>${esc(x.who)}</span><b>${x.tasks}</b></div>
@@ -279,33 +327,55 @@ function pdfBars(items: { who: string; tasks: number }[], total: number): string
 
 function pdfBar(label: string, parts: { c: string; n: number }[], max: number, value: string, note = ''): string {
   const total = parts.reduce((x, q) => x + q.n, 0);
-  const segs = parts.filter((q) => q.n > 0).map((q) => `<span style="flex:${q.n};background:${q.c}"></span>`).join('');
-  return `<div class="br"><div class="bl">${esc(label)}</div><div class="bt"><div class="track"><div class="bf" style="width:${max > 0 ? (total / max) * 100 : 0}%">${segs}</div></div></div><div class="bv">${esc(value)}</div></div>${note ? `<div class="rs">${esc(note)}</div>` : ''}`;
+  // Each part keeps room for its number (min 24px), so small counts like 1 stay readable.
+  const shown = parts.filter((q) => q.n > 0);
+  const counts = parts.length > 1;
+  const segs = shown.map((q) => `<span style="flex:${q.n};${counts ? 'min-width:24px;' : ''}background:${q.c};color:${q.c === '#F0A227' ? '#0F172A' : '#fff'}">${counts ? q.n : ''}</span>`).join('');
+  return `<div class="br"><div class="bl">${esc(label)}</div><div class="bt"><div class="track" style="display:flex;align-items:center"><div class="bf" style="width:calc((100% - 48px) * ${max > 0 ? total / max : 0});${counts ? `min-width:${shown.length * 26}px;` : ''}">${segs}</div><b class="bv2">${esc(value)}</b></div></div></div>${note ? `<div class="rs">${esc(note)}</div>` : ''}`;
 }
 
-function pdfDependencies(title: string, rows: SheetReportRow[]): string {
-  const reasons = summarizeReport(rows).reasons.filter((x) => x.who !== 'Client');
-  if (reasons.length === 0) return `<div class="card"><h2>${esc(title)}</h2><p class="muted">No reasons written yet.</p></div>`;
-  const chips = reasons.map((x) => `<div class="chip"><span>${esc(x.who)}</span><b>${x.tasks}</b></div>`).join('');
+function pdfDependencies(title: string, rows: SheetReportRow[], keepClient = false): string {
+  const reasons = summarizeReport(rows).reasons.filter((x) => keepClient || x.who !== 'Client');
+  if (reasons.length === 0) return ''; // empty boxes are left out (2026-11-16)
+  // Heading in the person's colour with the count beside it; no chip row (2026-11-16).
+  const color = pdfColorFor(reasons.map((x) => x.who));
   const lists = reasons
-    .map((x) => `<div class="who"><div class="wh">${esc(x.who)}</div>${x.items.map((it) => `<div class="wi">${esc(it.taskName)}</div>`).join('')}</div>`)
+    .map((x) => `<div class="who" style="border-left-color:${color(x.who)}"><div class="wh" style="color:${color(x.who)}">${esc(x.who)} <b style="color:#0b0b0b">${x.tasks}</b></div>${x.items.map((it) => `<div class="wi">${esc(it.taskName)}${it.text && it.text.toLowerCase() !== x.who.toLowerCase() ? `<div class="wt">${esc(it.text)}</div>` : ''}</div>`).join('')}</div>`)
     .join('');
-  return `<div class="card deps"><h2>${esc(title)}</h2><div class="chips">${chips}</div><div class="lists">${lists}</div></div>`;
+  return `<div class="card deps"><h2>${esc(title)}</h2><div class="lists">${lists}</div></div>`;
 }
 
-export function sheetReportHtml(rows: SheetReportRow[], projectName: string, filterText: string): string {
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const fmtDate = (d: Date) => `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`;
+const fmtTime = (d: Date) => {
+  const h = d.getHours() % 12 || 12;
+  return `${h}:${String(d.getMinutes()).padStart(2, '0')} ${d.getHours() < 12 ? 'am' : 'pm'}`;
+};
+
+export function sheetReportHtml(
+  rows: SheetReportRow[],
+  projectName: string,
+  filterText: string,
+  projectCreatedAt?: string | null,
+  party?: string | null,
+  oneStatus?: ReportStatus | null
+): string {
+  const keepClient = party === 'Client';
   const sum = summarizeReport(rows);
   const pc = (n: number, t: number) => (t > 0 ? Math.round((n / t) * 100) : 0);
   const of = (st: ReportStatus) => rows.filter((r) => r.status === st);
 
   // 1. Count boxes: Total + one per status, each status with its "waiting on" bars.
-  const tiles =
-    `<div class="tile"><div class="tl">Total tasks</div><div class="tv">${sum.total}</div><div class="ts">Delayed + Upcoming + Completed</div>
-      <div class="wbs">${REPORT_STATUSES.map((st) => `<div class="wb"><div class="wbl"><span>${st}</span><b>${sum.byStatus[st]}</b></div><div class="track"><div style="width:${pc(sum.byStatus[st], sum.total)}%;background:${STATUS_COLORS[st]}"></div></div></div>`).join('')}</div></div>` +
-    REPORT_STATUSES.map(
-      (st) => `<div class="tile"><div class="tl"><i style="background:${STATUS_COLORS[st]}"></i>${st}</div><div class="tv">${sum.byStatus[st]}</div><div class="ts">${pc(sum.byStatus[st], sum.total)}% of tasks</div>
-      ${sum.byStatus[st] ? `<div class="wbs">${pdfBars(waitingOn(of(st), ['Client']), sum.byStatus[st])}</div>` : ''}</div>`
-    ).join('');
+  const totalTile =
+    `<div class="tile"><div class="tl">Total tasks</div><div class="tv">${sum.total}</div><div class="ts">Pending + In progress + Upcoming + Completed</div>
+      <div class="wbs">${REPORT_STATUSES.map((st) => `<div class="wb"><div class="wbl"><span>${st}</span><b>${sum.byStatus[st]}</b></div><div class="track"><div style="width:${pc(sum.byStatus[st], sum.total)}%;background:${STATUS_COLORS[st]}"></div></div></div>`).join('')}</div></div>`;
+  const tileOf = (st: ReportStatus) => `<div class="tile"><div class="tl"><i style="background:${STATUS_COLORS[st]}"></i>${st}</div><div class="tv">${sum.byStatus[st]}</div><div class="ts">${pc(sum.byStatus[st], sum.total)}% of tasks</div>
+      ${!sum.byStatus[st] ? '' : st === 'In progress' ? `<div class="wbs">${of(st).map((r) => `<div class="wi"><b>${esc(r.taskCode)}</b> · ${esc(r.taskName)}</div>`).join('')}</div>` : `<div class="wbs">${pdfBars(waitingOn(of(st), ['Client']), sum.byStatus[st])}</div>`}</div>`;
+  // Layout (2026-11-16): Total | Pending, then [In progress + Completed stacked] | Upcoming,
+  // so the short boxes don't stretch to the tall Upcoming box. One status picked → only its box.
+  const tiles = oneStatus
+    ? tileOf(oneStatus)
+    : totalTile + tileOf('Pending') + `<div class="stack">${tileOf('In progress')}${tileOf('Completed')}</div>` + tileOf('Upcoming');
 
   // 2. Most delayed + checklist
   const delayMax = Math.max(1, ...sum.topDelayed.map((r) => r.delayDays));
@@ -341,11 +411,19 @@ export function sheetReportHtml(rows: SheetReportRow[], projectName: string, fil
   const legend = REPORT_STATUSES.map((st) => `<div class="lg"><i style="background:${STATUS_COLORS[st]}"></i><span>${st}</span><b>${sum.byStatus[st]}</b><em>${pc(sum.byStatus[st], sum.total)}%</em></div>`).join('');
   const deptMax = Math.max(1, ...sum.departments.map((d) => d.total));
   const deptBars = sum.departments.map((d) => pdfBar(d.name, REPORT_STATUSES.map((st) => ({ c: STATUS_COLORS[st], n: d.byStatus[st] })), deptMax, String(d.total))).join('');
-  const keys = REPORT_STATUSES.map((st) => `<span><i style="background:${STATUS_COLORS[st]}"></i>${st}</span>`).join('');
+  const keys = REPORT_STATUSES.filter((st) => !oneStatus || st === oneStatus).map((st) => `<span><i style="background:${STATUS_COLORS[st]}"></i>${st}</span>`).join('');
 
   const today = new Date();
-  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(projectName)} — Flowchart 2 report</title><style>
-    @page { size: A4 portrait; margin: 12mm 11mm 13mm; }
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(projectName)} — ${esc(reportTitle(party))}</title><style>
+    /* Our own page footer (2026-11-16): "Teamhandson" bottom-left, a bigger page number
+       bottom-right; empty top boxes so the browser's URL/title header isn't printed. */
+    @page {
+      size: A4 portrait; margin: 12mm 11mm 16mm;
+      @top-left { content: ""; } @top-center { content: ""; } @top-right { content: ""; }
+      @bottom-left { content: "Team Hands On Pvt Ltd"; font-family: "Segoe UI", Roboto, Arial, sans-serif; font-size: 11px; font-weight: 700; color: #0F1F33; }
+      @bottom-center { content: ""; }
+      @bottom-right { content: "Page " counter(page) " of " counter(pages); font-family: "Segoe UI", Roboto, Arial, sans-serif; font-size: 13px; font-weight: 700; color: #0F1F33; }
+    }
     * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     html, body { margin: 0; padding: 0; background: #fff; }
     body { font-family: "Segoe UI", Roboto, Arial, sans-serif; color: #0b0b0b; font-size: 13px; }
@@ -355,33 +433,44 @@ export function sheetReportHtml(rows: SheetReportRow[], projectName: string, fil
     .head .sub { font-size: 9.5px; color: #52514e; margin-top: 2px; }
     .muted { color: #898781; }
     i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
-    .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+    .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; align-items: stretch; }
+    .tiles.one { grid-template-columns: 1fr; }
+    /* In progress on top, then a gap; Completed stretches so its bottom lines up with Upcoming's. */
+    .stack { display: flex; flex-direction: column; gap: 14px; }
+    /* In progress centred in the space above Completed; Completed ends level with Upcoming. */
+    .stack > .tile:first-child { margin-top: auto; margin-bottom: auto; }
     .tile { border: 1px solid #E7E5E0; border-radius: 10px; padding: 8px 10px; break-inside: avoid; }
-    .tl { font-size: 13px; color: #52514e; }
+    .tl { font-size: 15.5px; color: #52514e; }
     .tv { font-size: 30px; font-weight: 700; line-height: 1.15; }
-    .ts { font-size: 11px; color: #898781; }
+    .ts { font-size: 13.5px; color: #898781; }
     .wbs { margin-top: 6px; border-top: 1px solid #E7E5E0; padding-top: 5px; }
     .wb { margin-bottom: 4px; }
-    .wbl { display: flex; justify-content: space-between; font-size: 11.5px; color: #52514e; }
-    .track { height: 7px; background: #F0EFEC; border-radius: 3px; overflow: hidden; margin-top: 2px; }
+    .wbl { display: flex; justify-content: space-between; font-size: 14px; color: #52514e; }
+    .track { height: 11px; background: #F0EFEC; border-radius: 3px; overflow: hidden; margin-top: 2px; }
     .track > div { height: 100%; border-radius: 3px; }
     .card { border: 1px solid #E7E5E0; border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; break-inside: avoid; }
-    .card.deps { break-inside: auto; }
-    .br { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
-    .bl { width: 38%; font-size: 12px; }
+    .card.deps { break-inside: avoid; page-break-inside: avoid; margin-bottom: 26px; }
+    h2, .chips { break-after: avoid; page-break-after: avoid; }
+    .br { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    .bl { width: 30%; font-size: 15px; font-weight: 400; }
+    .bv2 { margin-left: 8px; font-size: 13px; white-space: nowrap; flex: none; }
     .bt { flex: 1; }
-    .bt .track { height: 12px; }
+    .bt .track { height: 28px; }
     .bf { display: flex; gap: 1.5px; height: 100%; }
+    .bf span { display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; overflow: visible; white-space: nowrap; }
     .bf span:last-child { border-radius: 0 3px 3px 0; }
     .bv { width: 70px; text-align: right; font-weight: 700; font-size: 12px; }
     .rs { font-size: 10.5px; color: #52514e; margin: 1px 0 3px 39%; }
     .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
     .chip { background: #FEF5E4; border-radius: 8px; padding: 5px 10px; font-size: 12px; color: #412402; }
     .chip b { margin-left: 6px; color: #0b0b0b; font-size: 11px; }
-    .lists { column-count: 2; column-gap: 16px; }
-    .who { border-left: 3px solid #F0A227; padding: 1px 0 1px 7px; margin-bottom: 7px; break-inside: avoid; }
-    .wh { font-weight: 700; font-size: 13px; margin-bottom: 2px; }
-    .wi { font-size: 11.5px; line-height: 1.35; }
+    /* Grid, not CSS columns: CSS columns push the last block onto a new page in print. */
+    .lists { display: grid; grid-template-columns: 1fr 1fr; column-gap: 12px; align-items: start; }
+    /* Each person in its own small box (2026-11-16). */
+    .who { border: 1px solid #E7E5E0; border-left: 4px solid #F0A227; border-radius: 7px; padding: 4px 8px 9px; margin-bottom: 8px; break-inside: avoid; }
+    .wh { font-weight: 700; font-size: 15px; margin-bottom: 2px; }
+    .wt { font-size: 12px; font-weight: 400; color: #52514e; margin: 0 0 2px; }
+    .wi { font-size: 14.5px; font-weight: 600; line-height: 1.16; overflow-wrap: anywhere; color: #1F2937; }
     table { border-collapse: collapse; width: 100%; table-layout: fixed; }
     thead { display: table-header-group; }
     tr { break-inside: avoid; }
@@ -402,24 +491,29 @@ export function sheetReportHtml(rows: SheetReportRow[], projectName: string, fil
     .keys { font-size: 9px; color: #52514e; margin-bottom: 4px; } .keys span { margin-right: 12px; }
     .foot { margin-top: 8px; font-size: 8px; color: #898781; text-align: right; }
   </style></head><body>
-    <div class="head"><div><h1>${esc(projectName)} — Flowchart 2 report</h1><div class="sub">${esc(filterText)}</div></div><div class="sub">Generated ${today.getDate()} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][today.getMonth()]} ${today.getFullYear()}</div></div>
-    <div class="tiles">${tiles}</div>
-    <div class="card"><h2>Most delayed tasks (top 10)</h2>${mostDelayed}</div>
-    <div class="card"><h2>Checklist filled in (of ${sum.total} tasks)</h2>${checklist}</div>
-    ${pdfDependencies('Dependencies for Delayed Tasks', of('Delayed'))}
-    ${pdfDependencies('Dependencies for Completed Tasks', of('Completed'))}
-    ${pdfDependencies('Dependencies for Upcoming Tasks', of('Upcoming'))}
-    <div class="card"><h2>Delay by department</h2><table><thead><tr><th>Department</th><th class="num" style="width:90px">Delayed</th><th class="num" style="width:80px">Total delay</th></tr></thead><tbody>${deptRows}</tbody></table></div>
+    <div class="head"><div><h1>${esc(projectName)} — ${esc(reportTitle(party))}</h1><div class="sub">${esc(filterText)}</div></div><div class="sub" style="text-align:right">Report generated: <b>${esc(fmtDate(today))}</b></div></div>
+    <div class="tiles${oneStatus ? ' one' : ''}">${tiles}</div>
+    ${pdfDependencies('Dependencies for Pending Tasks', of('Pending'), keepClient)}
+    ${pdfDependencies('Dependencies for Completed Tasks', of('Completed'), keepClient)}
+    ${pdfDependencies('Dependencies for Upcoming Tasks', of('Upcoming'), keepClient)}
     <div style="height:10px"></div>
-    <div class="card"><h2>Task status</h2><div class="donutrow"><div class="donut" style="background:conic-gradient(${stops.join(',') || '#eee 0deg 360deg'})"><div>${sum.total}<small>tasks</small></div></div><div>${legend}</div></div></div>
-    <div class="card"><h2>Tasks by department</h2><div class="keys">${keys}</div>${deptBars}</div>
-    <div class="foot">PMC Portal · A4</div>
+    ${party || oneStatus ? '' : `<div class="card"><h2>Tasks by department</h2><div class="keys">${keys}</div>${deptBars}</div>`}
   </body></html>`;
 }
 
 /** Opens the print dialog (choose "Save as PDF" there to get a PDF file). */
-export async function printSheetReport(rows: SheetReportRow[], projectName: string, filterText: string): Promise<void> {
-  const html = sheetReportHtml(rows, projectName, filterText);
+export async function printSheetReport(
+  rows: SheetReportRow[],
+  projectName: string,
+  filterText: string,
+  projectCreatedAt?: string | null,
+  party?: string | null,
+  fileName?: string,
+  oneStatus?: ReportStatus | null
+): Promise<void> {
+  let html = sheetReportHtml(rows, projectName, filterText, projectCreatedAt, party, oneStatus);
+  // The browser's "Save as PDF" names the file after the page title, so the title = the file name.
+  if (fileName) html = html.replace(/<title>[\s\S]*?<\/title>/, `<title>${esc(fileName)}</title>`);
   if (Platform.OS === 'web') {
     // expo-print on web only prints the whole app page, so print the report
     // from a hidden frame instead.
@@ -430,12 +524,28 @@ export async function printSheetReport(rows: SheetReportRow[], projectName: stri
     doc.open();
     doc.write(html);
     doc.close();
+    // Some browsers take the PDF name from the main page's title, so set that too while printing.
+    const oldTitle = document.title;
+    if (fileName) document.title = fileName;
     setTimeout(() => {
       frame.contentWindow!.focus();
       frame.contentWindow!.print();
-      setTimeout(() => frame.remove(), 1000);
+      setTimeout(() => {
+        frame.remove();
+        document.title = oldTitle;
+      }, 1000);
     }, 300);
     return;
   }
-  await Print.printAsync({ html });
+  if (!fileName) {
+    await Print.printAsync({ html });
+    return;
+  }
+  // Phone: make the PDF, give it the filter-based name, then share / save it.
+  const { uri } = await Print.printToFileAsync({ html });
+  const named = `${FileSystem.cacheDirectory}${fileName.replace(/[#%]/g, '')}.pdf`;
+  await FileSystem.deleteAsync(named, { idempotent: true });
+  await FileSystem.moveAsync({ from: uri, to: named });
+  if (!(await Sharing.isAvailableAsync())) throw new Error("Sharing isn't available on this device.");
+  await Sharing.shareAsync(named, { mimeType: 'application/pdf', dialogTitle: fileName, UTI: 'com.adobe.pdf' });
 }

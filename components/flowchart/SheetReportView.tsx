@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
+import { supabase } from '../../lib/supabase';
+import { useProject } from '../../lib/ProjectContext';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text } from '../ui/AppText';
 import { fetchChecklistNotesForTasks, type ChecklistNoteKey, type ChecklistNotes } from '../../lib/flowchart/checklistNotes';
@@ -14,6 +16,10 @@ import {
   DELAY_RED,
   exportSheetReportExcel,
   printSheetReport,
+  partyRows,
+  reportParties,
+  reportTitle,
+  reportFileName,
   responsibleText,
   reasonEntries,
   waitingOn,
@@ -31,8 +37,8 @@ import {
 // Report filters (status / checklist point) plus the top Filter button decide
 // which tasks are counted. Excel / Print-PDF download the same report.
 
-// Status filter (2026-11-16): only Completed, Upcoming and Delayed — same as the board's Filter.
-const STATUS_OPTIONS = ['All', 'Completed', 'Upcoming', 'Delayed'] as const;
+// Status filter (2026-11-16): only Completed, Upcoming and Pending — same as the board's Filter.
+const STATUS_OPTIONS = ['All', 'Pending', 'In progress', 'Upcoming', 'Completed'] as const;
 type StatusOption = (typeof STATUS_OPTIONS)[number];
 
 const INK = '#0b0b0b';
@@ -105,8 +111,8 @@ const WHO_COLORS: Record<string, string> = {
   Architect: '#2563EB',
   Consultant: '#7C3AED',
   Client: '#DB2777',
-  'Procurement lead time': '#0D9488',
-  'Contractor finalization': '#0891B2',
+  'Material Procurement Status': '#0D9488',
+  'Contractor / Vendor Finalization': '#0891B2',
   Other: '#CA8A04',
 };
 const CONTRACTOR_COLORS = ['#EA580C', '#0EA5E9', '#16A34A', '#9333EA', '#B91C1C', '#0F766E'];
@@ -147,8 +153,8 @@ function WaitingOnList({ items, total }: { items: { who: string; tasks: number }
               <Text numberOfLines={1} style={{ flex: 1, fontSize: 11, color: none ? MUTED : INK_2, fontStyle: none ? 'italic' : 'normal' }}>{x.who}</Text>
               <Text style={{ fontSize: 11, fontWeight: '700', color: INK }}>{x.tasks}</Text>
             </View>
-            <View style={{ height: 5, borderRadius: 3, backgroundColor: TRACK, overflow: 'hidden' }}>
-              <View style={{ width: `${total > 0 ? Math.min(100, (x.tasks / total) * 100) : 0}%`, height: 5, borderRadius: 3, backgroundColor: whoColor(x.who, contractors, dependencies) }} />
+            <View style={{ height: 10, borderRadius: 5, backgroundColor: TRACK, overflow: 'hidden' }}>
+              <View style={{ width: `${total > 0 ? Math.min(100, (x.tasks / total) * 100) : 0}%`, height: 10, borderRadius: 5, backgroundColor: whoColor(x.who, contractors, dependencies) }} />
             </View>
           </View>
         );
@@ -211,10 +217,10 @@ function StatusDonut({ byStatus, total }: { byStatus: Record<ReportStatus, numbe
   );
 }
 
-function Legend() {
+function Legend({ only }: { only?: ReportStatus | null }) {
   return (
     <View className="flex-row flex-wrap" style={{ gap: 12, marginBottom: 10 }}>
-      {REPORT_STATUSES.map((s) => (
+      {REPORT_STATUSES.filter((s) => !only || s === only).map((s) => (
         <View key={s} className="flex-row items-center" style={{ gap: 5 }}>
           <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: STATUS_COLORS[s] }} />
           <Text style={{ fontSize: 11, color: INK_2 }}>{s}</Text>
@@ -232,6 +238,7 @@ function BarRow({
   value,
   labelWidth = 130,
   note,
+  showCounts = false,
 }: {
   label: string;
   parts: { color: string; n: number }[];
@@ -240,6 +247,8 @@ function BarRow({
   labelWidth?: number;
   /** Small grey line under the bar (e.g. the task's delay reasons). */
   note?: string;
+  /** Show each part's number inside the bar. */
+  showCounts?: boolean;
 }) {
   const total = parts.reduce((a, p) => a + p.n, 0);
   // Phones: label on its own line above the bar so the bar gets the full width.
@@ -254,8 +263,8 @@ function BarRow({
     {narrow ? labelEl : null}
     <View className="flex-row items-center" style={{ gap: 8 }}>
       {narrow ? null : labelEl}
-      <View style={{ flex: 1, height: 14, borderRadius: 4, backgroundColor: TRACK, overflow: 'hidden' }}>
-        <View style={{ width: `${max > 0 ? Math.min(100, (total / max) * 100) : 0}%`, height: 14, flexDirection: 'row', gap: 2 }}>
+      <View style={{ flex: 1, height: 32, borderRadius: 8, backgroundColor: TRACK, overflow: 'hidden' }}>
+        <View style={{ width: `${max > 0 ? Math.min(100, (total / max) * 100) : 0}%`, height: 32, flexDirection: 'row', gap: 2 }}>
           {parts
             .filter((p) => p.n > 0)
             .map((p, i, arr) => (
@@ -263,11 +272,22 @@ function BarRow({
                 key={i}
                 style={{
                   flex: p.n,
+                  minWidth: showCounts ? 26 : undefined,
                   backgroundColor: p.color,
                   borderTopRightRadius: i === arr.length - 1 ? 4 : 0,
                   borderBottomRightRadius: i === arr.length - 1 ? 4 : 0,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  overflow: 'hidden',
                 }}
-              />
+              >
+                {/* Count inside each coloured part (2026-11-16), e.g. Civil Works 30 · 9 · 9. */}
+                {showCounts ? (
+                  <Text numberOfLines={1} style={{ fontSize: 12, fontWeight: '700', color: p.color === '#F0A227' ? '#0F172A' : '#fff' }}>
+                    {p.n}
+                  </Text>
+                ) : null}
+              </View>
             ))}
         </View>
       </View>
@@ -292,27 +312,31 @@ function ResponsibleCard({
   countColor: string;
   noReason: number;
 }) {
+  const whos = reasons.map((x) => x.who);
+  const contractors = whos.filter((w) => /contractor( — |$)/i.test(w)).sort();
+  const dependencies = whos.filter((w) => !/contractor( — |$)/i.test(w) && !WHO_COLORS[w] && !w.startsWith('Consultant') && w !== 'No reason written');
+  const depColor = (w: string) => whoColor(w, contractors, dependencies);
   return (
     <Card title={title} minWidth={380}>
+      {/* depColor: same colours as the "waiting on" bars */}
       {reasons.length === 0 ? (
         <Text style={{ fontSize: 12, color: MUTED }}>No reasons written yet.</Text>
       ) : (
         <>
-          <View className="flex-row flex-wrap" style={{ gap: 8, marginBottom: 14 }}>
-            {reasons.map((x) => (
-              <View key={x.who} style={{ borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#FEF5E4', minWidth: 96 }}>
-                <Text style={{ fontSize: 12, color: '#412402', fontWeight: '600' }}>{x.who}</Text>
-                <Text style={{ fontSize: 20, fontWeight: '700', color: INK }}>{x.tasks}</Text>
-              </View>
-            ))}
-          </View>
           {reasons.map((x) => (
-            <View key={x.who} style={{ borderLeftWidth: 3, borderColor: AMBER, paddingLeft: 10, marginBottom: 12 }}>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: INK, marginBottom: 4 }}>{x.who}</Text>
+            // Heading in the person's bar colour with the count beside it (2026-11-16); no chip row.
+            <View key={x.who} style={{ borderLeftWidth: 3, borderColor: depColor(x.who), paddingLeft: 10, marginBottom: 12 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: depColor(x.who), marginBottom: 4 }}>
+                {x.who} <Text style={{ color: INK }}>{x.tasks}</Text>
+              </Text>
               {x.items.map((it, i) => (
-                <Text key={i} style={{ fontSize: 12, color: INK, marginBottom: 4 }}>
-                  {it.taskName}
-                </Text>
+                <View key={i} style={{ marginBottom: 5 }}>
+                  <Text style={{ fontSize: 12, color: INK }}>{it.taskName}</Text>
+                  {/* Reason text under the task (2026-11-16), unless it just repeats the heading. */}
+                  {it.text && it.text.toLowerCase() !== x.who.toLowerCase() ? (
+                    <Text style={{ fontSize: 11, color: INK_2, marginTop: 1 }}>{it.text}</Text>
+                  ) : null}
+                </View>
               ))}
             </View>
           ))}
@@ -368,9 +392,12 @@ export function SheetReportView({
   /** What the top Filter button is set to, e.g. "Electrical", or "" for none. */
   topFilterText: string;
 }) {
+  const { selectedProjectId } = useProject();
   const [notes, setNotes] = useState<Map<string, ChecklistNotes> | null>(null);
   const [status, setStatus] = useState<StatusOption>('All');
   const [point, setPoint] = useState<ChecklistNoteKey | null>(null);
+  // Report for one party (2026-11-16): Architect, Consultant (MEP) … — separate from the normal filters.
+  const [party, setParty] = useState<string | null>(null);
   const [showTable, setShowTable] = useState(true);
   const [busy, setBusy] = useState<'excel' | 'pdf' | null>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
@@ -388,27 +415,30 @@ export function SheetReportView({
   }, [idsKey]);
 
   const allRows = useMemo(() => (notes ? sheetReportRows(tasks, notes, todayKey()) : []), [tasks, notes]);
+  const parties = useMemo(() => reportParties(allRows), [allRows]);
+  const partyAll = useMemo(() => (party ? partyRows(allRows, party) : []), [allRows, party]);
   const rows = useMemo(
     () =>
-      allRows
+      (party ? partyRows(allRows, party) : allRows)
         .filter((r) => (status === 'All' ? true : r.status === status))
         .filter((r) => (point ? !!r.notes[point]?.trim() : true))
         .map((r, i) => ({ ...r, no: i + 1 })),
-    [allRows, status, point]
+    [allRows, status, point, party]
   );
   const sum = useMemo(() => summarizeReport(rows), [rows]);
-  // "Responsible — by who": delayed tasks only, matching the bars in the Delayed box (Client hidden there too).
+  const oneStatus: ReportStatus | null = status === 'All' ? null : status;
+  // "Responsible — by who": delayed tasks only, matching the bars in the Pending box (Client hidden there too).
   const delayedReasons = useMemo(
-    () => summarizeReport(rows.filter((r) => r.status === 'Delayed')).reasons.filter((x) => x.who !== 'Client'),
-    [rows]
+    () => summarizeReport(rows.filter((r) => r.status === 'Pending')).reasons.filter((x) => party === 'Client' || x.who !== 'Client'),
+    [rows, party]
   );
   const upcomingReasons = useMemo(
-    () => summarizeReport(rows.filter((r) => r.status === 'Upcoming')).reasons.filter((x) => x.who !== 'Client'),
-    [rows]
+    () => summarizeReport(rows.filter((r) => r.status === 'Upcoming')).reasons.filter((x) => party === 'Client' || x.who !== 'Client'),
+    [rows, party]
   );
   const completedReasons = useMemo(
-    () => summarizeReport(rows.filter((r) => r.status === 'Completed')).reasons.filter((x) => x.who !== 'Client'),
-    [rows]
+    () => summarizeReport(rows.filter((r) => r.status === 'Completed')).reasons.filter((x) => party === 'Client' || x.who !== 'Client'),
+    [rows, party]
   );
   const screenWidth = useWindowDimensions().width;
 
@@ -417,15 +447,27 @@ export function SheetReportView({
       .filter(Boolean)
       .join(' · ') || 'All tasks';
 
+  // File name follows the filters, e.g. "ROAST @ Kokapet - Architect - Upcoming Tasks Dependencies - 16 Nov 2026".
+  const fileName = reportFileName(
+    projectName,
+    party,
+    status,
+    [topFilterText, point ? `${SHEET_FIELDS.find((f) => f.key === point)?.label} written` : ''].filter(Boolean)
+  );
+
   async function run(kind: 'excel' | 'pdf') {
     setBusy(kind);
     setMessage(null);
     try {
       if (kind === 'excel') {
-        const note = await exportSheetReportExcel(rows, projectName, filterText);
+        const note = await exportSheetReportExcel(rows, projectName, filterText, party, fileName);
         setMessage({ text: note || `Excel report with ${rows.length} tasks downloaded`, error: false });
       } else {
-        await printSheetReport(rows, projectName, filterText);
+        // Project created date for the PDF header.
+        const { data: proj } = selectedProjectId
+          ? await supabase.from('projects').select('created_at').eq('id', selectedProjectId).maybeSingle()
+          : { data: null };
+        await printSheetReport(rows, projectName, filterText, (proj as { created_at?: string } | null)?.created_at ?? null, party, fileName, oneStatus);
       }
     } catch (e) {
       setMessage({ text: e instanceof Error ? e.message : String(e), error: true });
@@ -450,7 +492,10 @@ export function SheetReportView({
       {/* Header + downloads */}
       <View className="flex-row flex-wrap items-center" style={{ gap: 8 }}>
         <View style={{ flex: 1, minWidth: 220 }}>
-          <Text style={{ fontSize: 18, fontWeight: '700', color: INK }}>Flowchart 2 report</Text>
+          <Text style={{ fontSize: 18, fontWeight: '700', color: INK }}>
+            {reportTitle(party)}
+            {party && status !== 'All' ? ` · ${status}` : ''}
+          </Text>
           <Text style={{ fontSize: 12, color: INK_2 }}>
             {projectName} · {filterText} · {new Date().toLocaleDateString()}
           </Text>
@@ -477,6 +522,34 @@ export function SheetReportView({
         </Pressable>
       </View>
       {message ? <Text style={{ fontSize: 12, color: message.error ? '#B91C1C' : INK }}>{message.text}</Text> : null}
+
+      {/* Report for one party (2026-11-16): turns the whole page into e.g. an "Architect Report". */}
+      {parties.length > 0 ? (
+        <View className="rounded-2xl p-3" style={{ backgroundColor: '#FEF5E4', borderWidth: 1, borderColor: '#F5D9A8', gap: 6 }}>
+          <View className="flex-row flex-wrap items-center" style={{ gap: 6 }}>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: '#7A4B00', width: 86 }}>REPORT FOR</Text>
+            <Chip label="All" active={party === null} onPress={() => setParty(null)} />
+            {parties.map((p) => (
+              <Chip key={p} label={p} active={party === p} onPress={() => setParty(party === p ? null : p)} />
+            ))}
+          </View>
+          {party ? (
+            // Status inside the party report (2026-11-16): same Status filter as below, with this party's counts.
+            <View className="flex-row flex-wrap items-center" style={{ gap: 6 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: '#7A4B00', width: 86 }}>STATUS</Text>
+              {STATUS_OPTIONS.map((s) => {
+                const n = s === 'All' ? partyAll.length : partyAll.filter((r) => r.status === s).length;
+                return <Chip key={s} label={`${s} ${n}`} active={status === s} onPress={() => setStatus(s)} />;
+              })}
+            </View>
+          ) : null}
+          {party ? (
+            <Text style={{ fontSize: 11, color: '#7A4B00' }}>
+              Only tasks waiting on {party}, with only {party}'s reasons. Tap All for the full Project Status.
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
 
       {/* Filters, one row above the charts */}
       <View className="rounded-2xl p-3" style={{ backgroundColor: '#fcfcfb', borderWidth: 1, borderColor: BORDER, gap: 8 }}>
@@ -518,11 +591,25 @@ export function SheetReportView({
       {/* Headline tiles */}
       {/* Tiles keep their own height (a short tile no longer stretches to the Pending tile's). */}
       <View className="flex-row flex-wrap" style={{ gap: 12, alignItems: 'flex-start' }}>
-        <Tile label="Total tasks" value={sum.total} sub="Delayed + Upcoming + Completed" />
-        {REPORT_STATUSES.map((s) => (
+        {/* One status picked (2026-11-16): only that status's box, no Total or other boxes. */}
+        {oneStatus ? null : <Tile label="Total tasks" value={sum.total} sub="Pending + In progress + Upcoming + Completed" />}
+        {REPORT_STATUSES.filter((s) => !oneStatus || s === oneStatus).map((s) => (
           <Tile key={s} label={s} value={sum.byStatus[s]} sub={`${pct(sum.byStatus[s], sum.total)}% of tasks`} color={STATUS_COLORS[s]} >
-            {/* Who the tasks are waiting on — Delayed and Upcoming (2026-11-16). Client is passed over for the task's next reason. */}
-            <WaitingOnList items={waitingOn(rows.filter((r) => r.status === s), ['Client'])} total={sum.byStatus[s]} />
+            {/* Who the tasks are waiting on — Pending and Upcoming (2026-11-16). Client is passed over for the task's next reason. */}
+            {s === 'In progress' ? (
+              // In progress (2026-11-16): just the task names, no reasons.
+              rows.filter((r) => r.status === s).length ? (
+                <View style={{ marginTop: 10, paddingTop: 8, borderTopWidth: 1, borderColor: BORDER, gap: 5 }}>
+                  {rows.filter((r) => r.status === s).map((r) => (
+                    <Text key={r.taskCode} style={{ fontSize: 12, color: INK }}>
+                      <Text style={{ fontWeight: '700' }}>{r.taskCode}</Text> · {r.taskName}
+                    </Text>
+                  ))}
+                </View>
+              ) : null
+            ) : (
+              <WaitingOnList items={waitingOn(rows.filter((r) => r.status === s), ['Client'])} total={sum.byStatus[s]} />
+            )}
           </Tile>
         ))}
       </View>
@@ -531,51 +618,25 @@ export function SheetReportView({
         <Text style={{ fontSize: 13, color: MUTED, padding: 12 }}>No tasks match this report.</Text>
       ) : (
         <>
-          <View className="flex-row flex-wrap" style={{ gap: 12 }}>
-            <Card title="Most delayed tasks" subtitle="Top 10 by total days of delay" minWidth={420}>
-              {sum.topDelayed.length === 0 ? (
-                <Text style={{ fontSize: 12, color: MUTED }}>No delayed tasks in this report.</Text>
-              ) : (
-                sum.topDelayed.map((r) => (
-                  <BarRow
-                    key={`${r.no}-${r.taskName}`}
-                    label={`${r.taskCode} · ${r.taskName}`}
-                    labelWidth={180}
-                    parts={[{ color: DELAY_COLOR, n: r.delayDays }]}
-                    max={delayMax}
-                    value={`${r.delayDays}d`}
-                    note={responsibleText(r) ? `Responsible: ${responsibleText(r)}` : 'No one responsible written'}
-                  />
-                ))
-              )}
-            </Card>
-            <Card title="Checklist filled in" subtitle={`Tasks with something written, out of ${sum.total}`}>
-              {sum.checklist.map((c) => (
-                <BarRow
-                  key={c.key}
-                  label={c.label}
-                  labelWidth={150}
-                  parts={[{ color: SERIES_1, n: c.written }]}
-                  max={sum.total}
-                  value={`${c.written} · ${pct(c.written, sum.total)}%`}
-                />
-              ))}
-            </Card>
-          </View>
 
-          {/* Dependencies: Delayed with Completed under it on the left, Upcoming on the right (2026-11-16).
+          {/* Dependencies: Pending with Completed under it on the left, Upcoming on the right (2026-11-16).
               Each card sits in its own row so it sizes by width, never by a fixed height. */}
           <View className="flex-row flex-wrap" style={{ gap: 12, alignItems: 'flex-start' }}>
+            {/* Empty boxes are hidden (2026-11-16), e.g. Pending/Completed when Status = Upcoming. */}
+            {delayedReasons.length > 0 || completedReasons.length > 0 ? (
             <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: Math.min(380, Math.max(240, screenWidth - 32)), gap: 12 }}>
+              {delayedReasons.length > 0 ? (
               <View className="flex-row">
                 <ResponsibleCard
-                  title="Dependencies for Delayed Tasks"
+                  title="Dependencies for Pending Tasks"
                   reasons={delayedReasons}
-                  countLabel="delayed"
+                  countLabel="pending"
                   countColor={DELAY_COLOR}
-                  noReason={rows.filter((r) => r.status === 'Delayed' && reasonEntries(r).length === 0).length}
+                  noReason={rows.filter((r) => r.status === 'Pending' && reasonEntries(r).length === 0).length}
                 />
               </View>
+              ) : null}
+              {completedReasons.length > 0 ? (
               <View className="flex-row">
                 <ResponsibleCard
                   title="Dependencies for Completed Tasks"
@@ -585,7 +646,10 @@ export function SheetReportView({
                   noReason={rows.filter((r) => r.status === 'Completed' && reasonEntries(r).length === 0).length}
                 />
               </View>
+              ) : null}
             </View>
+            ) : null}
+            {upcomingReasons.length > 0 ? (
             <ResponsibleCard
               title="Dependencies for Upcoming Tasks"
               reasons={upcomingReasons}
@@ -593,91 +657,28 @@ export function SheetReportView({
               countColor={MUTED}
               noReason={rows.filter((r) => r.status === 'Upcoming' && reasonEntries(r).length === 0).length}
             />
+            ) : null}
           </View>
-
-          <View className="flex-row flex-wrap" style={{ gap: 12 }}>
-          <Card title="Delay by department" subtitle="Delayed tasks and total days of delay" minWidth={420}>
-            {sum.departments.map((d) => (
-              <View key={d.name} className="flex-row items-center" style={{ paddingVertical: 6, borderBottomWidth: 1, borderColor: BORDER }}>
-                <Text style={{ flex: 1, fontSize: 12, color: INK }}>{d.name}</Text>
-                <Text style={{ width: 120, fontSize: 12, color: INK_2, textAlign: 'right' }}>
-                  {d.delayed} of {d.total} delayed
-                </Text>
-                <Text style={{ width: 80, fontSize: 12, fontWeight: '700', color: INK, textAlign: 'right' }}>{d.delayDays}d</Text>
-              </View>
-            ))}
-          </Card>
-          </View>
-
-          {/* Table view */}
-          <Pressable onPress={() => setShowTable((v) => !v)} className="flex-row items-center" style={{ gap: 6, paddingVertical: 4 }}>
-            <Ionicons name={showTable ? 'chevron-down' : 'chevron-forward'} size={16} color={INK} />
-            <Text style={{ fontSize: 15, fontWeight: '700', color: INK }}>Task sheet ({rows.length})</Text>
-            <Text style={{ fontSize: 11, color: MUTED }}>Delayed → Upcoming → Completed</Text>
-          </Pressable>
-          {showTable ? (
-            <ScrollView horizontal>
-              <View style={{ borderWidth: 1, borderColor: BORDER, backgroundColor: '#fff' }}>
-                <View className="flex-row" style={{ backgroundColor: '#F1F5F9' }}>
-                  {SHEET_COLS.map((c) => (
-                    <Text key={c.label} style={{ width: c.width, padding: 8, fontSize: 11, fontWeight: '700', color: INK_2 }}>{c.label}</Text>
-                  ))}
-                </View>
-                {REPORT_STATUSES.map((s) => {
-                  const group = rows.filter((r) => r.status === s);
-                  if (group.length === 0) return null;
-                  return (
-                    <View key={s}>
-                      {/* Group heading */}
-                      <View className="flex-row items-center" style={{ gap: 8, paddingHorizontal: 8, paddingVertical: 8, backgroundColor: '#F8FAFC', borderTopWidth: 1, borderColor: BORDER }}>
-                        <View style={{ width: 10, height: 10, borderRadius: 3, backgroundColor: STATUS_COLORS[s] }} />
-                        <Text style={{ fontSize: 13, fontWeight: '700', color: INK }}>{s}</Text>
-                        <Text style={{ fontSize: 12, color: MUTED }}>{group.length} task{group.length === 1 ? '' : 's'}</Text>
-                      </View>
-                      {group.map((r: SheetReportRow, i) => (
-                        <View key={`${r.no}-${r.taskName}`} className="flex-row" style={{ borderTopWidth: 1, borderColor: BORDER, backgroundColor: i % 2 ? '#FCFCFB' : '#fff' }}>
-                          {SHEET_COLS.map((c) =>
-                            c.label === 'Reason for delay' ? (
-                              // Who in bold navy, the written text under it; one block per reason.
-                              <View key={c.label} style={{ width: c.width, padding: 8, gap: 6 }}>
-                                {reasonEntries(r).map((e, k) => (
-                                  <View key={k}>
-                                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#0F1F33' }}>{e.who}</Text>
-                                    {reasonDetail(e) ? <Text style={{ fontSize: 12, color: '#52514e' }}>{e.text}</Text> : null}
-                                  </View>
-                                ))}
-                              </View>
-                            ) : (
-                              <Text key={c.label} style={{ width: c.width, padding: 8, fontSize: 12, ...c.style(r) }}>{c.value(r)}</Text>
-                            )
-                          )}
-                        </View>
-                      ))}
-                    </View>
-                  );
-                })}
-              </View>
-            </ScrollView>
-          ) : null}
 
           {/* Status pie + tasks by department, moved to the end of the report (2026-11-16). */}
+          {/* Full Project Status only (2026-11-16): hidden for a party report or a single status. */}
+          {party || oneStatus ? null : (
           <View className="flex-row flex-wrap" style={{ gap: 12 }}>
-            <Card title="Task status" subtitle="Delayed, upcoming and completed tasks">
-              <StatusDonut byStatus={sum.byStatus} total={sum.total} />
-            </Card>
             <Card title="Tasks by department" subtitle="Each bar split by status" minWidth={420}>
-              <Legend />
+              <Legend only={oneStatus} />
               {sum.departments.map((d) => (
                 <BarRow
                   key={d.name}
                   label={d.name}
                   parts={REPORT_STATUSES.map((s) => ({ color: STATUS_COLORS[s], n: d.byStatus[s] }))}
+                  showCounts
                   max={deptMax}
                   value={String(d.total)}
                 />
               ))}
             </Card>
           </View>
+          )}
         </>
       )}
     </ScrollView>

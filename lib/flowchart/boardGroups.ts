@@ -14,7 +14,7 @@ export const FLOWCHART_2_GROUPS: BoardGroup[] = [
     taskCodes: [
       'CIV-02', 'CIV-05', 'CIV-19', 'CIV-24', 'CIV-21', 'CIV-26', // Hot Kitchen
       'CIV-03', 'CIV-01', 'CIV-06', 'FAB-01', // Casting / Columns
-      'CIV-07', 'CIV-08', 'CIV-12', 'CIV-17', 'CIV-29', // Walls / Mezzanine
+      'CIV-07', 'CIV-08', 'CIV-12', 'CIV-17', 'CIV-29', 'CIV-49', // Walls / Mezzanine (+ RCC Folded Plate Staircase)
       'CIV-09', 'CIV-13', 'CIV-22', // Wall No. 4
       'CIV-04', 'CIV-10', 'CIV-23', 'CIV-27', 'CIV-31', 'CIV-37', // Lift shaft
     ],
@@ -26,6 +26,16 @@ export const FLOWCHART_2_GROUPS: BoardGroup[] = [
       'CIV-39', 'CIV-43', // Staff block, Wall No. 1
       'CIV-40', 'CIV-44', 'CIV-45', // South side
       'CIV-41', 'CIV-42', 'CIV-46', 'CIV-47', 'CIV-48', // North side
+    ],
+  },
+  {
+    // Ground Floor Internal Works · West side · East side · Toilet Works · Water body
+    label: 'Parallel works',
+    taskCodes: [
+      'CIV-11', 'ELE-02', 'CIV-25', 'ELE-03', 'FLR-01', 'FLR-02', 'FLR-06',
+      'CIV-14', 'ELE-01', 'CIV-20', 'PLB-01', 'CIV-32', 'CIV-35', 'ELE-07', 'FLR-03',
+      'CIV-15', 'CIV-28', 'PLB-02', 'CIV-30', 'CIV-36', 'ELE-05', 'FLR-05',
+      'CIV-16', 'CIV-18', 'PLB-03', 'PLB-04', 'CIV-38', 'FLR-04', 'WTB-01', 'CIV-33',
     ],
   },
 ];

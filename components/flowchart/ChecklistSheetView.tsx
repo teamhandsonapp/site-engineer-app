@@ -33,9 +33,9 @@ const SAVE_DELAY_MS = 800;
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
-type SheetGroup = 'Delayed' | 'Upcoming' | 'Completed';
-const SHEET_GROUPS: SheetGroup[] = ['Delayed', 'Upcoming', 'Completed'];
-const GROUP_COLORS: Record<SheetGroup, string> = { Delayed: '#DC2626', Upcoming: '#94A3B8', Completed: '#0F1F33' };
+type SheetGroup = 'Pending' | 'In progress' | 'Upcoming' | 'Completed';
+const SHEET_GROUPS: SheetGroup[] = ['Pending', 'In progress', 'Upcoming', 'Completed'];
+const GROUP_COLORS: Record<SheetGroup, string> = { Pending: '#DC2626', 'In progress': '#F0A227', Upcoming: '#2563EB', Completed: '#16A34A' };
 
 // Red when the delay line has real late days.
 const isLate = (delay: string) => /\d+d (late|delay|past)|Total: [1-9]/.test(delay);
@@ -139,8 +139,8 @@ export function ChecklistSheetView({
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   })();
-  // Rows grouped Delayed → Upcoming → Completed, each group under its own heading.
-  const groupOf = (t: (typeof tasks)[number]): SheetGroup => (t.actualEndDate ? 'Completed' : sheetStatus(t, today).open?.delay ? 'Delayed' : 'Upcoming');
+  // Rows grouped Pending → Upcoming → Completed, each group under its own heading.
+  const groupOf = (t: (typeof tasks)[number]): SheetGroup => (t.actualEndDate ? 'Completed' : t.actualStartDate ? 'In progress' : sheetStatus(t, today).open?.delay ? 'Pending' : 'Upcoming');
   let rowNo = 0;
   const orderedRows: ({ group: SheetGroup; count: number } | { t: (typeof tasks)[number]; i: number })[] = SHEET_GROUPS.flatMap((g) => {
     const list = tasks.filter((t) => groupOf(t) === g);
@@ -204,7 +204,7 @@ export function ChecklistSheetView({
           <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
             {orderedRows.map((item) => {
               if ('group' in item) {
-                // Group heading: Delayed → Upcoming → Completed (same three groups as Reports).
+                // Group heading: Pending → Upcoming → Completed (same three groups as Reports).
                 return (
                   <View key={`group-${item.group}`} className="flex-row items-center" style={{ gap: 8, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: '#F8FAFC', borderBottomWidth: 1, borderColor: BORDER }}>
                     <View style={{ width: 10, height: 10, borderRadius: 3, backgroundColor: GROUP_COLORS[item.group] }} />

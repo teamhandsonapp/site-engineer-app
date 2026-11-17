@@ -116,6 +116,10 @@ const REPORT_SUBMENU: { label: string; href: string; params?: Record<string, str
   { label: 'Task Based Status', href: '/reports/general-parameter-report' },
 ];
 
+// Sidebar colours (2026-11-16, Discord-style): a darker frame behind a navy panel.
+const FRAME = '#070E19';
+const PANEL = '#0F1F33';
+
 const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   home: 'home-outline',
   notifications: 'notifications-outline',
@@ -177,8 +181,6 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
   // control here it's genuinely costly to mis-tap (signs the user out),
   // so it gets the largest margin of any bottom-anchored element in the
   // app rather than the generic default.
-  // Floating panel: the gap below it already clears the gesture bar.
-  const bottomPadding = 14;
   // Real top inset instead of a fixed pt-14 — notch (iPhone 13, 47pt) and
   // Dynamic Island (iPhone 17 Pro Max, ~62pt) phones differ, and a fixed
   // value either crowds the island or leaves a gap on older phones.
@@ -193,88 +195,59 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
   const submenuRoutes = visibleRoutes.filter(({ route }) => routeHasSubmenu(route.name));
 
   return (
-    // overflow-hidden — same web-only flex-min-size fix as GestureHandlerRootView
-    // in app/_layout.tsx: without it, this panel could grow past the
-    // drawer's real height once the menu list got long, pushing Log Out
-    // below the fold instead of letting the Nav ScrollView below scroll
-    // internally.
-    // Floating rounded panel (2026-11-16): a gap above (below the status bar),
-    // below (above the gesture bar) and on the left, like Discord's sidebar,
-    // instead of running edge to edge under the clock and the gesture line.
-    <View style={{ flex: 1, paddingTop: topInset + 8, paddingBottom: bottomInset + 8, paddingLeft: 8 }}>
-    <View className="flex-1 bg-brand-navy overflow-hidden" style={{ borderRadius: 22 }}>
-      {/* Brand bar */}
-      {/* Breathing room under the status bar/punch-hole: Android 15 draws
-          the app edge-to-edge (e.g. CMF Phone 2 Pro), so topInset is the
-          status bar itself — +24 keeps the brand clear of it like the
-          system's own apps do, instead of butting against the clock. */}
-      <View className="flex-row items-center gap-3 border-b border-white/10 px-5 pb-5" style={{ paddingTop: 22 }}>
-        <Logo size={38} />
-        <View>
-          <Text className="text-md font-bold tracking-tight text-white">PMC Portal</Text>
-          <Text className="text-2xs text-white/55 mt-0.5">Construction management</Text>
+    // Discord-style sidebar (2026-11-16): a full-height dark frame (top to bottom,
+    // so nothing of the app shows around it), a rounded lighter panel for the
+    // menu, and a separate rounded pill at the bottom with the user + Log out.
+    // overflow-hidden on the panel keeps the menu ScrollView scrolling inside it.
+    <View style={{ flex: 1, backgroundColor: FRAME, paddingTop: topInset + 6, paddingBottom: bottomInset + 8, paddingHorizontal: 8, gap: 8 }}>
+      <View className="flex-1 overflow-hidden" style={{ backgroundColor: PANEL, borderRadius: 24 }}>
+        {/* Brand */}
+        <View className="flex-row items-center gap-3 px-5 pb-4" style={{ paddingTop: 18 }}>
+          <Logo size={36} />
+          <View>
+            <Text className="text-md font-bold tracking-tight text-white">PMC Portal</Text>
+            <Text className="text-2xs text-white/55 mt-0.5">Construction management</Text>
+          </View>
         </View>
+        <View className="mx-4 border-t border-white/10" />
+
+        {/* Nav — scrolls inside the panel, so long menus never get cut off. */}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 10, paddingTop: 14, paddingBottom: 14 }}>
+          <Text className="px-2 pb-2 text-2xs font-bold uppercase tracking-[1.4px] text-white/55">Menu</Text>
+          <View className="gap-1">
+            {/* Single (no-dropdown) menus first, then — after a divider — the ones with a dropdown. */}
+            {singleRoutes.map(renderRoute)}
+            <View className="my-2 mx-3 border-t border-white/10" />
+            {submenuRoutes.map(renderRoute)}
+            {renderProjectsSection()}
+            {renderReportsSection()}
+          </View>
+          <Pressable onPress={openPrivacyPolicy} hitSlop={6} className="px-3 pt-4" accessibilityRole="link">
+            <Text className="text-xs text-white/45 underline">Privacy Policy</Text>
+          </Pressable>
+        </ScrollView>
       </View>
 
-      {/* Profile */}
-      <View className="flex-row items-center gap-3 border-b border-white/10 px-5 py-4">
-        {/* Plain solid-colour avatar with the user's initial — by explicit
-            request, replacing the old per-role emoji (looked odd). */}
-        <View className="h-9 w-9 items-center justify-center rounded-full bg-brand-amber">
+      {/* Bottom pill: who is signed in + Log out — always visible, outside the scroll. */}
+      <View className="flex-row items-center gap-3" style={{ backgroundColor: PANEL, borderRadius: 22, paddingVertical: 10, paddingLeft: 12, paddingRight: 8 }}>
+        <View className="h-10 w-10 items-center justify-center rounded-full bg-brand-amber">
           <Text className="text-sm font-bold text-brand-navy">{initials}</Text>
         </View>
         <View className="flex-1">
-          <Text numberOfLines={1} className="text-base font-medium text-white">
+          <Text numberOfLines={1} className="text-base font-semibold text-white">
             {profile?.fullName || profile?.email || 'Unknown user'}
           </Text>
-          {/* white/65 (~7.2:1 on the navy bg) — was white/40 (~3.8:1),
-              below the 4.5:1 AA minimum. Computed, not eyeballed. */}
           {profile && <Text className="text-xs text-white/65 mt-0.5">{roleLabel(profile.role)}</Text>}
         </View>
-      </View>
-
-      {/* Nav — a ScrollView, not a plain View: an admin/manager account
-          sees enough menu items (plus Reports' own 3 sub-items) that this
-          list can genuinely be taller than the screen on a shorter device
-          (confirmed live on a Redmi 13C 5G) — a fixed View just clips
-          whatever doesn't fit, with no way to reach it. Logout below is
-          deliberately OUTSIDE this ScrollView (its own fixed footer, not
-          just the last scrollable item) so it's always reachable
-          regardless of how tall the menu above it grows, rather than
-          requiring a scroll to find it — the more robust fix for an
-          action this important, not just "now it's technically reachable
-          if you scroll all the way down." */}
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 12, paddingTop: 16, paddingBottom: 16 }}>
-        {/* white/55 (~5.9:1) — was white/30 (~2.7:1), a clear AA failure. */}
-        <Text className="px-2 pb-2 text-2xs font-bold uppercase tracking-[1.4px] text-white/55">
-          Menu
-        </Text>
-        <View className="gap-1">
-          {/* Single (no-dropdown) menus first, then — after a divider —
-              every menu that has a dropdown, so the two kinds aren't
-              interleaved (by explicit request). */}
-          {singleRoutes.map(renderRoute)}
-
-          <View className="my-2 mx-3 border-t border-white/10" />
-
-          {submenuRoutes.map(renderRoute)}
-          {renderProjectsSection()}
-          {renderReportsSection()}
-        </View>
-      </ScrollView>
-
-      {/* Logout — deliberately a sibling of the ScrollView above, not its
-          last item, so it stays visible without scrolling regardless of
-          menu length. paddingBottom uses the real safe-area inset (gesture
-          nav bar height varies by device) rather than a fixed guess, same
-          convention as FlowchartCanvas's own zoom controls. */}
-      <View className="border-t border-white/10 px-3 pt-3" style={{ paddingBottom: bottomPadding }}>
-        <Pressable onPress={handleLogOut} className="flex-row items-center gap-3 rounded-xl px-3" style={{ minHeight: 44 }}>
-          <Ionicons name="log-out-outline" size={18} color="rgba(255,255,255,0.65)" />
-          <Text className="text-base font-medium text-white/80">Log Out</Text>
-        </Pressable>
-        <Pressable onPress={openPrivacyPolicy} hitSlop={6} className="px-3 pt-1" accessibilityRole="link">
-          <Text className="text-xs text-white/55 underline">Privacy Policy</Text>
+        <Pressable
+          onPress={handleLogOut}
+          accessibilityRole="button"
+          accessibilityLabel="Log out"
+          className="flex-row items-center gap-1.5 rounded-full px-3"
+          style={{ minHeight: 40, backgroundColor: 'rgba(255,255,255,0.08)' }}
+        >
+          <Ionicons name="log-out-outline" size={17} color="rgba(255,255,255,0.8)" />
+          <Text className="text-sm font-medium text-white/85">Log out</Text>
         </Pressable>
       </View>
 
@@ -286,7 +259,6 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
           openProject(projectId);
         }}
       />
-    </View>
     </View>
   );
 

@@ -1755,6 +1755,23 @@ export function FlowchartCanvas({
         </View>
       </View>
 
+      {/* Date chip colours (2026-11-16): what yellow / red / blue mean on the cards. */}
+      <View
+        pointerEvents="none"
+        className="absolute right-3 flex-row items-center bg-white rounded-full border border-neutral-200 px-2.5 py-1.5"
+        style={{ top: 48, gap: 8, elevation: 3 }}
+      >
+        {[
+          ['Planned', '#FEF08A', '#713F12'],
+          ['Actual', '#FCA5A5', '#7F1D1D'],
+          ['Estimated', '#BFDBFE', '#1E3A8A'],
+        ].map(([label, bg, fg]) => (
+          <View key={label} className="rounded-full" style={{ backgroundColor: bg, paddingHorizontal: 8, paddingVertical: 2 }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: fg }}>{label}</Text>
+          </View>
+        ))}
+      </View>
+
       {editable && pendingSourceId && (
         <Pressable
           onPress={() => setPendingSourceId(null)}

@@ -71,7 +71,7 @@ export interface TaskDetailInfo {
   verifiedByName: string | null;
   verifiedAtISO: string | null;
   verificationNote: string | null;
-  // Procurement lead time — see PROCUREMENT_INPUT_PRESET_DAYS's own
+  // Material Procurement Status — see PROCUREMENT_INPUT_PRESET_DAYS's own
   // comment. Null when the task has no Procurement Duration Type set, or
   // no planned start date to count back from (nothing to compute against).
   procurementTypeDurationDays: number | null;

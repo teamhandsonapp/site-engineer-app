@@ -96,7 +96,7 @@ function MilestoneChipRow({
 }
 
 // Status filter (2026-11-15): show only these tasks; the rest are hidden in place.
-export const STATUS_FILTER_OPTIONS = ['Completed', 'Upcoming', 'Delayed'] as const;
+export const STATUS_FILTER_OPTIONS = ['Completed', 'In progress', 'Upcoming', 'Pending'] as const;
 
 const PLANNED_DATE_MODES: PlannedDateMode[] = ['start', 'complete', 'happening'];
 

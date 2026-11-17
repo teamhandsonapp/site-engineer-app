@@ -50,8 +50,8 @@ export default function AuthenticatedLayout() {
         headerTitleContainerStyle: { maxWidth: '62%' },
         headerShadowVisible: false,
         // Floating rounded menu panel (2026-11-16): the drawer itself is see-through and
-        // AppDrawerContent draws the navy card inside the safe area (like Discord's sidebar).
-        drawerStyle: { backgroundColor: 'transparent', width: 276 },
+        // Full-height dark frame; AppDrawerContent draws the rounded navy panel + bottom pill inside it (Discord-style).
+        drawerStyle: { backgroundColor: '#070E19', width: 296 },
         overlayColor: 'rgba(0,0,0,0.45)',
         // Registered once here (not per-screen) so the bell — and its badge
         // count — stays visible and consistent across every drawer screen,
