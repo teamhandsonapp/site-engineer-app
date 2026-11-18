@@ -51,10 +51,15 @@ export default function AuthenticatedLayout() {
         headerTitleStyle: { fontFamily: 'IBMPlexSans_600SemiBold', fontSize: 17 },
         headerTitleContainerStyle: { maxWidth: '62%' },
         headerShadowVisible: false,
-        // Discord-style menu (2026-11-18): dark background; AppDrawerContent draws the
-        // rounded navy panel + floating profile bar on it. Wide like Discord's, but
-        // always leaves a strip of the app showing so it's clear how to close it.
-        drawerStyle: { backgroundColor: '#060B14', width: Math.min(340, screenWidth - 48) },
+        // Standard side menu (2026-11-18): plain navy panel with softly rounded
+        // right corners; always leaves a strip of the app showing to tap-close.
+        drawerStyle: {
+          backgroundColor: '#0F1F33',
+          width: Math.min(300, screenWidth - 56),
+          borderTopRightRadius: 16,
+          borderBottomRightRadius: 16,
+          overflow: 'hidden',
+        },
         overlayColor: 'rgba(0,0,0,0.55)',
         // Registered once here (not per-screen) so the bell — and its badge
         // count — stays visible and consistent across every drawer screen,

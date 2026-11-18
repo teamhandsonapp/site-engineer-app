@@ -6,10 +6,10 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect } from 'expo-router';
-import { appRoleFor, useAuth } from '../../lib/AuthContext';
+import { appRoleFor, isFieldRole, useAuth } from '../../lib/AuthContext';
 import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
 import { EdgeLayer } from './EdgeLayer';
-import { FLOWCHART_2_GROUPS, groupOutline } from '../../lib/flowchart/boardGroups';
+import { FLOWCHART_2_GROUPS, groupOutlines } from '../../lib/flowchart/boardGroups';
 import { TaskNode } from './TaskNode';
 import { TaskDetailSheet } from './TaskDetailSheet';
 import { TaskActionMenu } from './TaskActionMenu';
@@ -42,6 +42,7 @@ import { ripplePlannedDates } from '../../lib/flowchart/plannedRipple';
 import { computeProjectedDates, runningDelayDays, shouldShowProjected } from '../../lib/flowchart/projected';
 import { CHECKLIST_NOTE_FIELDS, fetchChecklistNotesForTasks, type ChecklistNotes } from '../../lib/flowchart/checklistNotes';
 import { ChecklistPeek } from './ChecklistPeek';
+import { DprPrChooser } from './DprPrChooser';
 import { LinkInfoSheet } from './LinkInfoSheet';
 import { LinkLegend } from './LinkLegend';
 import { getTaskTypeColors } from '../../lib/flowchart/taskTypeColor';
@@ -603,6 +604,20 @@ export function FlowchartCanvas({
   // shows straight away.
   const [checklistNotesById, setChecklistNotesById] = useState<Map<string, ChecklistNotes>>(new Map());
   const [peekTaskId, setPeekTaskId] = useState<string | null>(null);
+  // DPR / PR note icon on every card — Flowchart 2 only (the ~80 tasks, not
+  // the Test copy), and only for the accounts the DPR tab itself allows
+  // (admin + site engineers), 2026-11-18.
+  const showDprIcon =
+    flowchartSet === FLOWCHART_2_SET &&
+    authState.status === 'signed-in' &&
+    (authState.profile.role === 'admin' || isFieldRole(authState.profile.role));
+  const [dprTaskId, setDprTaskId] = useState<string | null>(null);
+  // Last tap on a card's icon (DPR / checklist wheel / link dot) — the card's
+  // own tap for that same press is ignored (see handleTap).
+  const innerTapRef = useRef<{ taskId: string; at: number } | null>(null);
+  // Link dots on every box — the "Flowchart" board only (not Flowchart 2 /
+  // its Test copy), and only while Editing (unlocked), 2026-11-18.
+  const showConnectors = editable && !isFlowchart2Set(flowchartSet) && !viewOnly && !selectMode && !milestoneMode;
   const taskIdsKey = useMemo(() => tasks.map((t) => t.id).join(','), [tasks]);
   useEffect(() => {
     if (!isFlowchart2Set(flowchartSet) || detailTaskId !== null || !taskIdsKey) return;
@@ -859,6 +874,11 @@ export function FlowchartCanvas({
   }
 
   function handleTap(taskId: string) {
+    // The card's own tap can fire for the same press as one of its icons
+    // (DPR, checklist wheel, link dot) — that tap is ignored, so the icon's
+    // pop-up isn't pushed aside by the card's menu (2026-11-18).
+    const inner = innerTapRef.current;
+    if (inner && inner.taskId === taskId && Date.now() - inner.at < 500) return;
     if (milestoneMode) {
       handleMilestoneTap(taskId);
       return;
@@ -891,6 +911,25 @@ export function FlowchartCanvas({
       return;
     }
     setActionMenuTaskId(taskId);
+  }
+
+  // Link dots ("Flowchart" board, 2026-11-18): the first dot tapped picks the
+  // task the link starts from; a dot on another box picks the second task and
+  // opens the usual link-type picker (same createLink as the menu's Link to Task).
+  function handleConnectorPress(taskId: string) {
+    innerTapRef.current = { taskId, at: Date.now() };
+    if (!editable) return;
+    setActionMenuTaskId(null);
+    setLinkError(null);
+    if (!pendingSourceId) {
+      setPendingSourceId(taskId);
+      return;
+    }
+    if (pendingSourceId === taskId) {
+      setPendingSourceId(null); // same box again = cancel
+      return;
+    }
+    setLinkPromptTargetId(taskId);
   }
 
   function handleLinkTypeSelected(type: RelationshipType) {
@@ -1041,8 +1080,16 @@ export function FlowchartCanvas({
 
   // Tapping a card's checklist wheel opens the read-only checklist pop-up.
   function handleOpenChecklist(taskId: string) {
+    innerTapRef.current = { taskId, at: Date.now() };
     setActionMenuTaskId(null);
     setPeekTaskId(taskId);
+  }
+
+  // Tapping a card's note icon opens the DPR / PR chooser.
+  function handleOpenDpr(taskId: string) {
+    innerTapRef.current = { taskId, at: Date.now() };
+    setActionMenuTaskId(null);
+    setDprTaskId(taskId);
   }
 
   function handleEditTask(taskId: string) {
@@ -1137,9 +1184,14 @@ export function FlowchartCanvas({
       runOnJS(recomputePositionIndicator)();
     });
 
+  // Main Flowchart in Editing mode: boxes drag themselves (TaskNode's own Pan,
+  // no press-and-hold), so the board's pan never moves a box there and never
+  // pans while a box is being dragged (2026-11-18: the board used to move along).
+  const directDrag = editable && !isFlowchart2Set(flowchartSet) && !viewOnly;
   const pan = Gesture.Pan()
     .onUpdate((e) => {
       if (draggingNodeId.value != null) {
+        if (directDrag) return;
         dragDeltaX.value = e.translationX / scale.value;
         dragDeltaY.value = e.translationY / scale.value;
         return;
@@ -1148,7 +1200,7 @@ export function FlowchartCanvas({
       translateY.value = savedTranslateY.value + e.translationY;
     })
     .onEnd((e) => {
-      if (draggingNodeId.value != null) {
+      if (draggingNodeId.value != null && !directDrag) {
         const id = draggingNodeId.value;
         const dx = e.translationX / scale.value;
         const dy = e.translationY / scale.value;
@@ -1303,9 +1355,9 @@ export function FlowchartCanvas({
   // Flowchart 2 group outlines ("Structural Civil Works" …): drawn behind the
   // cards, and handed to the link router so links keep clear of them.
   const groupZones = flowchartSet === FLOWCHART_2_SET
-    ? FLOWCHART_2_GROUPS.flatMap((g) => {
-        const r = groupOutline(g, renderedTasks, NODE_WIDTH * nodeScale, NODE_HEIGHT * nodeScale, nodeScale);
+    ? groupOutlines(FLOWCHART_2_GROUPS, renderedTasks, NODE_WIDTH * nodeScale, NODE_HEIGHT * nodeScale, nodeScale).flatMap((r) => {
         if (!r) return [];
+        const g = r.group;
         const members = new Set(renderedTasks.filter((t) => g.taskCodes.includes(t.taskId)).map((t) => t.id));
         return [{ label: g.label, box: { id: `group:${g.label}`, x: r.left, y: r.top, w: r.width, h: r.height }, members }];
       })
@@ -1404,6 +1456,11 @@ export function FlowchartCanvas({
                 runningDelayDays={runningDelayDays(projectedById.get(task.id))}
                 checklistDots={checklistDotsById.get(task.id)}
                 onChecklistPress={handleOpenChecklist}
+                onDprPress={showDprIcon && !selectMode ? handleOpenDpr : undefined}
+                onConnectorPress={showConnectors ? handleConnectorPress : undefined}
+                directDrag={directDrag}
+                canvasScale={scale}
+                onDragEnd={commitDrag}
               />
             ))}
             {/* Divider lines (tasks.flowchart_divider_below): a horizontal line
@@ -1778,7 +1835,7 @@ export function FlowchartCanvas({
           className="absolute right-3 bg-white rounded-xl border border-neutral-200 px-3 py-2"
           style={{ top: overlayTop, elevation: 3 }}
         >
-          <Text className="text-2xs text-neutral-500">Tap another task to link with (tap here to cancel)</Text>
+          <Text className="text-2xs text-neutral-500">Tap a dot (or the box) of another task to link with (tap here to cancel)</Text>
         </Pressable>
       )}
 
@@ -2018,6 +2075,8 @@ export function FlowchartCanvas({
           onClose={() => setPeekTaskId(null)}
         />
       )}
+
+      <DprPrChooser task={dprTaskId ? tasks.find((t) => t.id === dprTaskId) ?? null : null} onClose={() => setDprTaskId(null)} />
 
       {createTaskOpen && (
         <CreateTaskSheet

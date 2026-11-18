@@ -1,6 +1,26 @@
-import type { ReactNode } from 'react';
+import { useCallback, useLayoutEffect, useRef, type ReactNode } from 'react';
 import { KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { KEYBOARD_BEHAVIOR } from './KeyboardAvoider';
+
+/**
+ * Backdrop close that ignores taps in the first `ms` after the pop-up opens
+ * (2026-11-18). A pop-up opened by a gesture-handler tap (e.g. a flowchart
+ * card's DPR icon) appears on pointer-up, and on web the browser's click for
+ * that SAME press then lands on the new backdrop and closed it again at once.
+ * Use as FormModal's onBackdropPress; onRequestClose (Android back) is unaffected.
+ */
+export function useBackdropGuard(visible: boolean, onClose: () => void, ms = 400): () => void {
+  const openedAt = useRef(0);
+  // Layout effect: runs in the same step the backdrop is put on screen, so
+  // the stray click can never arrive before the timer starts.
+  useLayoutEffect(() => {
+    if (visible) openedAt.current = Date.now();
+  }, [visible]);
+  return useCallback(() => {
+    if (Date.now() - openedAt.current < ms) return;
+    onClose();
+  }, [onClose, ms]);
+}
 
 // Shared keyboard-safe pop-up (2026-11-12, responsiveness batch 1).
 // Replaces the app's repeated pattern

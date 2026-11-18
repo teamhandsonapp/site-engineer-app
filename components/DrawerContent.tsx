@@ -116,12 +116,9 @@ const REPORT_SUBMENU: { label: string; href: string; params?: Record<string, str
   { label: 'Task Based Status', href: '/reports/general-parameter-report' },
 ];
 
-// Sidebar colours (2026-11-18, Discord-style): darkest background, a lighter
-// navy panel on it, and a lighter still floating profile bar.
-const FRAME = '#060B14';
+// Sidebar (2026-11-18, "make it normal"): one plain navy panel, standard
+// footer with the signed-in user + Log out. No frame, no floating bar.
 const PANEL = '#0F1F33';
-const PROFILE_BAR = '#1B2B43';
-const PROFILE_BAR_H = 62;
 
 const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   home: 'home-outline',
@@ -198,91 +195,66 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
   const submenuRoutes = visibleRoutes.filter(({ route }) => routeHasSubmenu(route.name));
 
   return (
-    // Discord-style sidebar (2026-11-18, from the client's Discord screenshot):
-    // a dark background behind everything (status bar included), one lighter
-    // navy panel that starts a little below the clock with big rounded top
-    // corners and runs on down behind the profile bar (never a box inside a
-    // box), and the profile bar floating over its bottom with the avatar
-    // poking out, like Discord's "name · Online" bar. No divider lines.
-    // overflow-hidden on the panel keeps the menu ScrollView scrolling inside it.
-    <View style={{ flex: 1, backgroundColor: FRAME }}>
+    // Standard side menu (2026-11-18, "make it normal"): one navy panel filling
+    // the drawer (the drawer itself has softly rounded right corners, set in
+    // app/(authenticated)/_layout.tsx), brand at the top, the menu scrolling
+    // in the middle, and a plain footer row with the user + Log out.
+    <View style={{ flex: 1, backgroundColor: PANEL }}>
+      {/* Brand */}
       <View
-        className="flex-1 overflow-hidden"
-        style={{ marginTop: topInset + 10, marginHorizontal: 10, backgroundColor: PANEL, borderTopLeftRadius: 30, borderTopRightRadius: 30 }}
+        className="flex-row items-center gap-3 px-5 pb-4"
+        style={{ paddingTop: topInset + 18, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.08)' }}
       >
-        {/* Brand */}
-        <View className="flex-row items-center gap-3 px-5 pb-3" style={{ paddingTop: 22 }}>
-          <Logo size={40} />
-          <View>
-            <Text className="font-bold tracking-tight text-white" style={{ fontSize: 20 }}>PMC Portal</Text>
-            <Text className="text-2xs text-white/55 mt-0.5">Construction management</Text>
-          </View>
+        <Logo size={38} />
+        <View>
+          <Text className="font-bold tracking-tight text-white" style={{ fontSize: 19 }}>PMC Portal</Text>
+          <Text className="text-2xs text-white/55 mt-0.5">Construction management</Text>
         </View>
-
-        {/* Nav — scrolls inside the panel; the bottom padding keeps the last
-            rows clear of the floating profile bar. */}
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={{ paddingHorizontal: 10, paddingTop: 10, paddingBottom: PROFILE_BAR_H + bottomInset + 34 }}
-          showsVerticalScrollIndicator={false}
-        >
-          <Text className="px-2 pb-2 text-2xs font-bold uppercase tracking-[1.4px] text-white/45">Menu</Text>
-          <View className="gap-1">
-            {/* Single (no-dropdown) menus first, then — after a gap — the ones with a dropdown. */}
-            {singleRoutes.map(renderRoute)}
-            <View style={{ height: 14 }} />
-            {submenuRoutes.map(renderRoute)}
-            {renderProjectsSection()}
-            {renderReportsSection()}
-          </View>
-          <Pressable onPress={openPrivacyPolicy} hitSlop={6} className="px-3 pt-5" accessibilityRole="link">
-            <Text className="text-xs text-white/45 underline">Privacy Policy</Text>
-          </Pressable>
-        </ScrollView>
       </View>
 
-      {/* Floating profile bar: who is signed in + Log out — always visible, over the panel's bottom. */}
-      <View
-        className="flex-row items-center"
-        style={{
-          position: 'absolute',
-          left: 16,
-          right: 16,
-          bottom: bottomInset + 12,
-          height: PROFILE_BAR_H,
-          gap: 10,
-          paddingRight: 8,
-          borderRadius: PROFILE_BAR_H / 2,
-          backgroundColor: PROFILE_BAR,
-          shadowColor: '#000',
-          shadowOpacity: 0.35,
-          shadowRadius: 12,
-          shadowOffset: { width: 0, height: 4 },
-          elevation: 8,
-        }}
+      {/* Nav */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: 10, paddingTop: 14, paddingBottom: 16 }}
+        showsVerticalScrollIndicator={false}
       >
-        {/* Avatar pokes out of the bar on the left, with a ring in the background colour (like Discord). */}
-        <View
-          className="items-center justify-center rounded-full bg-brand-amber"
-          style={{ width: 52, height: 52, marginLeft: -6, borderWidth: 3, borderColor: FRAME }}
-        >
-          <Text className="text-base font-bold text-brand-navy">{initials}</Text>
+        <View className="gap-0.5">
+          {/* Single (no-dropdown) menus first, then — after a gap — the ones with a dropdown. */}
+          {singleRoutes.map(renderRoute)}
+          <View style={{ height: 1, marginVertical: 8, marginHorizontal: 12, backgroundColor: 'rgba(255,255,255,0.08)' }} />
+          {submenuRoutes.map(renderRoute)}
+          {renderProjectsSection()}
+          {renderReportsSection()}
+        </View>
+        <Pressable onPress={openPrivacyPolicy} hitSlop={6} className="px-3 pt-5" accessibilityRole="link">
+          <Text className="text-xs text-white/45 underline">Privacy Policy</Text>
+        </Pressable>
+      </ScrollView>
+
+      {/* Footer: who is signed in + Log out — always visible. */}
+      <View
+        className="flex-row items-center gap-3 px-4 pt-3"
+        style={{ paddingBottom: bottomInset + 14, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' }}
+      >
+        <View className="items-center justify-center rounded-full bg-brand-amber" style={{ width: 38, height: 38 }}>
+          <Text className="text-sm font-bold text-brand-navy">{initials}</Text>
         </View>
         <View className="flex-1">
-          <Text numberOfLines={1} className="text-base font-semibold text-white">
+          <Text numberOfLines={1} className="text-sm font-semibold text-white">
             {profile?.fullName || profile?.email || 'Unknown user'}
           </Text>
-          {profile && <Text className="text-xs text-white/60 mt-0.5">{roleLabel(profile.role)}</Text>}
+          {profile && <Text className="text-xs text-white/55 mt-0.5">{roleLabel(profile.role)}</Text>}
         </View>
         <Pressable
           onPress={handleLogOut}
           accessibilityRole="button"
           accessibilityLabel="Log out"
-          className="flex-row items-center gap-1.5 rounded-full px-3"
-          style={{ minHeight: 40, backgroundColor: 'rgba(255,255,255,0.08)' }}
+          hitSlop={6}
+          className="flex-row items-center gap-1.5 rounded-lg px-2.5"
+          style={{ minHeight: 36 }}
         >
-          <Ionicons name="log-out-outline" size={17} color="rgba(255,255,255,0.85)" />
-          <Text className="text-sm font-medium text-white/85">Log out</Text>
+          <Ionicons name="log-out-outline" size={18} color="rgba(255,255,255,0.75)" />
+          <Text className="text-sm font-medium text-white/75">Log out</Text>
         </Pressable>
       </View>
 

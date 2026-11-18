@@ -59,6 +59,56 @@ export function groupOutline(
   return { left: b.left - px, top: b.top - pt, width: b.width + px * 2, height: b.height + pt + pb };
 }
 
+/** Smallest clear space between two side-by-side outlines (× nodeScale), and the
+ *  least padding a facing edge keeps around its own boxes. */
+export const GROUP_MIN_GAP = 24;
+const GROUP_MIN_PAD_X = 6;
+
+/**
+ * Every group's outline, with side-by-side outlines kept apart (2026-11-18):
+ * two groups whose columns stand close together used to get dashed lines
+ * that touched ("Structural Civil Works" | "Parallel works"). Where two
+ * outlines face each other (overlapping vertically) closer than
+ * GROUP_MIN_GAP, both facing edges pull in equally — never closer to their
+ * own boxes than GROUP_MIN_PAD_X. Other edges keep the normal GROUP_PAD.
+ */
+export function groupOutlines(
+  groups: BoardGroup[],
+  tasks: { taskId: string; x: number; y: number }[],
+  boxW: number,
+  boxH: number,
+  scale: number
+): ({ group: BoardGroup; left: number; top: number; width: number; height: number } | null)[] {
+  const raw = groups.map((g) => {
+    const r = groupOutline(g, tasks, boxW, boxH, scale);
+    const b = r ? groupBounds(g, tasks, boxW, boxH) : null;
+    return r && b ? { group: g, r: { ...r }, b } : null;
+  });
+  const minGap = GROUP_MIN_GAP * scale;
+  const minPad = GROUP_MIN_PAD_X * scale;
+  for (let i = 0; i < raw.length; i++) {
+    for (let j = 0; j < raw.length; j++) {
+      const a = raw[i];
+      const c = raw[j];
+      if (!a || !c || i === j) continue;
+      // a on the left, c on the right, sharing some height.
+      if (a.b.left + a.b.width > c.b.left) continue;
+      const overlapY = Math.min(a.r.top + a.r.height, c.r.top + c.r.height) - Math.max(a.r.top, c.r.top);
+      if (overlapY <= 0) continue;
+      const aRight = a.r.left + a.r.width;
+      if (c.r.left - aRight >= minGap) continue;
+      const boxGap = c.b.left - (a.b.left + a.b.width);
+      const pad = Math.max(minPad, (boxGap - minGap) / 2);
+      const newARight = Math.min(aRight, a.b.left + a.b.width + pad);
+      const newCLeft = Math.max(c.r.left, c.b.left - pad);
+      a.r.width = newARight - a.r.left;
+      c.r.width += c.r.left - newCLeft;
+      c.r.left = newCLeft;
+    }
+  }
+  return raw.map((x) => (x ? { group: x.group, ...x.r } : null));
+}
+
 /** Outline rectangle around the group's tasks that are on screen (null if none are). */
 export function groupBounds(
   group: BoardGroup,

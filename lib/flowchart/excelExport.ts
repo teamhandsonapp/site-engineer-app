@@ -148,18 +148,31 @@ export const CHECKLIST_POINTS: { header: string; key: ChecklistNoteKey }[] = [
 ];
 
 export function buildChecklistWorkbook(tasks: FlowchartTask[], notes: Map<string, ChecklistNotes>): XLSX.WorkBook {
-  const headers = ['S.No', 'Task Name', 'Department', 'Planned Start Date', 'Actual Start Date', ...CHECKLIST_POINTS.map((p) => p.header)];
+  // Planned / Actual End columns added 2026-11-18 (client request): each
+  // start date now has its end date beside it. Blank where a task has no date.
+  const headers = [
+    'S.No',
+    'Task Name',
+    'Department',
+    'Planned Start Date',
+    'Planned End Date',
+    'Actual Start Date',
+    'Actual End Date',
+    ...CHECKLIST_POINTS.map((p) => p.header),
+  ];
   const rows: XLSX.CellObject[][] = [...tasks].sort(byActualStart).map((t, i) => [
     { t: 'n', v: i + 1 },
     { t: 's', v: t.taskName.trim() },
     { t: 's', v: t.workName && t.workName !== 'Unassigned' ? t.workName : '' },
     dateCell(t.plannedStartDate),
+    dateCell(t.dueDate),
     dateCell(t.actualStartDate),
+    dateCell(t.actualEndDate),
     ...CHECKLIST_POINTS.map((p): XLSX.CellObject => ({ t: 's', v: notes.get(t.id)?.[p.key] ?? '' })),
   ]);
   const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows] as unknown as unknown[][], { cellDates: true });
   // Big writing space: wide checklist columns and tall rows.
-  sheet['!cols'] = [{ wch: 6 }, { wch: 48 }, { wch: 18 }, { wch: 17 }, { wch: 17 }, ...CHECKLIST_POINTS.map(() => ({ wch: 30 }))];
+  sheet['!cols'] = [{ wch: 6 }, { wch: 48 }, { wch: 18 }, { wch: 17 }, { wch: 17 }, { wch: 17 }, { wch: 17 }, ...CHECKLIST_POINTS.map(() => ({ wch: 30 }))];
   sheet['!rows'] = [{ hpt: 30 }, ...rows.map(() => ({ hpt: 60 }))];
   sheet['!freeze'] = { xSplit: 2, ySplit: 1 };
   const book = XLSX.utils.book_new();

@@ -7,6 +7,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { appRoleFor, useAuth } from '../lib/AuthContext';
 import { Card } from '../components/ui/Card';
 import { AppProgressView } from '../components/pmcPortal/AppProgressView';
+import { AppFlowView } from '../components/pmcPortal/AppFlowView';
 import { ExternalServicesView } from '../components/pmcPortal/ExternalServicesView';
 
 // PMC Portal: a project for tracking the PMC Portal app itself, separate from
@@ -14,7 +15,7 @@ import { ExternalServicesView } from '../components/pmcPortal/ExternalServicesVi
 // it. Add a section by adding a row here and its view below.
 const SECTIONS = [
   { key: 'external-services', label: 'External Services', subtitle: 'Services we use, accounts and cost', icon: 'cloud-outline' as const, color: '#2563EB' },
-  { key: 'app-progress', label: 'App Progress', subtitle: 'What is done and pending in each screen', icon: 'stats-chart-outline' as const, color: '#F0A227' },
+  { key: 'app-progress', label: 'App Progress', subtitle: 'Flowchart of every feature, its links and points', icon: 'git-network-outline' as const, color: '#F0A227' },
 ];
 
 type SectionKey = (typeof SECTIONS)[number]['key'];
@@ -22,6 +23,7 @@ type SectionKey = (typeof SECTIONS)[number]['key'];
 export default function PmcPortalScreen() {
   const { state } = useAuth();
   const [section, setSection] = useState<SectionKey | null>(null);
+  const [progressView, setProgressView] = useState<'flow' | 'list'>('flow');
 
   if (state.status !== 'signed-in') return <Redirect href="/login" />;
   if (appRoleFor(state.profile.role) === 'client') return <Redirect href="/home" />;
@@ -49,7 +51,29 @@ export default function PmcPortalScreen() {
       {section === 'external-services' ? (
         <ExternalServicesView />
       ) : section === 'app-progress' ? (
-        <AppProgressView />
+        <>
+          {/* Flowchart (default) or the older per-screen list. */}
+          <View className="flex-row bg-white border-b border-neutral-200 px-4 py-2" style={{ gap: 6 }}>
+            {(['flow', 'list'] as const).map((v) => {
+              const active = progressView === v;
+              return (
+                <Pressable
+                  key={v}
+                  onPress={() => setProgressView(v)}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                  className="rounded-lg px-4 py-2"
+                  style={{ backgroundColor: active ? '#0F1F33' : '#F3F4F6' }}
+                >
+                  <Text className="text-sm font-semibold" style={{ color: active ? '#fff' : '#374151' }}>
+                    {v === 'flow' ? 'Flowchart' : 'List'}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+          {progressView === 'flow' ? <AppFlowView /> : <AppProgressView />}
+        </>
       ) : (
         <ScrollView contentContainerClassName="px-4 pt-4 pb-10">
           {SECTIONS.map((s) => (

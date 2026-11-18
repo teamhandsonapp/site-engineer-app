@@ -1,4 +1,5 @@
 import { View } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Text } from '../ui/AppText';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { useAnimatedStyle, useDerivedValue, type SharedValue } from 'react-native-reanimated';
@@ -30,6 +31,11 @@ export function TaskNode({
   hidePlanned = false,
   checklistDots,
   onChecklistPress,
+  onDprPress,
+  onConnectorPress,
+  directDrag = false,
+  canvasScale,
+  onDragEnd,
   // 1 for every normal project (the overwhelmingly common case) — only ever
   // smaller than 1 when clampToSafeBitmapBudget (lib/flowchart/layout.ts)
   // had to shrink an unusually large graph to stay under Android's bitmap
@@ -72,6 +78,19 @@ export function TaskNode({
   // undefined = no icon. Tapping it opens that task's Checklist tab.
   checklistDots?: boolean[];
   onChecklistPress?: (taskId: string) => void;
+  // DPR / PR note icon (Flowchart 2 only, 2026-11-18): undefined = no icon.
+  // Tapping it opens the DPR / PR chooser so both can be filled from the board.
+  onDprPress?: (taskId: string) => void;
+  // Link dots on all four sides ("Flowchart" board, Editing mode, 2026-11-18):
+  // tap a dot here, then a dot on another box, to link the two. undefined = no dots.
+  onConnectorPress?: (taskId: string) => void;
+  // Direct drag (Main Flowchart, Editing mode, 2026-11-18): the box moves as
+  // soon as it is dragged — no press-and-hold — and the board stays still.
+  // The box's own Pan owns the whole drag (canvasScale converts screen
+  // movement to board units); onDragEnd saves the new position.
+  directDrag?: boolean;
+  canvasScale?: SharedValue<number>;
+  onDragEnd?: (taskId: string, dx: number, dy: number) => void;
   nodeScale: number;
 }) {
   const isDragging = useDerivedValue(() => draggingNodeId.value === task.id);
@@ -111,7 +130,31 @@ export function TaskNode({
       if (success) runOnJS(onTap)(task.id);
     });
 
-  const gesture = Gesture.Race(longPress, tap);
+  // Direct drag: the innermost Pan activates first (tiny minDistance), which
+  // cancels the board's own pan for this touch — so only the box moves.
+  const useDirectDrag = directDrag && editable && !!canvasScale && !!onDragEnd;
+  const dragPan = Gesture.Pan()
+    .enabled(useDirectDrag)
+    .minDistance(3)
+    .onStart(() => {
+      draggingNodeId.value = task.id;
+      dragDeltaX.value = 0;
+      dragDeltaY.value = 0;
+    })
+    .onUpdate((e) => {
+      const s = canvasScale ? canvasScale.value : 1;
+      dragDeltaX.value = e.translationX / s;
+      dragDeltaY.value = e.translationY / s;
+    })
+    // onFinalize (not onEnd): runs however the touch finishes, even if the
+    // drag is cancelled, so a box can never stay stuck mid-drag.
+    .onFinalize((e) => {
+      if (draggingNodeId.value !== task.id) return;
+      const s = canvasScale ? canvasScale.value : 1;
+      if (onDragEnd) runOnJS(onDragEnd)(task.id, e.translationX / s, e.translationY / s);
+    });
+
+  const gesture = useDirectDrag ? Gesture.Race(dragPan, tap) : Gesture.Race(longPress, tap);
 
   // Its own Tap, nested inside the card's detector: the innermost gesture
   // activates first, so tapping the wheel opens the checklist instead of
@@ -121,6 +164,20 @@ export function TaskNode({
     .onEnd((_e, success) => {
       if (success && onChecklistPress) runOnJS(onChecklistPress)(task.id);
     });
+  // Same nesting for the DPR / PR note icon.
+  const dprTap = Gesture.Tap()
+    .maxDuration(400)
+    .onEnd((_e, success) => {
+      if (success && onDprPress) runOnJS(onDprPress)(task.id);
+    });
+  // One Tap per link dot (a gesture object belongs to one detector only).
+  const connectorTap = () =>
+    Gesture.Tap()
+      .maxDuration(400)
+      .hitSlop(8)
+      .onEnd((_e, success) => {
+        if (success && onConnectorPress) runOnJS(onConnectorPress)(task.id);
+      });
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [
@@ -148,10 +205,17 @@ export function TaskNode({
   // chips — styled correctly via className right next to it) — so this
   // node's own box appearance is set via plain inline style instead of
   // Tailwind classes, only on this one wrapper.
-  const boxStyle = {
+  // Outer wrapper: position + drag transform only, NOT clipped, so the link
+  // dots can sit on the box's edges. The box itself (boxStyle, clipped) is
+  // the plain View inside it, so everything in the box renders as before.
+  const outerStyle = {
     position: 'absolute' as const,
     width: NODE_WIDTH * nodeScale,
     height: NODE_HEIGHT * nodeScale,
+  };
+  const boxStyle = {
+    width: '100%' as const,
+    height: '100%' as const,
     // 8 -> 14, by explicit request ("smooth, consistent corner rounding").
     // Border and fill are both set on this SAME object/View, so there's no
     // risk of the two ever drifting to different radii.
@@ -219,7 +283,8 @@ export function TaskNode({
 
   return (
     <GestureDetector gesture={gesture}>
-      <Animated.View style={[boxStyle, animatedStyle]}>
+      <Animated.View style={[outerStyle, animatedStyle]}>
+      <View style={boxStyle}>
         {/* Restored — repeating the same +Nd on every downstream task is
             correct, not a bug: cascade_delay_days is one flat push applied
             uniformly across the whole downstream closure (see
@@ -288,19 +353,37 @@ export function TaskNode({
         <Text
           testID={`flowchart-node-code-${task.taskId}`}
           numberOfLines={1}
-          style={{ position: 'absolute', top: 6 * nodeScale, left: 9 * nodeScale, fontSize: 10 * nodeScale, fontWeight: '800', color: textColor, opacity: 0.8 }}
+          // Inset 10 / 16 so the rounded corner never cuts into the ID (2026-11-18).
+          style={{ position: 'absolute', top: 10 * nodeScale, left: 16 * nodeScale, fontSize: 10 * nodeScale, fontWeight: '800', color: textColor, opacity: 0.8 }}
         >
           {task.taskId}
         </Text>
 
-        {/* Client-checklist wheel, top-right inside the card (Flowchart 2). */}
+        {/* DPR / PR note icon, top-right corner inside the card (Flowchart 2). */}
+        {onDprPress && (
+          <GestureDetector gesture={dprTap}>
+            <View
+              testID={`flowchart-node-dpr-${task.taskId}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Open DPR / PR for ${task.taskId}`}
+              // Plain outline icon in the card's own text colour (no filled
+              // square), inset clear of the rounded corner.
+              style={{ position: 'absolute', top: 8 * nodeScale, right: 14 * nodeScale, padding: 2 * nodeScale, zIndex: 4, opacity: 0.8 }}
+            >
+              <Ionicons name="document-text-outline" size={16 * nodeScale} color={textColor} />
+            </View>
+          </GestureDetector>
+        )}
+
+        {/* Client-checklist wheel, top-right inside the card (Flowchart 2) —
+            just left of the DPR / PR icon when that is shown. */}
         {checklistDots && (
           <GestureDetector gesture={checklistTap}>
             <View
               testID={`flowchart-node-checklist-${task.taskId}`}
               accessibilityRole="button"
               accessibilityLabel="Open checklist"
-              style={{ position: 'absolute', top: 3 * nodeScale, right: 3 * nodeScale, padding: 2 * nodeScale, zIndex: 4 }}
+              style={{ position: 'absolute', top: 8 * nodeScale, right: (onDprPress ? 36 : 14) * nodeScale, padding: 2 * nodeScale, zIndex: 4 }}
             >
               <ChecklistWheel size={16 * nodeScale} filled={checklistDots} />
             </View>
@@ -431,6 +514,42 @@ export function TaskNode({
             {task.workName}
           </Text>
         ) : null}
+      </View>
+
+      {/* Link dots: middle of each side, half over the edge. The link
+          source's dots turn amber while it waits for a second dot. */}
+      {onConnectorPress &&
+        (['top', 'right', 'bottom', 'left'] as const).map((side) => {
+          const d = 14 * nodeScale;
+          const pos =
+            side === 'top'
+              ? { top: -d / 2, left: '50%' as const, marginLeft: -d / 2 }
+              : side === 'bottom'
+                ? { bottom: -d / 2, left: '50%' as const, marginLeft: -d / 2 }
+                : side === 'left'
+                  ? { left: -d / 2, top: '50%' as const, marginTop: -d / 2 }
+                  : { right: -d / 2, top: '50%' as const, marginTop: -d / 2 };
+          return (
+            <GestureDetector key={side} gesture={connectorTap()}>
+              <View
+                testID={`flowchart-node-connector-${side}-${task.taskId}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Link from ${task.taskId}`}
+                style={{
+                  position: 'absolute',
+                  ...pos,
+                  width: d,
+                  height: d,
+                  borderRadius: d / 2,
+                  borderWidth: 2,
+                  borderColor: isPendingLinkSource ? '#B45309' : '#0F1F33',
+                  backgroundColor: isPendingLinkSource ? '#F0A227' : '#FFFFFF',
+                  zIndex: 6,
+                }}
+              />
+            </GestureDetector>
+          );
+        })}
       </Animated.View>
     </GestureDetector>
   );

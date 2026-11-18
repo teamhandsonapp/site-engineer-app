@@ -35,6 +35,15 @@ import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { withTimeout } from '../../lib/withTimeout';
 
 const FETCH_TIMEOUT_MS = 12_000;
+
+// Board tab names (renamed 2026-11-18, client request). Also used in the
+// Checklist Excel file name. Internal keys (fc2/fc3/…) are unchanged.
+const BOARD_LABEL: Record<FlowchartBoard, string> = {
+  fc2: 'Current Status',
+  fc3: '56 Tasks',
+  fc2test: 'Copy',
+  main: 'Main Flowchart',
+};
 const SHOW_SETS_KEY = 'flowchart:showOldVersions';
 
 type FlowchartViewMode = 'flowchart' | 'list';
@@ -316,7 +325,7 @@ function FlowchartScreenContent() {
     setExcelExporting(true);
     setExcelNote(null);
     try {
-      const note = await exportChecklistExcel(filteredTasks, projectName, board === 'fc3' ? 'Flowchart 3' : 'Flowchart 2');
+      const note = await exportChecklistExcel(filteredTasks, projectName, BOARD_LABEL[board]);
       setExcelNote({ text: note || `Checklist Excel with ${filteredTasks.length} task${filteredTasks.length === 1 ? '' : 's'} downloaded`, isError: false });
     } catch (err) {
       setExcelNote({ text: `Could not create the checklist Excel: ${err instanceof Error ? err.message : String(err)}`, isError: true });
@@ -331,7 +340,7 @@ function FlowchartScreenContent() {
     setExcelExporting(true);
     setExcelNote(null);
     try {
-      const note = await downloadFlowchartA3Pdf(filteredTasks, filteredSeriesEdges, `${projectName} — Flowchart 2`);
+      const note = await downloadFlowchartA3Pdf(filteredTasks, filteredSeriesEdges, `${projectName} — ${BOARD_LABEL.fc2}`);
       setExcelNote({ text: note || 'A3 PDF created', isError: false });
     } catch (err) {
       setExcelNote({ text: `Could not create the A3 PDF: ${err instanceof Error ? err.message : String(err)}`, isError: true });
@@ -399,7 +408,7 @@ function FlowchartScreenContent() {
                 style={{ minHeight: 36, paddingHorizontal: narrow ? 10 : 16, backgroundColor: active ? (isDark ? '#141414' : '#fff') : 'transparent' }}
               >
                 <Text className="text-xs font-bold" style={{ color: active ? (isDark ? '#F5F5F5' : '#0F1F33') : '#9CA3AF' }}>
-                  {b === 'main' ? 'Flowchart' : b === 'fc2' ? 'Flowchart 2' : b === 'fc3' ? 'Flowchart 3' : 'Flowchart 2 (Test)'}
+                  {BOARD_LABEL[b]}
                 </Text>
               </Pressable>
             );
@@ -730,13 +739,8 @@ function FlowchartScreenContent() {
             </Pressable>
           )}
 
-          {board === 'fc3' && boardView === 'chart' ? (
-            <View className="px-4 py-1.5" style={{ backgroundColor: isDark ? '#1F1A0A' : '#FEF3C7' }}>
-              <Text className="text-2xs font-semibold" style={{ color: isDark ? '#FCD34D' : '#92400E' }}>
-                Flowchart 3 · {data.tasks.length} tasks · flowchart is view only · write reasons for delay in Sheet View
-              </Text>
-            </View>
-          ) : null}
+          {/* The yellow "56 Tasks · view only · write reasons in Sheet View"
+              strip on the 56 Tasks board was removed on request (2026-11-18). */}
           {boardView === 'sheet' && board !== 'main' ? (
             <ChecklistSheetView tasks={sheetTasks} editable={isStaff} userId={profile?.id ?? null} />
           ) : boardView === 'reports' && board !== 'main' && board !== 'fc3' ? (

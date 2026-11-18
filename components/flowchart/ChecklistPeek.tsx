@@ -1,6 +1,6 @@
 import { Pressable, View } from 'react-native';
 import { Text } from '../ui/AppText';
-import { FormModal } from '../ui/FormModal';
+import { FormModal, useBackdropGuard } from '../ui/FormModal';
 import { CHECKLIST_NOTE_FIELDS, type ChecklistNotes } from '../../lib/flowchart/checklistNotes';
 import { ChecklistWheel } from './ChecklistWheel';
 
@@ -9,8 +9,10 @@ import { ChecklistWheel } from './ChecklistWheel';
 // whatever is written. No editing here — that stays in the task sheet's
 // Checklist tab.
 export function ChecklistPeek({ taskName, notes, onClose }: { taskName: string; notes: ChecklistNotes | null; onClose: () => void }) {
+  // Same click-through guard as the DPR / PR pop-up (see useBackdropGuard).
+  const guardedClose = useBackdropGuard(!!notes, onClose);
   return (
-    <FormModal visible={!!notes} onRequestClose={onClose}>
+    <FormModal visible={!!notes} onRequestClose={onClose} onBackdropPress={guardedClose}>
       <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 340 }}>
         <View testID="checklist-peek" className="bg-white rounded-2xl p-4">
           <View className="flex-row items-center gap-2 mb-3">

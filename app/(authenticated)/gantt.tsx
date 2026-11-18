@@ -103,7 +103,7 @@ export default function GanttScreen() {
             icon="calendar-outline"
             iconColor="#9CA3AF"
             title="No tasks yet"
-            subtitle="This project doesn't have any Flowchart 2 tasks to show on the Gantt chart yet."
+            subtitle="This project doesn't have any Current Status tasks to show on the Gantt chart yet."
           />
         )
       ) : (
