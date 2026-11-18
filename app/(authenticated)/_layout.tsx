@@ -5,7 +5,7 @@ import { AppDrawerContent } from '../../components/DrawerContent';
 import { ProjectGate } from '../../components/ProjectGate';
 import { BottomTabBar } from '../../components/BottomTabBar';
 import { colors } from '../../lib/theme';
-import { View } from 'react-native';
+import { useWindowDimensions, View } from 'react-native';
 import { NotificationBell } from '../../components/NotificationBell';
 import { CriticalAlertPopup } from '../../components/CriticalAlertPopup';
 import { useDeviceHeartbeat } from '../../lib/deviceActivity';
@@ -13,6 +13,8 @@ import { useDeviceHeartbeat } from '../../lib/deviceActivity';
 export default function AuthenticatedLayout() {
   const { state } = useAuth();
   useDeviceHeartbeat(state.status === 'signed-in' ? state.profile.id : null);
+  // Side menu width (2026-11-18): wide like Discord's, always leaving a strip of the app.
+  const screenWidth = useWindowDimensions().width;
 
   // Session-restore loading/error states are already handled by the root
   // AuthGate (app/_layout.tsx) before this layout can ever mount — by the
@@ -49,10 +51,11 @@ export default function AuthenticatedLayout() {
         headerTitleStyle: { fontFamily: 'IBMPlexSans_600SemiBold', fontSize: 17 },
         headerTitleContainerStyle: { maxWidth: '62%' },
         headerShadowVisible: false,
-        // Floating rounded menu panel (2026-11-16): the drawer itself is see-through and
-        // Full-height dark frame; AppDrawerContent draws the rounded navy panel + bottom pill inside it (Discord-style).
-        drawerStyle: { backgroundColor: '#070E19', width: 296 },
-        overlayColor: 'rgba(0,0,0,0.45)',
+        // Discord-style menu (2026-11-18): dark background; AppDrawerContent draws the
+        // rounded navy panel + floating profile bar on it. Wide like Discord's, but
+        // always leaves a strip of the app showing so it's clear how to close it.
+        drawerStyle: { backgroundColor: '#060B14', width: Math.min(340, screenWidth - 48) },
+        overlayColor: 'rgba(0,0,0,0.55)',
         // Registered once here (not per-screen) so the bell — and its badge
         // count — stays visible and consistent across every drawer screen,
         // not just Home.

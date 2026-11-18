@@ -171,8 +171,20 @@ export function reportParties(rows: SheetReportRow[]): string[] {
 export const reportTitle = (party?: string | null) => (party ? `${party} Report` : 'Project Status');
 
 /**
+ * Status chips can be combined (2026-11-17, client), e.g. Pending + Upcoming in one report.
+ * Tapping a status turns it on/off; All (or all four picked) = no status filter, i.e. [].
+ */
+export function toggleStatus(cur: ReportStatus[], s: ReportStatus | 'All'): ReportStatus[] {
+  if (s === 'All') return [];
+  const next = cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s];
+  const ordered = REPORT_STATUSES.filter((x) => next.includes(x));
+  return ordered.length === REPORT_STATUSES.length ? [] : ordered;
+}
+
+/**
  * File name that follows the filters (2026-11-16, client), e.g.
- * "ROAST @ Kokapet - Architect - Upcoming Tasks Dependencies - 16 Nov 2026".
+ * "ROAST @ Kokapet - Architect - Upcoming Tasks Dependencies - 16 Nov 2026", or with two
+ * statuses (status = "Pending & Upcoming") "... - Architect - Pending & Upcoming Tasks Dependencies - ...".
  * `extra` = the other filters in use (department, floor, "… written"), added in brackets.
  */
 export function reportFileName(projectName: string, party: string | null, status: string, extra: string[]): string {
@@ -358,7 +370,7 @@ export function sheetReportHtml(
   filterText: string,
   projectCreatedAt?: string | null,
   party?: string | null,
-  oneStatus?: ReportStatus | null
+  picked?: ReportStatus[] | null
 ): string {
   const keepClient = party === 'Client';
   const sum = summarizeReport(rows);
@@ -372,9 +384,9 @@ export function sheetReportHtml(
   const tileOf = (st: ReportStatus) => `<div class="tile"><div class="tl"><i style="background:${STATUS_COLORS[st]}"></i>${st}</div><div class="tv">${sum.byStatus[st]}</div><div class="ts">${pc(sum.byStatus[st], sum.total)}% of tasks</div>
       ${!sum.byStatus[st] ? '' : st === 'In progress' ? `<div class="wbs">${of(st).map((r) => `<div class="wi"><b>${esc(r.taskCode)}</b> · ${esc(r.taskName)}</div>`).join('')}</div>` : `<div class="wbs">${pdfBars(waitingOn(of(st), ['Client']), sum.byStatus[st])}</div>`}</div>`;
   // Layout (2026-11-16): Total | Pending, then [In progress + Completed stacked] | Upcoming,
-  // so the short boxes don't stretch to the tall Upcoming box. One status picked → only its box.
-  const tiles = oneStatus
-    ? tileOf(oneStatus)
+  // so the short boxes don't stretch to the tall Upcoming box. Statuses picked → only their boxes (2026-11-17).
+  const tiles = picked
+    ? picked.map(tileOf).join('')
     : totalTile + tileOf('Pending') + `<div class="stack">${tileOf('In progress')}${tileOf('Completed')}</div>` + tileOf('Upcoming');
 
   // 2. Most delayed + checklist
@@ -411,7 +423,7 @@ export function sheetReportHtml(
   const legend = REPORT_STATUSES.map((st) => `<div class="lg"><i style="background:${STATUS_COLORS[st]}"></i><span>${st}</span><b>${sum.byStatus[st]}</b><em>${pc(sum.byStatus[st], sum.total)}%</em></div>`).join('');
   const deptMax = Math.max(1, ...sum.departments.map((d) => d.total));
   const deptBars = sum.departments.map((d) => pdfBar(d.name, REPORT_STATUSES.map((st) => ({ c: STATUS_COLORS[st], n: d.byStatus[st] })), deptMax, String(d.total))).join('');
-  const keys = REPORT_STATUSES.filter((st) => !oneStatus || st === oneStatus).map((st) => `<span><i style="background:${STATUS_COLORS[st]}"></i>${st}</span>`).join('');
+  const keys = REPORT_STATUSES.filter((st) => !picked || picked.includes(st)).map((st) => `<span><i style="background:${STATUS_COLORS[st]}"></i>${st}</span>`).join('');
 
   const today = new Date();
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(projectName)} — ${esc(reportTitle(party))}</title><style>
@@ -492,12 +504,12 @@ export function sheetReportHtml(
     .foot { margin-top: 8px; font-size: 8px; color: #898781; text-align: right; }
   </style></head><body>
     <div class="head"><div><h1>${esc(projectName)} — ${esc(reportTitle(party))}</h1><div class="sub">${esc(filterText)}</div></div><div class="sub" style="text-align:right">Report generated: <b>${esc(fmtDate(today))}</b></div></div>
-    <div class="tiles${oneStatus ? ' one' : ''}">${tiles}</div>
+    <div class="tiles${picked?.length === 1 ? ' one' : ''}">${tiles}</div>
     ${pdfDependencies('Dependencies for Pending Tasks', of('Pending'), keepClient)}
     ${pdfDependencies('Dependencies for Completed Tasks', of('Completed'), keepClient)}
     ${pdfDependencies('Dependencies for Upcoming Tasks', of('Upcoming'), keepClient)}
     <div style="height:10px"></div>
-    ${party || oneStatus ? '' : `<div class="card"><h2>Tasks by department</h2><div class="keys">${keys}</div>${deptBars}</div>`}
+    ${party || picked ? '' : `<div class="card"><h2>Tasks by department</h2><div class="keys">${keys}</div>${deptBars}</div>`}
   </body></html>`;
 }
 
@@ -509,9 +521,9 @@ export async function printSheetReport(
   projectCreatedAt?: string | null,
   party?: string | null,
   fileName?: string,
-  oneStatus?: ReportStatus | null
+  picked?: ReportStatus[] | null
 ): Promise<void> {
-  let html = sheetReportHtml(rows, projectName, filterText, projectCreatedAt, party, oneStatus);
+  let html = sheetReportHtml(rows, projectName, filterText, projectCreatedAt, party, picked);
   // The browser's "Save as PDF" names the file after the page title, so the title = the file name.
   if (fileName) html = html.replace(/<title>[\s\S]*?<\/title>/, `<title>${esc(fileName)}</title>`);
   if (Platform.OS === 'web') {

@@ -167,11 +167,11 @@ export function buildChecklistWorkbook(tasks: FlowchartTask[], notes: Map<string
   return book;
 }
 
-export async function exportChecklistExcel(tasks: FlowchartTask[], projectName: string): Promise<string> {
+export async function exportChecklistExcel(tasks: FlowchartTask[], projectName: string, boardLabel = 'Flowchart 2'): Promise<string> {
   const notes = await fetchChecklistNotesForTasks(tasks.map((t) => t.id));
   const book = buildChecklistWorkbook(tasks, notes);
   const stamp = new Date().toISOString().slice(0, 10);
-  const baseName = `${(projectName || 'Project').replace(/[^\w@ -]+/g, '').trim()} - Flowchart 2 Checklist ${stamp}`;
+  const baseName = `${(projectName || 'Project').replace(/[^\w@ -]+/g, '').trim()} - ${boardLabel} Checklist ${stamp}`;
   return saveWorkbook(book, baseName, 'Checklist (Excel)');
 }
 

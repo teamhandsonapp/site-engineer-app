@@ -20,6 +20,7 @@ import {
   reportParties,
   reportTitle,
   reportFileName,
+  toggleStatus,
   responsibleText,
   reasonEntries,
   waitingOn,
@@ -217,10 +218,10 @@ function StatusDonut({ byStatus, total }: { byStatus: Record<ReportStatus, numbe
   );
 }
 
-function Legend({ only }: { only?: ReportStatus | null }) {
+function Legend({ only }: { only?: ReportStatus[] | null }) {
   return (
     <View className="flex-row flex-wrap" style={{ gap: 12, marginBottom: 10 }}>
-      {REPORT_STATUSES.filter((s) => !only || s === only).map((s) => (
+      {REPORT_STATUSES.filter((s) => !only || only.includes(s)).map((s) => (
         <View key={s} className="flex-row items-center" style={{ gap: 5 }}>
           <View style={{ width: 10, height: 10, borderRadius: 2, backgroundColor: STATUS_COLORS[s] }} />
           <Text style={{ fontSize: 11, color: INK_2 }}>{s}</Text>
@@ -394,7 +395,10 @@ export function SheetReportView({
 }) {
   const { selectedProjectId } = useProject();
   const [notes, setNotes] = useState<Map<string, ChecklistNotes> | null>(null);
-  const [status, setStatus] = useState<StatusOption>('All');
+  // Status can be more than one (2026-11-17, client): e.g. Pending + Upcoming in one report. [] = All.
+  const [statuses, setStatuses] = useState<ReportStatus[]>([]);
+  const pickStatus = (s: StatusOption) => setStatuses((cur) => toggleStatus(cur, s));
+  const statusOn = (s: StatusOption) => (s === 'All' ? statuses.length === 0 : statuses.includes(s));
   const [point, setPoint] = useState<ChecklistNoteKey | null>(null);
   // Report for one party (2026-11-16): Architect, Consultant (MEP) … — separate from the normal filters.
   const [party, setParty] = useState<string | null>(null);
@@ -420,13 +424,14 @@ export function SheetReportView({
   const rows = useMemo(
     () =>
       (party ? partyRows(allRows, party) : allRows)
-        .filter((r) => (status === 'All' ? true : r.status === status))
+        .filter((r) => statuses.length === 0 || statuses.includes(r.status))
         .filter((r) => (point ? !!r.notes[point]?.trim() : true))
         .map((r, i) => ({ ...r, no: i + 1 })),
-    [allRows, status, point, party]
+    [allRows, statuses, point, party]
   );
   const sum = useMemo(() => summarizeReport(rows), [rows]);
-  const oneStatus: ReportStatus | null = status === 'All' ? null : status;
+  const picked: ReportStatus[] | null = statuses.length ? statuses : null;
+  const statusText = statuses.join(' + '); // "Pending + Upcoming"
   // "Responsible — by who": delayed tasks only, matching the bars in the Pending box (Client hidden there too).
   const delayedReasons = useMemo(
     () => summarizeReport(rows.filter((r) => r.status === 'Pending')).reasons.filter((x) => party === 'Client' || x.who !== 'Client'),
@@ -443,7 +448,7 @@ export function SheetReportView({
   const screenWidth = useWindowDimensions().width;
 
   const filterText =
-    [topFilterText, status !== 'All' ? status : '', point ? `${SHEET_FIELDS.find((f) => f.key === point)?.label} written` : '']
+    [topFilterText, statusText, point ? `${SHEET_FIELDS.find((f) => f.key === point)?.label} written` : '']
       .filter(Boolean)
       .join(' · ') || 'All tasks';
 
@@ -451,7 +456,7 @@ export function SheetReportView({
   const fileName = reportFileName(
     projectName,
     party,
-    status,
+    statuses.length ? statuses.join(' & ') : 'All',
     [topFilterText, point ? `${SHEET_FIELDS.find((f) => f.key === point)?.label} written` : ''].filter(Boolean)
   );
 
@@ -467,7 +472,7 @@ export function SheetReportView({
         const { data: proj } = selectedProjectId
           ? await supabase.from('projects').select('created_at').eq('id', selectedProjectId).maybeSingle()
           : { data: null };
-        await printSheetReport(rows, projectName, filterText, (proj as { created_at?: string } | null)?.created_at ?? null, party, fileName, oneStatus);
+        await printSheetReport(rows, projectName, filterText, (proj as { created_at?: string } | null)?.created_at ?? null, party, fileName, picked);
       }
     } catch (e) {
       setMessage({ text: e instanceof Error ? e.message : String(e), error: true });
@@ -494,7 +499,7 @@ export function SheetReportView({
         <View style={{ flex: 1, minWidth: 220 }}>
           <Text style={{ fontSize: 18, fontWeight: '700', color: INK }}>
             {reportTitle(party)}
-            {party && status !== 'All' ? ` · ${status}` : ''}
+            {party && picked ? ` · ${statusText}` : ''}
           </Text>
           <Text style={{ fontSize: 12, color: INK_2 }}>
             {projectName} · {filterText} · {new Date().toLocaleDateString()}
@@ -539,13 +544,13 @@ export function SheetReportView({
               <Text style={{ fontSize: 11, fontWeight: '700', color: '#7A4B00', width: 86 }}>STATUS</Text>
               {STATUS_OPTIONS.map((s) => {
                 const n = s === 'All' ? partyAll.length : partyAll.filter((r) => r.status === s).length;
-                return <Chip key={s} label={`${s} ${n}`} active={status === s} onPress={() => setStatus(s)} />;
+                return <Chip key={s} label={`${s} ${n}`} active={statusOn(s)} onPress={() => pickStatus(s)} />;
               })}
             </View>
           ) : null}
           {party ? (
             <Text style={{ fontSize: 11, color: '#7A4B00' }}>
-              Only tasks waiting on {party}, with only {party}'s reasons. Tap All for the full Project Status.
+              Only tasks waiting on {party}, with only {party}'s reasons. Tap more than one status to put them in one report, e.g. Pending + Upcoming. Tap All for the full Project Status.
             </Text>
           ) : null}
         </View>
@@ -556,7 +561,7 @@ export function SheetReportView({
         <View className="flex-row flex-wrap items-center" style={{ gap: 6 }}>
           <Text style={{ fontSize: 11, fontWeight: '700', color: MUTED, width: 86 }}>STATUS</Text>
           {STATUS_OPTIONS.map((s) => (
-            <Chip key={s} label={s} active={status === s} onPress={() => setStatus(s)} />
+            <Chip key={s} label={s} active={statusOn(s)} onPress={() => pickStatus(s)} />
           ))}
         </View>
         <View className="flex-row flex-wrap items-center" style={{ gap: 6 }}>
@@ -591,9 +596,9 @@ export function SheetReportView({
       {/* Headline tiles */}
       {/* Tiles keep their own height (a short tile no longer stretches to the Pending tile's). */}
       <View className="flex-row flex-wrap" style={{ gap: 12, alignItems: 'flex-start' }}>
-        {/* One status picked (2026-11-16): only that status's box, no Total or other boxes. */}
-        {oneStatus ? null : <Tile label="Total tasks" value={sum.total} sub="Pending + In progress + Upcoming + Completed" />}
-        {REPORT_STATUSES.filter((s) => !oneStatus || s === oneStatus).map((s) => (
+        {/* Statuses picked (2026-11-16/17): only their boxes, no Total or other boxes. */}
+        {picked ? null : <Tile label="Total tasks" value={sum.total} sub="Pending + In progress + Upcoming + Completed" />}
+        {REPORT_STATUSES.filter((s) => !picked || picked.includes(s)).map((s) => (
           <Tile key={s} label={s} value={sum.byStatus[s]} sub={`${pct(sum.byStatus[s], sum.total)}% of tasks`} color={STATUS_COLORS[s]} >
             {/* Who the tasks are waiting on — Pending and Upcoming (2026-11-16). Client is passed over for the task's next reason. */}
             {s === 'In progress' ? (
@@ -662,10 +667,10 @@ export function SheetReportView({
 
           {/* Status pie + tasks by department, moved to the end of the report (2026-11-16). */}
           {/* Full Project Status only (2026-11-16): hidden for a party report or a single status. */}
-          {party || oneStatus ? null : (
+          {party || picked ? null : (
           <View className="flex-row flex-wrap" style={{ gap: 12 }}>
             <Card title="Tasks by department" subtitle="Each bar split by status" minWidth={420}>
-              <Legend only={oneStatus} />
+              <Legend only={picked} />
               {sum.departments.map((d) => (
                 <BarRow
                   key={d.name}

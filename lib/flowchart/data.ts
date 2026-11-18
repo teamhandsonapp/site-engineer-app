@@ -43,7 +43,12 @@ interface RawTaskRow {
 // are real tasks (DPR, Gantt); each board only shows its own.
 // 'fc2test' = a full copy of Flowchart 2 (codes FC2T-xx, 2026-11-15) for
 // safety: a backup of Flowchart 2 as it was before "Duration (days)" planning.
-export type FlowchartBoard = 'main' | 'fc2' | 'fc2test';
+export type FlowchartBoard = 'main' | 'fc2' | 'fc3' | 'fc2test';
+// Flowchart 3 (2026-11-17, client): the hidden 56-task set as its own tab, so
+// reasons for delay can be written for it in Sheet View (and downloaded as the
+// Checklist Excel). Its flowchart stays view-only, and the tasks stay hidden
+// from DPR, checklists and reports, exactly as before.
+export const FLOWCHART_3_SET: FlowchartSetKey = 'set-56';
 export const FLOWCHART_2_SET = 'flowchart-2';
 export const FLOWCHART_2_TEST_SET = 'flowchart-2-test';
 export function isFlowchart2Set(set: string | null | undefined): boolean {
@@ -146,6 +151,10 @@ async function fetchDependencyRows() {
 // scoping for all four (task_dependencies/task_parallel_links policies were
 // added specifically for this feature, see admin-web/supabase/rls-policies.sql).
 export async function fetchFlowchartData(projectId: string, board: FlowchartBoard = 'main'): Promise<FlowchartData> {
+  if (board === 'fc3') {
+    const [set, taskTypes] = await Promise.all([fetchFlowchartSet(projectId, FLOWCHART_3_SET), fetchTaskTypes()]);
+    return { ...set, taskTypes };
+  }
   // The test board's rows are soft-deleted on purpose (like the archived
   // sets) so DPR, reports, task lists, Gantt and admin-web never show the
   // copies; only this board reads them back, by their own flowchart_set.

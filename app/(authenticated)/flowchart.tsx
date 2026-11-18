@@ -26,6 +26,7 @@ import { FlowchartFilterModal } from '../../components/flowchart/FlowchartFilter
 import { FilteredTaskList } from '../../components/flowchart/FilteredTaskList';
 import { ChecklistSheetView } from '../../components/flowchart/ChecklistSheetView';
 import { SheetReportView } from '../../components/flowchart/SheetReportView';
+import { GanttView } from '../../components/flowchart/GanttView';
 import { matchesStatusFilter, type StatusFilter } from '../../lib/flowchart/sheetStatus';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { FormModal } from '../../components/ui/FormModal';
@@ -135,7 +136,7 @@ function FlowchartScreenContent() {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   // Flowchart 2 extra views: "Sheet View" (the 7 checklist points as an
   // autosaving table) and "Reports" (that sheet as a downloadable report).
-  const [boardView, setBoardView] = useState<'chart' | 'sheet' | 'reports'>('chart');
+  const [boardView, setBoardView] = useState<'chart' | 'sheet' | 'reports' | 'gantt'>('chart');
   const [dateMode, setDateMode] = useState<PlannedDateMode | null>(null);
   const [dateFrom, setDateFrom] = useState<string | null>(null);
   const [dateTo, setDateTo] = useState<string | null>(null);
@@ -315,7 +316,7 @@ function FlowchartScreenContent() {
     setExcelExporting(true);
     setExcelNote(null);
     try {
-      const note = await exportChecklistExcel(filteredTasks, projectName);
+      const note = await exportChecklistExcel(filteredTasks, projectName, board === 'fc3' ? 'Flowchart 3' : 'Flowchart 2');
       setExcelNote({ text: note || `Checklist Excel with ${filteredTasks.length} task${filteredTasks.length === 1 ? '' : 's'} downloaded`, isError: false });
     } catch (err) {
       setExcelNote({ text: `Could not create the checklist Excel: ${err instanceof Error ? err.message : String(err)}`, isError: true });
@@ -379,7 +380,7 @@ function FlowchartScreenContent() {
       <View className="flex-row px-3 pt-2" style={{ backgroundColor: CANVAS_THEMES[canvasTheme].bg }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexShrink: 1 }} contentContainerStyle={{ paddingRight: 8 }}>
         <View className="flex-row rounded-xl p-1" style={{ backgroundColor: isDark ? '#1F1F1F' : '#F1F3F6' }}>
-          {(['fc2', 'fc2test', 'main'] as FlowchartBoard[]).map((b) => {
+          {(['fc2', 'fc3', 'fc2test', 'main'] as FlowchartBoard[]).map((b) => {
             const active = board === b;
             return (
               <Pressable
@@ -388,6 +389,8 @@ function FlowchartScreenContent() {
                 onPress={() => {
                   if (board === b) return;
                   setTaskSet(null);
+                  // Flowchart 3 has Sheet View only (no Project Status / Gantt).
+                  if (b === 'fc3' && boardView !== 'sheet') setBoardView('chart');
                   setBoard(b);
                 }}
                 accessibilityRole="tab"
@@ -396,7 +399,7 @@ function FlowchartScreenContent() {
                 style={{ minHeight: 36, paddingHorizontal: narrow ? 10 : 16, backgroundColor: active ? (isDark ? '#141414' : '#fff') : 'transparent' }}
               >
                 <Text className="text-xs font-bold" style={{ color: active ? (isDark ? '#F5F5F5' : '#0F1F33') : '#9CA3AF' }}>
-                  {b === 'main' ? 'Flowchart' : b === 'fc2' ? 'Flowchart 2' : 'Flowchart 2 (Test)'}
+                  {b === 'main' ? 'Flowchart' : b === 'fc2' ? 'Flowchart 2' : b === 'fc3' ? 'Flowchart 3' : 'Flowchart 2 (Test)'}
                 </Text>
               </Pressable>
             );
@@ -449,7 +452,11 @@ function FlowchartScreenContent() {
           ? ([
               ['sheet', 'Sheet View', 'grid-outline'],
               ['reports', 'Project Status', 'document-text-outline'],
-            ] as const).map(([view, label, icon]) => {
+              // Gantt View (2026-11-17, client): same tasks + links as a day-by-day Gantt chart.
+              ['gantt', 'Gantt View', 'calendar-outline'],
+            ] as const)
+              .filter(([view]) => board !== 'fc3' || view === 'sheet')
+              .map(([view, label, icon]) => {
               const on = boardView === view;
               return (
                 <Pressable
@@ -465,7 +472,7 @@ function FlowchartScreenContent() {
                 >
                   <Ionicons name={on ? 'git-network-outline' : icon} size={15} color={on ? '#fff' : isDark ? '#E5E5E5' : '#374151'} />
                   <Text className="text-xs font-bold" style={{ color: on ? '#fff' : isDark ? '#E5E5E5' : '#374151' }}>
-                    {on ? (narrow ? 'Chart' : 'Flowchart View') : narrow && view === 'sheet' ? 'Sheet' : label}
+                    {on ? (narrow ? 'Chart' : 'Flowchart View') : narrow && view === 'sheet' ? 'Sheet' : narrow && view === 'gantt' ? 'Gantt' : label}
                   </Text>
                 </Pressable>
               );
@@ -539,7 +546,7 @@ function FlowchartScreenContent() {
               </View>
             </Pressable>
           ) : null}
-          {board !== 'main' ? (
+          {board === 'fc2' || board === 'fc2test' ? (
             <Pressable
               testID="flowchart-more-a3pdf"
               onPress={() => {
@@ -631,7 +638,7 @@ function FlowchartScreenContent() {
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color="#0F1F33" />
         </View>
-      ) : !data || (data.tasks.length === 0 && !isStaff) ? (
+      ) : !data || (data.tasks.length === 0 && (!isStaff || board === 'fc3')) ? (
         <EmptyState
           icon="git-network-outline"
           iconColor="#9CA3AF"
@@ -723,9 +730,16 @@ function FlowchartScreenContent() {
             </Pressable>
           )}
 
+          {board === 'fc3' && boardView === 'chart' ? (
+            <View className="px-4 py-1.5" style={{ backgroundColor: isDark ? '#1F1A0A' : '#FEF3C7' }}>
+              <Text className="text-2xs font-semibold" style={{ color: isDark ? '#FCD34D' : '#92400E' }}>
+                Flowchart 3 · {data.tasks.length} tasks · flowchart is view only · write reasons for delay in Sheet View
+              </Text>
+            </View>
+          ) : null}
           {boardView === 'sheet' && board !== 'main' ? (
             <ChecklistSheetView tasks={sheetTasks} editable={isStaff} userId={profile?.id ?? null} />
-          ) : boardView === 'reports' && board !== 'main' ? (
+          ) : boardView === 'reports' && board !== 'main' && board !== 'fc3' ? (
             <SheetReportView
               tasks={sheetTasks}
               projectName={projectName}
@@ -747,6 +761,16 @@ function FlowchartScreenContent() {
                 onOpenFilters: () => setFilterModalOpen(true),
               }}
             />
+          ) : boardView === 'gantt' && board !== 'main' && board !== 'fc3' ? (
+            <GanttView
+              tasks={sheetTasks}
+              allTasks={data.tasks}
+              seriesEdges={data.seriesEdges}
+              projectName={projectName}
+              filterText={[statusFilter, deptFilter, floorFilter, roomFilter, milestoneFilter ? milestones.find((m) => m.id === milestoneFilter)?.name : null, filterSummary.plannedDate]
+                .filter(Boolean)
+                .join(' · ')}
+            />
           ) : hasActiveFilter && viewMode === 'list' ? (
             <FilteredTaskList tasks={filteredTasks} />
           ) : (
@@ -767,7 +791,8 @@ function FlowchartScreenContent() {
               seriesEdges={hasActiveFilter ? filteredSeriesEdges : data.seriesEdges}
               parallelEdges={hasActiveFilter ? filteredParallelEdges : data.parallelEdges}
               taskTypes={data.taskTypes}
-              canEdit={isStaff && !hasActiveFilter}
+              canEdit={isStaff && !hasActiveFilter && board !== 'fc3'}
+              viewOnly={board === 'fc3'}
               canvasTheme={canvasTheme}
               onCanvasThemeChange={setCanvasTheme}
             />

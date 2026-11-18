@@ -37,3 +37,22 @@ describe('report file name', () => {
     expect(reportFileName('P', 'Contractor / Vendor Finalization', 'Pending', [])).not.toContain('/');
   });
 });
+
+import { toggleStatus } from '../flowchart/sheetReport';
+describe('combined statuses (Pending + Upcoming in one report)', () => {
+  it('turns statuses on and off, in the usual order', () => {
+    expect(toggleStatus([], 'Upcoming')).toEqual(['Upcoming']);
+    expect(toggleStatus(['Upcoming'], 'Pending')).toEqual(['Pending', 'Upcoming']);
+    expect(toggleStatus(['Pending', 'Upcoming'], 'Upcoming')).toEqual(['Pending']);
+    expect(toggleStatus(['Pending'], 'Pending')).toEqual([]);
+  });
+  it('All, or all four picked, means no status filter', () => {
+    expect(toggleStatus(['Pending', 'Upcoming'], 'All')).toEqual([]);
+    expect(toggleStatus(['Pending', 'In progress', 'Upcoming'], 'Completed')).toEqual([]);
+  });
+  it('names the file after both statuses', () => {
+    expect(reportFileName('ROAST @ Kokapet', 'Architect', 'Pending & Upcoming', [])).toMatch(
+      /^ROAST @ Kokapet - Architect - Pending & Upcoming Tasks Dependencies - \d{1,2} \w{3} \d{4}$/
+    );
+  });
+});
