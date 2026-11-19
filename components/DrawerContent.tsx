@@ -202,12 +202,12 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
     <View style={{ flex: 1, backgroundColor: PANEL }}>
       {/* Brand */}
       <View
-        className="flex-row items-center gap-3 px-5 pb-4"
-        style={{ paddingTop: topInset + 18, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.08)' }}
+        className="flex-row items-center gap-3 px-4 pb-3.5"
+        style={{ paddingTop: topInset + 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.08)' }}
       >
-        <Logo size={38} />
+        <Logo size={34} />
         <View>
-          <Text className="font-bold tracking-tight text-white" style={{ fontSize: 19 }}>PMC Portal</Text>
+          <Text className="font-bold tracking-tight text-white" style={{ fontSize: 17 }}>PMC Portal</Text>
           <Text className="text-2xs text-white/55 mt-0.5">Construction management</Text>
         </View>
       </View>
@@ -215,7 +215,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
       {/* Nav */}
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 10, paddingTop: 14, paddingBottom: 16 }}
+        contentContainerStyle={{ paddingHorizontal: 8, paddingTop: 10, paddingBottom: 16 }}
         showsVerticalScrollIndicator={false}
       >
         <View className="gap-0.5">
@@ -236,7 +236,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
         className="flex-row items-center gap-3 px-4 pt-3"
         style={{ paddingBottom: bottomInset + 14, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' }}
       >
-        <View className="items-center justify-center rounded-full bg-brand-amber" style={{ width: 38, height: 38 }}>
+        <View className="items-center justify-center rounded-full bg-brand-amber" style={{ width: 34, height: 34 }}>
           <Text className="text-sm font-bold text-brand-navy">{initials}</Text>
         </View>
         <View className="flex-1">
@@ -325,7 +325,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
                         : navigation.navigate(route.name)
                   }
                   className="flex-row items-center gap-3 rounded-xl px-3"
-                  style={{ minHeight: 44, backgroundColor: focused ? 'rgba(255,255,255,0.09)' : 'transparent' }}
+                  style={{ minHeight: 42, backgroundColor: focused ? 'rgba(255,255,255,0.09)' : 'transparent' }}
                 >
                   <Ionicons
                     name={icon}
@@ -333,8 +333,8 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
                     color={focused ? '#F0A227' : 'rgba(255,255,255,0.55)'}
                   />
                   <Text
-                    className="text-base font-medium flex-1"
-                    style={{ color: focused ? '#F0A227' : 'rgba(255,255,255,0.8)' }}
+                    className="font-medium flex-1"
+                    style={{ fontSize: 15, color: focused ? '#F0A227' : 'rgba(255,255,255,0.8)' }}
                   >
                     {label}
                   </Text>
@@ -379,10 +379,10 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
                   <Pressable
                     onPress={() => router.push('/flowchart-templates')}
                     className="flex-row items-center gap-3 rounded-xl px-3"
-                    style={{ minHeight: 44, backgroundColor: 'transparent' }}
+                    style={{ minHeight: 42, backgroundColor: 'transparent' }}
                   >
                     <Ionicons name="albums-outline" size={18} color="rgba(255,255,255,0.55)" />
-                    <Text className="flex-1 text-base font-medium" numberOfLines={1} style={{ color: 'rgba(255,255,255,0.8)' }}>
+                    <Text className="flex-1 font-medium" numberOfLines={1} style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)' }}>
                       Template Kit
                     </Text>
                   </Pressable>
@@ -404,10 +404,10 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
               <Pressable
                 onPress={() => toggleSection('projects')}
                 className="flex-row items-center gap-3 rounded-xl px-3"
-                style={{ minHeight: 44, backgroundColor: 'transparent' }}
+                style={{ minHeight: 42, backgroundColor: 'transparent' }}
               >
                 <Ionicons name="briefcase-outline" size={18} color="rgba(255,255,255,0.55)" />
-                <Text className="text-base font-medium flex-1" style={{ color: 'rgba(255,255,255,0.8)' }}>
+                <Text className="font-medium flex-1" style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)' }}>
                   Projects
                 </Text>
                 <Ionicons
@@ -478,10 +478,10 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
             <Pressable
               onPress={() => router.push('/reports')}
               className="flex-row items-center gap-3 rounded-xl px-3"
-              style={{ minHeight: 44, backgroundColor: 'transparent' }}
+              style={{ minHeight: 42, backgroundColor: 'transparent' }}
             >
               <Ionicons name="stats-chart-outline" size={18} color="rgba(255,255,255,0.55)" />
-              <Text className="text-base font-medium flex-1" style={{ color: 'rgba(255,255,255,0.8)' }}>
+              <Text className="font-medium flex-1" style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)' }}>
                 Status
               </Text>
               <Pressable hitSlop={10} onPress={() => toggleSection('reports')}>

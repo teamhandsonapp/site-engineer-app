@@ -53,9 +53,11 @@ export default function AuthenticatedLayout() {
         headerShadowVisible: false,
         // Standard side menu (2026-11-18): plain navy panel with softly rounded
         // right corners; always leaves a strip of the app showing to tap-close.
+        // Narrower on phones (2026-11-19): about 70% of the screen (272px on a
+        // 390–402px phone) so the app stays visible beside the menu.
         drawerStyle: {
           backgroundColor: '#0F1F33',
-          width: Math.min(300, screenWidth - 56),
+          width: Math.min(272, Math.round(screenWidth * 0.72)),
           borderTopRightRadius: 16,
           borderBottomRightRadius: 16,
           overflow: 'hidden',
