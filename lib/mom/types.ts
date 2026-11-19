@@ -74,9 +74,12 @@ export interface Meeting {
   // Added 2026-11-13. Optional: meetings saved before have neither and still open.
   agenda?: string;
   discussionItems?: DiscussionItem[];
-  // Chosen in the Create/Edit form. Placeholder only for now — the real
-  // Google Calendar integration will read this flag later.
+  // Chosen in the Create/Edit form: put the meeting in the company Google
+  // Calendar (lib/mom/googleCalendar.ts). The fields below record the result.
   addToCalendar?: boolean;
+  calendarEventId?: string | null; // set once Google has the event
+  calendarLink?: string | null; // the event's page in Google Calendar
+  calendarError?: string | null; // last sync failure, shown with Retry
   projectId: string;
   title: string;
   date: string; // 'YYYY-MM-DD'

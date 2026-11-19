@@ -20,7 +20,9 @@ import {
   inviteMessage,
   meetingEnd,
   meetingStart,
+  openLink,
 } from '../../lib/mom/share';
+import { calendarGuestCount, meetingEventInput, removeMeetingFromCalendar, syncMeetingToCalendar } from '../../lib/mom/googleCalendar';
 import { todayIST } from '../../lib/mom/taskData';
 import { AGENDA_MAX, type AttendanceMark, type DiscussionItem, type Meeting, type MomProjectData, type Recipient, type SendChannel } from '../../lib/mom/types';
 import { AgendaOverview } from './AgendaOverview';
@@ -74,6 +76,47 @@ export function MeetingTab({
     [data.meetings]
   );
 
+  // Google Calendar (2026-11-19): meetings whose event is being created/moved right now.
+  const [calendarBusy, setCalendarBusy] = useState<Set<string>>(new Set());
+  const [listNotice, setListNotice] = useState<string | null>(null);
+  const setBusy = (id: string, on: boolean) =>
+    setCalendarBusy((s) => {
+      const next = new Set(s);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  const patchMeeting = (id: string, patch: Partial<Meeting>) =>
+    update((d) => ({ ...d, meetings: d.meetings.map((x) => (x.id === id ? { ...x, ...patch } : x)) })).catch(() => {});
+
+  // Puts the meeting in Google Calendar (or takes it out when switched off).
+  // Never blocks saving: a failure is stored on the meeting and shown with Retry.
+  async function syncCalendar(m: Meeting, previous: Meeting | null, force = false) {
+    if (!m.addToCalendar) {
+      if (!previous?.calendarEventId) return;
+      setBusy(m.id, true);
+      const r = await removeMeetingFromCalendar(m.id);
+      setBusy(m.id, false);
+      await patchMeeting(m.id, r.ok ? { calendarEventId: null, calendarLink: null, calendarError: null } : { calendarError: r.error });
+      return;
+    }
+    // Nothing Google shows has changed: skip, so invitees don't get a needless "updated" email.
+    const same =
+      previous?.calendarEventId &&
+      !previous.calendarError &&
+      JSON.stringify(meetingEventInput(previous, projectName)) === JSON.stringify(meetingEventInput(m, projectName));
+    if (same && !force) return;
+    setBusy(m.id, true);
+    const r = await syncMeetingToCalendar(m, projectName);
+    setBusy(m.id, false);
+    await patchMeeting(
+      m.id,
+      r.ok
+        ? { calendarEventId: r.eventId, calendarLink: r.htmlLink, calendarError: null, calendarAddedAtISO: m.calendarAddedAtISO ?? new Date().toISOString() }
+        : { calendarError: r.error }
+    );
+  }
+
   if (view.kind === 'form') {
     return (
       <MeetingForm
@@ -89,6 +132,8 @@ export function MeetingTab({
           setView({ kind: 'detail', id: m.id });
           // No automatic WhatsApp send on save: invites go out only from the
           // Invite card's button (one send path, no duplicate messages).
+          // Google Calendar runs after the save, without holding up the screen.
+          void syncCalendar(m, view.editing);
         }}
         me={me}
       />
@@ -117,12 +162,20 @@ export function MeetingTab({
           setView({ kind: 'list' });
         }}
         onEdit={() => setView({ kind: 'form', editing: m })}
+        calendarBusy={calendarBusy.has(m.id)}
+        onCalendarRetry={() => syncCalendar(m, null, true)}
         onDelete={async () => {
           try {
             await update((d) => ({ ...d, meetings: d.meetings.filter((x) => x.id !== m.id) }));
             setView({ kind: 'list' });
           } catch (err) {
             setSaveError(`Couldn't delete the meeting — ${err instanceof Error ? err.message : 'storage error'}.`);
+            return;
+          }
+          // Cancel the Google event too (Google emails the cancellation).
+          if (m.calendarEventId) {
+            const r = await removeMeetingFromCalendar(m.id);
+            setListNotice(r.ok ? 'Meeting deleted and removed from Google Calendar.' : `Meeting deleted, but it's still in Google Calendar: ${r.error}. Delete it there by hand.`);
           }
         }}
         onChange={(patch) =>
@@ -145,6 +198,11 @@ export function MeetingTab({
 
   return (
     <View>
+      {listNotice && (
+        <Banner tone={listNotice.startsWith("Meeting deleted, but") ? 'error' : 'ok'} onClose={() => setListNotice(null)}>
+          {listNotice}
+        </Banner>
+      )}
       <View className="mb-4">
         <Button label="Create meeting" icon="add-circle-outline" onPress={() => setView({ kind: 'form', editing: null })} />
       </View>
@@ -341,7 +399,7 @@ function MeetingForm({
             ))}
           </Row>
         </View>
-        {/* Google Calendar — chosen while creating. Placeholder: saves the choice only. */}
+        {/* Google Calendar — chosen while creating; synced after Save (syncCalendar). */}
         <Pressable
           testID="meeting-calendar-toggle"
           onPress={() => setAddToCalendar((v) => !v)}
@@ -353,7 +411,7 @@ function MeetingForm({
           <Ionicons name="calendar-outline" size={18} color={NAVY} />
           <View className="flex-1">
             <Text className="text-sm font-semibold text-neutral-900">Add to Google Calendar</Text>
-            <Text className="text-2xs text-neutral-500">Calendar sync is coming soon — your choice is saved with the meeting.</Text>
+            <Text className="text-2xs text-neutral-500">Adds it to the company Google Calendar and emails the invite to everyone with an email address.</Text>
           </View>
           {/* The whole row is the toggle; the switch is display-only so one tap = one change. */}
           <View pointerEvents="none">
@@ -471,6 +529,8 @@ function MeetingDetail({
   onChange,
   saveError,
   clearSaveError,
+  calendarBusy,
+  onCalendarRetry,
 }: {
   meeting: Meeting;
   projectName: string;
@@ -480,6 +540,8 @@ function MeetingDetail({
   onBack: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  calendarBusy: boolean;
+  onCalendarRetry: () => void;
   // Resolves false (and shows saveError) if the change couldn't be stored.
   onChange: (patch: (m: Meeting) => Partial<Meeting>) => Promise<boolean>;
   saveError: string | null;
@@ -525,15 +587,20 @@ function MeetingDetail({
         <Text className="text-xs text-neutral-600">📍 {m.venue}</Text>
         {m.notes ? <Text className="text-xs text-neutral-500 mt-1">{m.notes}</Text> : null}
         <View className="flex-row items-center gap-2 mt-3">
-          {/* Google Calendar is chosen in the Create/Edit form (placeholder until the integration lands). */}
-          <View testID="meeting-detail-calendar" className="flex-1 flex-row items-center gap-1.5">
-            <Ionicons name="calendar-outline" size={14} color={m.addToCalendar ? '#16A34A' : '#9CA3AF'} />
-            <Text className="text-2xs" style={{ color: m.addToCalendar ? '#15803D' : '#6B7280' }} numberOfLines={2}>
-              {m.addToCalendar ? 'Google Calendar: on (sync coming soon)' : 'Google Calendar: off'}
-            </Text>
-          </View>
+          <CalendarStatus meeting={m} busy={calendarBusy} />
           <Button small label="Edit" icon="create-outline" variant="secondary" onPress={onEdit} />
         </View>
+        {/* Retry / add now: failed sync, or a meeting saved before the integration existed. */}
+        {m.addToCalendar && !calendarBusy && (m.calendarError || !m.calendarEventId) && (
+          <View className="flex-row gap-2 mt-2">
+            <Button small label={m.calendarError ? 'Retry Google Calendar' : 'Add to Google Calendar now'} icon="refresh" variant="secondary" onPress={onCalendarRetry} />
+          </View>
+        )}
+        {m.addToCalendar && !calendarBusy && m.calendarEventId && !m.calendarError && m.calendarLink && (
+          <View className="flex-row gap-2 mt-2">
+            <Button small label="Open in Google Calendar" icon="open-outline" variant="secondary" onPress={() => openLink(m.calendarLink!)} />
+          </View>
+        )}
       </Card>
 
       <View className="flex-row rounded-xl bg-neutral-100 p-1 mb-3">
@@ -608,7 +675,29 @@ function MeetingDetail({
   );
 }
 
-function SendLog({ meeting, what }: { meeting: Meeting; what: 'invite' | 'agenda-request' | 'final-agenda' }) {
+// One line under the meeting header: where the Google Calendar event stands.
+function CalendarStatus({ meeting: m, busy }: { meeting: Meeting; busy: boolean }) {
+  const guests = calendarGuestCount(m);
+  const [color, text, icon]: [string, string, keyof typeof Ionicons.glyphMap] = !m.addToCalendar
+    ? ['#6B7280', 'Google Calendar: off', 'calendar-outline']
+    : busy
+      ? ['#6B7280', 'Updating Google Calendar…', 'sync-outline']
+      : m.calendarError
+        ? ['#DC2626', `Not in Google Calendar: ${m.calendarError}`, 'alert-circle-outline']
+        : m.calendarEventId
+          ? ['#15803D', `In Google Calendar · invite emailed to ${guests} ${guests === 1 ? 'person' : 'people'}${guests < m.invitees.length ? ` (${m.invitees.length - guests} without email)` : ''}`, 'checkmark-circle-outline']
+          : ['#6B7280', 'Google Calendar: not added yet', 'calendar-outline'];
+  return (
+    <View testID="meeting-detail-calendar" className="flex-1 flex-row items-center gap-1.5">
+      <Ionicons name={icon} size={14} color={color} />
+      <Text className="text-2xs flex-1" style={{ color }} numberOfLines={3}>
+        {text}
+      </Text>
+    </View>
+  );
+}
+
+function SendLog({ meeting, what }:{ meeting: Meeting; what: 'invite' | 'agenda-request' | 'final-agenda' }) {
   const entries = meeting.sendLog.filter((l) => l.what === what);
   if (entries.length === 0) return null;
   const names = new Map(meeting.invitees.map((i) => [i.key, i.name]));

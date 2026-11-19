@@ -42,6 +42,7 @@ const BOARD_LABEL: Record<FlowchartBoard, string> = {
   fc2: 'Current Status',
   fc3: '56 Tasks',
   fc2test: 'Copy',
+  past: 'Past Tasks',
   main: 'Main Flowchart',
 };
 const SHOW_SETS_KEY = 'flowchart:showOldVersions';
@@ -340,7 +341,7 @@ function FlowchartScreenContent() {
     setExcelExporting(true);
     setExcelNote(null);
     try {
-      const note = await downloadFlowchartA3Pdf(filteredTasks, filteredSeriesEdges, `${projectName} — ${BOARD_LABEL.fc2}`);
+      const note = await downloadFlowchartA3Pdf(filteredTasks, filteredSeriesEdges, `${projectName} — ${BOARD_LABEL[board]}`);
       setExcelNote({ text: note || 'A3 PDF created', isError: false });
     } catch (err) {
       setExcelNote({ text: `Could not create the A3 PDF: ${err instanceof Error ? err.message : String(err)}`, isError: true });
@@ -389,7 +390,7 @@ function FlowchartScreenContent() {
       <View className="flex-row px-3 pt-2" style={{ backgroundColor: CANVAS_THEMES[canvasTheme].bg }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexShrink: 1 }} contentContainerStyle={{ paddingRight: 8 }}>
         <View className="flex-row rounded-xl p-1" style={{ backgroundColor: isDark ? '#1F1F1F' : '#F1F3F6' }}>
-          {(['fc2', 'fc3', 'fc2test', 'main'] as FlowchartBoard[]).map((b) => {
+          {(['fc2', 'fc3', 'fc2test', 'past', 'main'] as FlowchartBoard[]).map((b) => {
             const active = board === b;
             return (
               <Pressable
@@ -555,7 +556,7 @@ function FlowchartScreenContent() {
               </View>
             </Pressable>
           ) : null}
-          {board === 'fc2' || board === 'fc2test' ? (
+          {board === 'fc2' || board === 'fc2test' || board === 'past' ? (
             <Pressable
               testID="flowchart-more-a3pdf"
               onPress={() => {

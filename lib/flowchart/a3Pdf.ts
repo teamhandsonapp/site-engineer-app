@@ -209,6 +209,8 @@ function pageHtml(
   const nameFs = Math.max(9, Math.min(CH * 0.14, CW * 0.075, 15));
   const chipFs = Math.max(7.5, Math.min(nameFs * 0.8, 11));
   const deptFs = Math.max(7, nameFs * 0.78);
+  // Task ID (e.g. "CIV-05"), top-left inside the card like the board (2026-11-19).
+  const idFs = Math.max(7.5, Math.min(nameFs * 0.8, 11));
 
   const pos = new Map(items.map((p) => [p.task.id, { x: M + offX + colOf(p.x) * colW + GAP_X / 2, y: TOP + rowOf(p.y) * rowH + padY }]));
   const boxes: Box[] = items.map((p) => ({ id: p.task.id, x: pos.get(p.task.id)!.x, y: pos.get(p.task.id)!.y, w: CW, h: CH }));
@@ -220,7 +222,10 @@ function pageHtml(
       const p = pos.get(t.id)!;
       const actual = formatActualDateRange(t.actualStartDate, t.actualEndDate);
       const wheel = checklistWheelSvg(notesOf.get(t.id), Math.max(12, Math.min(CH * 0.2, 18)));
-      return `<div class="card" style="left:${p.x}px;top:${p.y}px;width:${CW}px;height:${CH}px">${wheel}
+      const tid = t.taskId?.trim()
+        ? `<div class="tid" style="font-size:${idFs}px;line-height:${idFs * 1.2}px;max-width:${CW * 0.6}px">${esc(t.taskId.trim())}</div>`
+        : '';
+      return `<div class="card" style="left:${p.x}px;top:${p.y}px;width:${CW}px;height:${CH}px;padding-top:${tid ? idFs * 1.2 + 4 : 2}px">${wheel}${tid}
   <div class="chips" style="font-size:${chipFs}px"><span class="chip plan">${esc(formatCardDateRange(t.plannedStartDate, t.dueDate))}</span>${actual ? `<span class="chip act">${esc(actual)}</span>` : ''}${estOf.get(t.id) ? `<span class="chip est">${esc(estOf.get(t.id)!)}</span>` : ''}</div>
   <div class="name" style="font-size:${nameFs}px;line-height:${nameFs * 1.17}px">${esc(t.taskName.trim())}</div>
   ${t.workName && t.workName !== 'Unassigned' ? `<div class="dept" style="font-size:${deptFs}px;line-height:${deptFs * 1.2}px">${esc(t.workName)}</div>` : ''}
@@ -339,6 +344,7 @@ export function buildFlowchartA3Html(
   svg { position: absolute; left: 0; top: 0; }
   svg.top { z-index: 3; }
   svg.wheel { left: auto; top: 3px; right: 3px; }
+  .tid { position: absolute; top: 4px; left: 8px; font-weight: 800; color: #1F2937; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
   .card { position: absolute; background: #FFFFFF; border: 1.3px solid #1F2937; border-radius: 8px; padding: 2px 6px; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; text-align: center; }
   .chips { display: flex; gap: 2px 3px; justify-content: center; flex-wrap: wrap; margin-bottom: 2px; }
   .chip { border-radius: 8px; padding: 0 6px; font-size: inherit; line-height: 1.3; font-weight: 700; white-space: nowrap; }

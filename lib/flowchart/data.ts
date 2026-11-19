@@ -43,7 +43,11 @@ interface RawTaskRow {
 // are real tasks (DPR, Gantt); each board only shows its own.
 // 'fc2test' = a full copy of Flowchart 2 (codes FC2T-xx, 2026-11-15) for
 // safety: a backup of Flowchart 2 as it was before "Duration (days)" planning.
-export type FlowchartBoard = 'main' | 'fc2' | 'fc3' | 'fc2test';
+// 'past' = Past Tasks (2026-11-19, client): the finished July–October work from
+// the "65Tasks" checklist sheet, set 'past-tasks' (supabase/past-tasks.sql).
+// Works like the Copy board: editable, linked with Select → Link, and its rows
+// are soft-deleted so DPR, reports, task lists and Gantt never show them.
+export type FlowchartBoard = 'main' | 'fc2' | 'fc3' | 'fc2test' | 'past';
 // Flowchart 3 (2026-11-17, client): the hidden 56-task set as its own tab, so
 // reasons for delay can be written for it in Sheet View (and downloaded as the
 // Checklist Excel). Its flowchart stays view-only, and the tasks stay hidden
@@ -51,11 +55,17 @@ export type FlowchartBoard = 'main' | 'fc2' | 'fc3' | 'fc2test';
 export const FLOWCHART_3_SET: FlowchartSetKey = 'set-56';
 export const FLOWCHART_2_SET = 'flowchart-2';
 export const FLOWCHART_2_TEST_SET = 'flowchart-2-test';
+export const PAST_TASKS_SET = 'past-tasks';
+// Boards that look and work like Flowchart 2 (cards, Select → Link, sheet view).
 export function isFlowchart2Set(set: string | null | undefined): boolean {
-  return set === FLOWCHART_2_SET || set === FLOWCHART_2_TEST_SET;
+  return set === FLOWCHART_2_SET || set === FLOWCHART_2_TEST_SET || set === PAST_TASKS_SET;
+}
+// Boards whose rows are kept soft-deleted, so only that board shows them.
+function isHiddenBoardSet(set: string | null | undefined): boolean {
+  return set === FLOWCHART_2_TEST_SET || set === PAST_TASKS_SET;
 }
 export function flowchartSetForBoard(board: FlowchartBoard): string | null {
-  return board === 'fc2' ? FLOWCHART_2_SET : board === 'fc2test' ? FLOWCHART_2_TEST_SET : null;
+  return board === 'fc2' ? FLOWCHART_2_SET : board === 'fc2test' ? FLOWCHART_2_TEST_SET : board === 'past' ? PAST_TASKS_SET : null;
 }
 
 interface RawDependencyRow {
@@ -158,10 +168,10 @@ export async function fetchFlowchartData(projectId: string, board: FlowchartBoar
   // The test board's rows are soft-deleted on purpose (like the archived
   // sets) so DPR, reports, task lists, Gantt and admin-web never show the
   // copies; only this board reads them back, by their own flowchart_set.
-  const tasksQuery =
-    board === 'fc2test'
-      ? supabase.from('tasks').select(TASK_SELECT).eq('work.project_id', projectId).eq('flowchart_set', FLOWCHART_2_TEST_SET)
-      : supabase.from('tasks').select(TASK_SELECT).eq('work.project_id', projectId).is('deleted_at', null);
+  const boardSet = flowchartSetForBoard(board);
+  const tasksQuery = isHiddenBoardSet(boardSet)
+    ? supabase.from('tasks').select(TASK_SELECT).eq('work.project_id', projectId).eq('flowchart_set', boardSet!)
+    : supabase.from('tasks').select(TASK_SELECT).eq('work.project_id', projectId).is('deleted_at', null);
   const [tasksRes, depsRes, parallelRes, typesRes] = await Promise.all([
     tasksQuery,
     fetchDependencyRows(),
@@ -523,6 +533,8 @@ export async function createTask(input: CreateTaskInput): Promise<FlowchartTask>
       work_id: input.workId,
       status: 'draft',
       flowchart_set: input.flowchartSet ?? null,
+      // A task added on Past Tasks stays off DPR / reports like the rest of that board.
+      ...(input.flowchartSet === PAST_TASKS_SET ? { deleted_at: new Date().toISOString() } : {}),
       // Task.updatedAt is `@updatedAt` in Prisma — a client-side ORM
       // timestamp, not a Postgres column default. A direct PostgREST
       // insert (this call) bypasses Prisma entirely, so it must be
@@ -614,6 +626,7 @@ export async function duplicateTask(sourceTaskId: string): Promise<FlowchartTask
       hidden_from_flowchart: source.hidden_from_flowchart,
       // A copy stays on the same board (original flowchart or Flowchart 2).
       flowchart_set: isFlowchart2Set(source.flowchart_set) ? source.flowchart_set : null,
+      ...(source.flowchart_set === PAST_TASKS_SET ? { deleted_at: new Date().toISOString() } : {}),
       manual_position_x: manualPositionX,
       manual_position_y: manualPositionY,
       status: 'draft',
