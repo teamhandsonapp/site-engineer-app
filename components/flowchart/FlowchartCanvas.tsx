@@ -103,7 +103,11 @@ export function FlowchartCanvas({
   viewOnly = false,
   flowchartSet = null,
   viewMemory,
+  uniqueTaskCount,
 }: {
+  // Boards that draw some tasks twice (Past Tasks date order): the real task
+  // count for the corner chip; the "Task N of M" chip is hidden.
+  uniqueTaskCount?: number;
   // See CanvasViewMemory — lets a refresh keep the current zoom/position.
   viewMemory?: { current: CanvasViewMemory };
   // Board new tasks are created on ('flowchart-2' for the Flowchart 2 tab).
@@ -1792,7 +1796,9 @@ export function FlowchartCanvas({
             manually counting boxes. */}
         <View className="bg-white rounded-full border border-neutral-200 px-2.5 py-1.5" style={{ elevation: 3 }}>
           <Text className="text-2xs font-bold text-neutral-700">
-            {focusedMilestone ? `${focusedMilestoneTaskCount} of ${tasks.length}` : `${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
+            {focusedMilestone
+              ? `${focusedMilestoneTaskCount} of ${tasks.length}`
+              : `${uniqueTaskCount ?? tasks.length} task${(uniqueTaskCount ?? tasks.length) === 1 ? '' : 's'}`}
           </Text>
         </View>
         <View className="flex-row gap-1.5 bg-white rounded-full border border-neutral-200 px-2 py-1.5" style={{ elevation: 3 }}>
@@ -1900,9 +1906,11 @@ export function FlowchartCanvas({
         >
           <Ionicons name="search-outline" size={18} color="#0F1F33" />
         </Pressable>
-        <View className="bg-white rounded-full border border-neutral-200 px-2.5 py-1.5" style={{ elevation: 3 }}>
-          <Text className="text-2xs font-bold text-neutral-700">Task {currentRow} of {tasks.length}</Text>
-        </View>
+        {uniqueTaskCount == null && (
+          <View className="bg-white rounded-full border border-neutral-200 px-2.5 py-1.5" style={{ elevation: 3 }}>
+            <Text className="text-2xs font-bold text-neutral-700">Task {currentRow} of {tasks.length}</Text>
+          </View>
+        )}
       </View>
 
       {searchOpen && (

@@ -164,7 +164,9 @@ export function EdgeLayer({
       return { edge: e, route: r, from: run.from, to: run.to, warning: e.soft ? null : linkDateWarning(e.type, from, to) };
     })
     .filter((v): v is NonNullable<typeof v> => v !== null);
-  const labelPos = showLabels ? placeLabels(seriesLines.map((l) => ({ id: l.edge.id, from: l.from, to: l.to })), nodeScale) : new Map();
+  const labelPos = showLabels
+    ? placeLabels(seriesLines.filter((l) => !l.edge.hideLabel).map((l) => ({ id: l.edge.id, from: l.from, to: l.to })), nodeScale)
+    : new Map();
 
   const parallelLines = parallelEdges
     .map((e) => {
@@ -183,8 +185,8 @@ export function EdgeLayer({
         {seriesLines.map(({ edge, route: r }) => {
           const style = LINK_STYLE[edge.type];
           if (edge.soft) {
-            // Soft link: thin grey dashed line, reference only.
-            return <Polyline key={edge.id} points={pts(r)} fill="none" stroke={SOFT_LINK_COLOR} strokeWidth={1.5} strokeDasharray="6,4" />;
+            // Soft link: thin dashed line (grey unless coloured), reference only.
+            return <Polyline key={edge.id} points={pts(r)} fill="none" stroke={edge.color ?? SOFT_LINK_COLOR} strokeWidth={edge.color ? 2 : 1.5} strokeDasharray="6,4" />;
           }
           if (style.double) {
             // SS: two parallel lines, 2.5px either side of the route.
@@ -206,7 +208,7 @@ export function EdgeLayer({
           );
         })}
         {seriesLines.map(({ edge, route: r }) => (
-          <Polygon key={`arrow-${edge.id}`} points={arrowheadPoints(r, nodeScale)} fill={edge.soft ? SOFT_LINK_COLOR : LINK_COLOR} />
+          <Polygon key={`arrow-${edge.id}`} points={arrowheadPoints(r, nodeScale)} fill={edge.soft ? (edge.color ?? SOFT_LINK_COLOR) : LINK_COLOR} />
         ))}
         {parallelLines.map(({ edge, route: r }) => (
           <Polyline key={edge.id} points={pts(r)} fill="none" stroke={PARALLEL_EDGE_COLOR} strokeWidth={2} strokeDasharray="6,5" />

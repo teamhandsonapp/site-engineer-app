@@ -17,6 +17,7 @@ import {
 import { exportFilteredTasksPdf, printFilteredTasks } from '../../lib/flowchart/filterExport';
 import { exportChecklistExcel, exportFlowchartExcel } from '../../lib/flowchart/excelExport';
 import { downloadFlowchartA3Pdf } from '../../lib/flowchart/a3Pdf';
+import { buildDateOrderBoard } from '../../lib/flowchart/dateOrder';
 import { fetchMilestones, type Milestone } from '../../lib/flowchart/milestones';
 import { CANVAS_THEMES, type CanvasTheme } from '../../components/flowchart/GridBackground';
 import { matchesPlannedDateFilter, PLANNED_DATE_MODE_LABEL, type PlannedDateMode } from '../../lib/flowchart/plannedDateFilter';
@@ -146,7 +147,8 @@ function FlowchartScreenContent() {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   // Flowchart 2 extra views: "Sheet View" (the 7 checklist points as an
   // autosaving table) and "Reports" (that sheet as a downloadable report).
-  const [boardView, setBoardView] = useState<'chart' | 'sheet' | 'reports' | 'gantt'>('chart');
+  // 'dates' = Past Tasks "Date Order" (planned order left, actual order right).
+  const [boardView, setBoardView] = useState<'chart' | 'sheet' | 'reports' | 'gantt' | 'dates'>('chart');
   const [dateMode, setDateMode] = useState<PlannedDateMode | null>(null);
   const [dateFrom, setDateFrom] = useState<string | null>(null);
   const [dateTo, setDateTo] = useState<string | null>(null);
@@ -281,6 +283,15 @@ function FlowchartScreenContent() {
   // Sheet View / Reports: "Stack - Task name" (stack = the column's black heading).
   // Stack-name prefix removed (2026-11-16, client): plain task names in Sheet View / Reports.
   const sheetTasks = columnTasks;
+  // Canvases remount on every filter change — FlowchartCanvas seeds its own
+  // position/zoom state from initialTasks ONCE at mount (useMemo/useState
+  // with an empty dep array), so swapping the prop alone would silently keep
+  // showing the old task set.
+  const canvasFilterKey = hasActiveFilter
+    ? `filtered-${statusFilter}-${floorFilter}-${deptFilter}-${roomFilter}-${milestoneFilter}-${dateMode}-${dateFrom}-${dateTo}`
+    : 'unfiltered';
+  // Past Tasks "Date Order": planned order (left) beside actual order (right). Display only.
+  const dateOrder = board === 'past' && boardView === 'dates' ? buildDateOrderBoard(filteredTasks) : null;
   const filteredSeriesEdges = (data?.seriesEdges ?? []).filter((e) => filteredTaskIds.has(e.taskId) && filteredTaskIds.has(e.dependsOnTaskId));
   const filteredParallelEdges = (data?.parallelEdges ?? []).filter((e) => filteredTaskIds.has(e.taskAId) && filteredTaskIds.has(e.taskBId));
   const filterSummary = {
@@ -401,6 +412,9 @@ function FlowchartScreenContent() {
                   setTaskSet(null);
                   // Flowchart 3 has Sheet View only (no Project Status / Gantt).
                   if (b === 'fc3' && boardView !== 'sheet') setBoardView('chart');
+                  // Past Tasks opens on Date Order (2026-11-20, client); it exists only there.
+                  if (b === 'past') setBoardView('dates');
+                  else if (boardView === 'dates') setBoardView('chart');
                   setBoard(b);
                 }}
                 accessibilityRole="tab"
@@ -460,12 +474,15 @@ function FlowchartScreenContent() {
         ) : null}
         {taskSet === null && board !== 'main' && data && data.tasks.length > 0
           ? ([
+              // Past Tasks only: planned order beside actual order.
+              ['dates', 'Date Order', 'swap-horizontal-outline'],
               ['sheet', 'Sheet View', 'grid-outline'],
               ['reports', 'Project Status', 'document-text-outline'],
               // Gantt View (2026-11-17, client): same tasks + links as a day-by-day Gantt chart.
               ['gantt', 'Gantt View', 'calendar-outline'],
             ] as const)
               .filter(([view]) => board !== 'fc3' || view === 'sheet')
+              .filter(([view]) => view !== 'dates' || board === 'past')
               .map(([view, label, icon]) => {
               const on = boardView === view;
               return (
@@ -482,7 +499,7 @@ function FlowchartScreenContent() {
                 >
                   <Ionicons name={on ? 'git-network-outline' : icon} size={15} color={on ? '#fff' : isDark ? '#E5E5E5' : '#374151'} />
                   <Text className="text-xs font-bold" style={{ color: on ? '#fff' : isDark ? '#E5E5E5' : '#374151' }}>
-                    {on ? (narrow ? 'Chart' : 'Flowchart View') : narrow && view === 'sheet' ? 'Sheet' : narrow && view === 'gantt' ? 'Gantt' : label}
+                    {on ? (narrow ? 'Chart' : 'Flowchart View') : narrow && view === 'sheet' ? 'Sheet' : narrow && view === 'gantt' ? 'Gantt' : narrow && view === 'dates' ? 'Dates' : label}
                   </Text>
                 </Pressable>
               );
@@ -778,17 +795,24 @@ function FlowchartScreenContent() {
             />
           ) : hasActiveFilter && viewMode === 'list' ? (
             <FilteredTaskList tasks={filteredTasks} />
+          ) : dateOrder ? (
+            <FlowchartCanvas
+              key={`dates-${canvasFilterKey}-r${refreshKey}`}
+              projectId={selectedProjectId}
+              viewMemory={viewMemory}
+              initialTasks={dateOrder.tasks}
+              seriesEdges={dateOrder.edges}
+              parallelEdges={[]}
+              taskTypes={data.taskTypes}
+              canEdit={false}
+              viewOnly
+              uniqueTaskCount={filteredTasks.length}
+              canvasTheme={canvasTheme}
+              onCanvasThemeChange={setCanvasTheme}
+            />
           ) : (
             <FlowchartCanvas
-              // Remounts on every filter change — FlowchartCanvas seeds its
-              // own position/zoom state from initialTasks ONCE at mount
-              // (useMemo/useState with an empty dep array), so swapping the
-              // prop alone would silently keep showing the old task set.
-              key={`${board}-${
-                hasActiveFilter
-                  ? `filtered-${statusFilter}-${floorFilter}-${deptFilter}-${roomFilter}-${milestoneFilter}-${dateMode}-${dateFrom}-${dateTo}`
-                  : 'unfiltered'
-              }-r${refreshKey}`}
+              key={`${board}-${canvasFilterKey}-r${refreshKey}`}
               projectId={selectedProjectId}
               viewMemory={viewMemory}
               flowchartSet={flowchartSetForBoard(board)}

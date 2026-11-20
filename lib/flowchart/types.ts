@@ -79,6 +79,10 @@ export interface FlowchartSeriesEdge {
   type: DependencyType;
   /** Soft link: drawn for reference only (grey dashed) — no date push, no warning. */
   soft?: boolean;
+  /** Soft links only: line colour instead of grey (Past Tasks date-order arrows). */
+  color?: string;
+  /** Draw the line without its FS/SS/… chip (display-only arrows). */
+  hideLabel?: boolean;
 }
 
 // Parallel link (task_parallel_links) — symmetric, non-blocking, visual only.
