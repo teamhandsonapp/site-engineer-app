@@ -414,7 +414,10 @@ export function SheetReportView({
   pageFilters,
   stages = false,
   copiedTaskIds,
+  pastMilestones,
 }: {
+  /** Past Tasks (2026-11-21): the 4 client milestones; one picked → the report covers only its tasks. */
+  pastMilestones?: { options: { value: string; label: string }[]; value: string | null; onChange: (v: string | null) => void };
   /** Past Tasks (2026-11-21): Pre-construction and Construction delays reported separately. */
   stages?: boolean;
   /** Past Works: the Current Status tasks copied onto that board — their
@@ -501,12 +504,16 @@ export function SheetReportView({
       .filter(Boolean)
       .join(' · ') || 'All tasks';
 
+  // Past Tasks milestone picked → "Milestone 1 – +3'-6" slab" under the title (screen, PDF, Excel).
+  const milestoneLabel = pastMilestones?.value ? pastMilestones.options.find((o) => o.value === pastMilestones.value)?.label ?? null : null;
+
   // File name follows the filters, e.g. "ROAST @ Kokapet - Architect - Upcoming Tasks Dependencies - 16 Nov 2026".
   const fileName = reportFileName(
     projectName,
     party,
     statuses.length ? statuses.join(' & ') : 'All',
-    [topFilterText, point ? `${STAGED_SHEET_FIELDS.find((f) => f.key === point)?.label} written` : ''].filter(Boolean)
+    [topFilterText, point ? `${STAGED_SHEET_FIELDS.find((f) => f.key === point)?.label} written` : ''].filter(Boolean),
+    milestoneLabel
   );
 
   async function run(kind: 'excel' | 'pdf') {
@@ -514,14 +521,14 @@ export function SheetReportView({
     setMessage(null);
     try {
       if (kind === 'excel') {
-        const note = await exportSheetReportExcel(rows, projectName, filterText, party, fileName);
+        const note = await exportSheetReportExcel(rows, projectName, filterText, party, fileName, milestoneLabel);
         setMessage({ text: note || `Excel report with ${rows.length} tasks downloaded`, error: false });
       } else {
         // Project created date for the PDF header.
         const { data: proj } = selectedProjectId
           ? await supabase.from('projects').select('created_at').eq('id', selectedProjectId).maybeSingle()
           : { data: null };
-        await printSheetReport(rows, projectName, filterText, (proj as { created_at?: string } | null)?.created_at ?? null, party, fileName, picked, constructionRows);
+        await printSheetReport(rows, projectName, filterText, (proj as { created_at?: string } | null)?.created_at ?? null, party, fileName, picked, constructionRows, milestoneLabel);
       }
     } catch (e) {
       setMessage({ text: e instanceof Error ? e.message : String(e), error: true });
@@ -550,6 +557,7 @@ export function SheetReportView({
             {reportTitle(party)}
             {party && picked ? ` · ${statusText}` : ''}
           </Text>
+          {milestoneLabel ? <Text style={{ fontSize: 15, fontWeight: '700', color: '#B45309' }}>{milestoneLabel}</Text> : null}
           <Text style={{ fontSize: 12, color: INK_2 }}>
             {projectName} · {filterText} · {new Date().toLocaleDateString()}
           </Text>
@@ -607,6 +615,7 @@ export function SheetReportView({
 
       {/* Filters, one row above the charts */}
       <View className="rounded-2xl p-3" style={{ backgroundColor: '#fcfcfb', borderWidth: 1, borderColor: BORDER, gap: 8 }}>
+        {pastMilestones ? <ChipLine label="MILESTONE" options={pastMilestones.options} value={pastMilestones.value} onChange={pastMilestones.onChange} /> : null}
         <View className="flex-row flex-wrap items-center" style={{ gap: 6 }}>
           <Text style={{ fontSize: 11, fontWeight: '700', color: MUTED, width: 86 }}>STATUS</Text>
           {STATUS_OPTIONS.map((s) => (

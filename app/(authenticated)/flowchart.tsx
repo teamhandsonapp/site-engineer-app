@@ -27,6 +27,7 @@ import { FlowchartFilterModal } from '../../components/flowchart/FlowchartFilter
 import { FilteredTaskList } from '../../components/flowchart/FilteredTaskList';
 import { ChecklistSheetView } from '../../components/flowchart/ChecklistSheetView';
 import { SheetReportView } from '../../components/flowchart/SheetReportView';
+import { PAST_MILESTONES, pastMilestoneLabel } from '../../lib/flowchart/pastMilestones';
 import { GanttView } from '../../components/flowchart/GanttView';
 import { SiteUpdateSheetView } from '../../components/flowchart/SiteUpdateSheetView';
 import { matchesStatusFilter, type StatusFilter } from '../../lib/flowchart/sheetStatus';
@@ -147,6 +148,8 @@ function FlowchartScreenContent() {
   const [deptFilter, setDeptFilter] = useState<string | null>(null);
   const [roomFilter, setRoomFilter] = useState<string | null>(null);
   const [milestoneFilter, setMilestoneFilter] = useState<string | null>(null);
+  // Past Tasks Reports: the 4 client milestones (lib/flowchart/pastMilestones.ts).
+  const [pastMilestone, setPastMilestone] = useState<string | null>(null);
   // Status filter: Completed / Upcoming / Delayed (same rules as Reports).
   // (no Actual Start). Hides the other tasks without moving anything.
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
@@ -302,7 +305,11 @@ function FlowchartScreenContent() {
       if (ka !== kb) return ka === null ? 1 : kb === null ? -1 : ka.localeCompare(kb);
       return a.taskId.localeCompare(b.taskId, undefined, { numeric: true });
     }) : [];
-  const reportTasks = board === 'past' ? [...sheetTasks, ...copiedReportTasks] : sheetTasks;
+  // Past Tasks Reports: one of the 4 milestones picked → only its tasks (2026-11-21).
+  const pastMilestoneCodes = board === 'past' && pastMilestone ? new Set(PAST_MILESTONES.find((m) => m.name === pastMilestone)?.taskCodes ?? []) : null;
+  const reportTasks = (board === 'past' ? [...sheetTasks, ...copiedReportTasks] : sheetTasks).filter(
+    (t) => !pastMilestoneCodes || pastMilestoneCodes.has(t.taskId)
+  );
   const reportDepartments = board === 'past'
     ? Array.from(new Set([...allDepartments, ...(currentStatusCopy?.tasks ?? []).map((t) => t.workName)]))
     : allDepartments;
@@ -809,6 +816,11 @@ function FlowchartScreenContent() {
               tasks={reportTasks}
               copiedTaskIds={board === 'past' ? new Set(copiedReportTasks.map((t) => t.id)) : undefined}
               projectName={projectName}
+              pastMilestones={
+                board === 'past'
+                  ? { options: PAST_MILESTONES.map((m) => ({ value: m.name, label: pastMilestoneLabel(m.name) })), value: pastMilestone, onChange: setPastMilestone }
+                  : undefined
+              }
               topFilterText={[statusFilter, deptFilter, floorFilter, roomFilter, milestoneFilter ? milestones.find((m) => m.id === milestoneFilter)?.name : null, filterSummary.plannedDate]
                 .filter(Boolean)
                 .join(' · ')}

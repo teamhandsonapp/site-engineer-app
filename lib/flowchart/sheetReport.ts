@@ -237,10 +237,20 @@ export function toggleStatus(cur: ReportStatus[], s: ReportStatus | 'All'): Repo
  * statuses (status = "Pending & Upcoming") "... - Architect - Pending & Upcoming Tasks Dependencies - ...".
  * `extra` = the other filters in use (department, floor, "… written"), added in brackets.
  */
-export function reportFileName(projectName: string, party: string | null, status: string, extra: string[]): string {
-  const d = new Date();
+export function reportFileName(projectName: string, party: string | null, status: string, extra: string[], milestone?: string | null, d = new Date()): string {
   const what = `${status === 'All' ? 'All Tasks' : `${status} Tasks`} Dependencies`;
-  const parts = [projectName || 'Project', party ?? 'Project Status', what + (extra.length ? ` (${extra.join(', ')})` : ''), fmtDate(d)];
+  // Past Tasks milestone report (2026-11-21, client): "ROAST @ Kokapet - Milestone 1 - +3'-6 slab Report
+  // - 21 Nov 2026" (+ party / status / other filters when used). Inch marks dropped: not allowed in file names.
+  const parts = milestone
+    ? [
+        projectName || 'Project',
+        `${milestone.replace(/\s*–\s*/g, ' - ').replace(/"/g, '')} Report`,
+        ...(party ? [party] : []),
+        ...(status !== 'All' ? [`${status} Tasks`] : []),
+        ...(extra.length ? [extra.join(', ')] : []),
+        fmtDate(d),
+      ]
+    : [projectName || 'Project', party ?? 'Project Status', what + (extra.length ? ` (${extra.join(', ')})` : ''), fmtDate(d)];
   return parts
     .join(' - ')
     .replace(/[\\/:*?"<>|]+/g, '-')
@@ -359,7 +369,7 @@ function stagedRowValues(r: SheetReportRow): (string | number)[] {
   ];
 }
 
-export async function exportSheetReportExcel(rows: SheetReportRow[], projectName: string, filterText: string, party?: string | null, fileName?: string): Promise<string> {
+export async function exportSheetReportExcel(rows: SheetReportRow[], projectName: string, filterText: string, party?: string | null, fileName?: string, milestone?: string | null): Promise<string> {
   const body: (string | number)[][] = [];
   const staged = rows.some((r) => r.constructionNotes);
   for (const s of REPORT_STATUSES) {
@@ -367,7 +377,8 @@ export async function exportSheetReportExcel(rows: SheetReportRow[], projectName
     if (group.length === 0) continue;
     body.push([`${s.toUpperCase()} — ${group.length} task${group.length === 1 ? '' : 's'}`], ...group.map(staged ? stagedRowValues : rowValues));
   }
-  const sheet = XLSX.utils.aoa_to_sheet([[`${reportTitle(party)} — ${filterText}`], [], staged ? STAGED_HEADERS : HEADERS, ...body]);
+  // Past Tasks milestone report (2026-11-21): the milestone on its own line under the title.
+  const sheet = XLSX.utils.aoa_to_sheet([[`${reportTitle(party)} — ${filterText}`], ...(milestone ? [[milestone]] : []), [], staged ? STAGED_HEADERS : HEADERS, ...body]);
   sheet['!cols'] = [
     { wch: 6 }, { wch: 9 }, { wch: 44 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 34 }, { wch: 50 },
     ...(staged ? [{ wch: 50 }, ...STAGED_SHEET_FIELDS.map(() => ({ wch: 28 }))] : []),
@@ -455,9 +466,17 @@ export function sheetReportHtml(
   projectCreatedAt?: string | null,
   party?: string | null,
   picked?: ReportStatus[] | null,
-  constructionRows?: SheetReportRow[] | null
+  constructionRows?: SheetReportRow[] | null,
+  milestone?: string | null
 ): string {
   const keepClient = party === 'Client';
+  // Past Tasks (2026-11-21, client): the Construction dependencies start a new
+  // page (Tasks by department follows them), Pre-construction stays on page 1.
+  const constructionDeps = constructionRows
+    ? (['Pending', 'Completed', 'Upcoming'] as ReportStatus[])
+        .map((st) => pdfDependencies(`Construction — Dependencies for ${st} Tasks`, constructionRows.filter((r) => r.status === st), keepClient))
+        .join('')
+    : '';
   // Past Tasks: Pre-construction and Construction delays, each in its own sections.
   const pre = constructionRows ? 'Pre-construction — ' : '';
   const sum = summarizeReport(rows);
@@ -541,6 +560,7 @@ export function sheetReportHtml(
     h2 { font-size: 16px; margin: 0 0 8px; color: #0F1F33; }
     .head { border-bottom: 2px solid #0F1F33; padding-bottom: 6px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: flex-end; }
     .head .sub { font-size: 9.5px; color: #52514e; margin-top: 2px; }
+    .head .ms { font-size: 15px; font-weight: 700; color: #B45309; margin-top: 3px; }
     .muted { color: #898781; }
     i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
     .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; align-items: stretch; }
@@ -561,6 +581,7 @@ export function sheetReportHtml(
     .track > div { height: 100%; border-radius: 3px; }
     .card { border: 1px solid #E7E5E0; border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; break-inside: avoid; }
     .card.deps { break-inside: avoid; page-break-inside: avoid; margin-bottom: 26px; }
+    .con-start { break-before: page; page-break-before: always; }
     h2, .chips { break-after: avoid; page-break-after: avoid; }
     .br { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
     .bl { width: 30%; font-size: 15px; font-weight: 400; }
@@ -602,16 +623,12 @@ export function sheetReportHtml(
     .keys { font-size: 9px; color: #52514e; margin-bottom: 4px; } .keys span { margin-right: 12px; }
     .foot { margin-top: 8px; font-size: 8px; color: #898781; text-align: right; }
   </style></head><body>
-    <div class="head"><div><h1>${esc(projectName)} — ${esc(reportTitle(party))}</h1><div class="sub">${esc(filterText)}</div></div><div class="sub" style="text-align:right">Report generated: <b>${esc(fmtDate(today))}</b></div></div>
+    <div class="head"><div><h1>${esc(projectName)} — ${esc(reportTitle(party))}</h1>${milestone ? `<div class="ms">${esc(milestone)}</div>` : ''}<div class="sub">${esc(filterText)}</div></div><div class="sub" style="text-align:right">Report generated: <b>${esc(fmtDate(today))}</b></div></div>
     <div class="tiles${picked?.length === 1 ? ' one' : ''}">${tiles}</div>
     ${pdfDependencies(`${pre}Dependencies for Pending Tasks`, of('Pending'), keepClient)}
     ${pdfDependencies(`${pre}Dependencies for Completed Tasks`, of('Completed'), keepClient)}
     ${pdfDependencies(`${pre}Dependencies for Upcoming Tasks`, of('Upcoming'), keepClient)}
-    ${constructionRows
-      ? (['Pending', 'Completed', 'Upcoming'] as ReportStatus[])
-          .map((st) => pdfDependencies(`Construction — Dependencies for ${st} Tasks`, constructionRows.filter((r) => r.status === st), keepClient))
-          .join('')
-      : ''}
+    ${constructionDeps ? `<div class="con-start">${constructionDeps}</div>` : ''}
     <div style="height:10px"></div>
     ${party || picked ? '' : `<div class="card"><h2>Tasks by department</h2><div class="keys">${keys}</div>${deptBars}</div>`}
   </body></html>`;
@@ -626,9 +643,10 @@ export async function printSheetReport(
   party?: string | null,
   fileName?: string,
   picked?: ReportStatus[] | null,
-  constructionRows?: SheetReportRow[] | null
+  constructionRows?: SheetReportRow[] | null,
+  milestone?: string | null
 ): Promise<void> {
-  let html = sheetReportHtml(rows, projectName, filterText, projectCreatedAt, party, picked, constructionRows);
+  let html = sheetReportHtml(rows, projectName, filterText, projectCreatedAt, party, picked, constructionRows, milestone);
   // The browser's "Save as PDF" names the file after the page title, so the title = the file name.
   if (fileName) html = html.replace(/<title>[\s\S]*?<\/title>/, `<title>${esc(fileName)}</title>`);
   if (Platform.OS === 'web') {
