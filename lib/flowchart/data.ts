@@ -1,4 +1,5 @@
 import { supabase } from '../supabase';
+import { fetchAllInBatches, fetchAllRows } from '../fetchAll';
 import { isPilotVisible } from '../pilot';
 import { classifyAccountabilityType } from './accountability';
 import type {
@@ -149,10 +150,25 @@ export async function fetchTaskTypes(): Promise<TaskTypeOption[]> {
 // Links, with the soft-link flag when the database has it (is_soft column,
 // migration 20261115090000). Falls back to the plain columns if that column
 // isn't there yet, so the board never breaks on an older database.
-async function fetchDependencyRows() {
-  const withSoft = await supabase.from('task_dependencies').select('id, task_id, depends_on_task_id, type, is_soft');
-  if (!withSoft.error || !/is_soft/.test(withSoft.error.message)) return withSoft;
-  return supabase.from('task_dependencies').select('id, task_id, depends_on_task_id, type');
+//
+// Only the links of THIS board's tasks, every row (lib/fetchAll.ts). It used
+// to read the whole table in one request, and Supabase returns at most 1000
+// rows per request — links past that cut-off silently went missing (2026-11-20).
+async function fetchDependencyRows(taskIds: string[]): Promise<unknown[]> {
+  const run = (cols: string) =>
+    fetchAllInBatches<unknown>(taskIds, (batch) => supabase.from('task_dependencies').select(cols).in('task_id', batch).order('id'));
+  try {
+    return await run('id, task_id, depends_on_task_id, type, is_soft');
+  } catch (err) {
+    if (err instanceof Error && /is_soft/.test(err.message)) return run('id, task_id, depends_on_task_id, type');
+    throw err;
+  }
+}
+
+function fetchParallelRows(taskIds: string[]): Promise<unknown[]> {
+  return fetchAllInBatches<unknown>(taskIds, (batch) =>
+    supabase.from('task_parallel_links').select('id, task_a_id, task_b_id').in('task_a_id', batch).order('id')
+  );
 }
 
 // One fetch per table (tasks, task_dependencies, task_parallel_links,
@@ -169,19 +185,15 @@ export async function fetchFlowchartData(projectId: string, board: FlowchartBoar
   // sets) so DPR, reports, task lists, Gantt and admin-web never show the
   // copies; only this board reads them back, by their own flowchart_set.
   const boardSet = flowchartSetForBoard(board);
-  const tasksQuery = isHiddenBoardSet(boardSet)
-    ? supabase.from('tasks').select(TASK_SELECT).eq('work.project_id', projectId).eq('flowchart_set', boardSet!)
-    : supabase.from('tasks').select(TASK_SELECT).eq('work.project_id', projectId).is('deleted_at', null);
-  const [tasksRes, depsRes, parallelRes, typesRes] = await Promise.all([
-    tasksQuery,
-    fetchDependencyRows(),
-    supabase.from('task_parallel_links').select('id, task_a_id, task_b_id'),
+  const tasksQuery = () =>
+    (isHiddenBoardSet(boardSet)
+      ? supabase.from('tasks').select(TASK_SELECT).eq('work.project_id', projectId).eq('flowchart_set', boardSet!)
+      : supabase.from('tasks').select(TASK_SELECT).eq('work.project_id', projectId).is('deleted_at', null)
+    ).order('id');
+  const [taskRows, typesRes] = await Promise.all([
+    fetchAllRows<unknown>(tasksQuery),
     supabase.from('task_types').select('id, name, default_duration_days').order('default_duration_days', { ascending: true }),
   ]);
-
-  if (tasksRes.error) throw new Error(tasksRes.error.message);
-  if (depsRes.error) throw new Error(depsRes.error.message);
-  if (parallelRes.error) throw new Error(parallelRes.error.message);
   if (typesRes.error) throw new Error(typesRes.error.message);
 
   // Pilot mode (lib/pilot.ts, mirrors admin-web's lib/config/pilot.ts):
@@ -193,7 +205,7 @@ export async function fetchFlowchartData(projectId: string, board: FlowchartBoar
   // every task normally). Used for ROAST @ Kokapet's own request: its 314
   // granular tasks are hidden here in favor of ~15 milestone-level tasks
   // meant just for this view (add-hidden-from-flowchart.sql).
-  const rawTasks = ((tasksRes.data ?? []) as unknown as RawTaskRow[]).filter(
+  const rawTasks = (taskRows as RawTaskRow[]).filter(
     (t) =>
       isPilotVisible(t.task_id, t.work?.code) &&
       !t.hidden_from_flowchart &&
@@ -201,6 +213,8 @@ export async function fetchFlowchartData(projectId: string, board: FlowchartBoar
       (board === 'main' ? !isFlowchart2Set(t.flowchart_set) : t.flowchart_set === flowchartSetForBoard(board))
   );
   const taskIds = new Set(rawTasks.map((t) => t.id));
+  // Links for exactly these tasks (both ends are checked below as before).
+  const [depRows, parallelRows] = await Promise.all([fetchDependencyRows([...taskIds]), fetchParallelRows([...taskIds])]);
 
   const tasks: FlowchartTask[] = rawTasks.map(mapRawTaskRow);
 
@@ -209,11 +223,11 @@ export async function fetchFlowchartData(projectId: string, board: FlowchartBoar
   // no project_id of their own, so this is what keeps a cross-project edge
   // (which shouldn't exist, but RLS + this both agree it never renders)
   // from ever appearing.
-  const seriesEdges: FlowchartSeriesEdge[] = ((depsRes.data ?? []) as unknown as RawDependencyRow[])
+  const seriesEdges: FlowchartSeriesEdge[] = (depRows as RawDependencyRow[])
     .filter((d) => taskIds.has(d.task_id) && taskIds.has(d.depends_on_task_id))
     .map((d) => ({ id: d.id, taskId: d.task_id, dependsOnTaskId: d.depends_on_task_id, type: d.type, soft: !!d.is_soft }));
 
-  const parallelEdges: FlowchartParallelEdge[] = ((parallelRes.data ?? []) as unknown as RawParallelLinkRow[])
+  const parallelEdges: FlowchartParallelEdge[] = (parallelRows as RawParallelLinkRow[])
     .filter((p) => taskIds.has(p.task_a_id) && taskIds.has(p.task_b_id))
     .map((p) => ({ id: p.id, taskAId: p.task_a_id, taskBId: p.task_b_id }));
 
@@ -239,30 +253,23 @@ export const FLOWCHART_SET_LABEL: Record<FlowchartSetKey, string> = {
 };
 
 export async function fetchFlowchartSet(projectId: string, set: FlowchartSetKey): Promise<FlowchartData> {
-  const { data, error } = await supabase
-    .from('tasks')
-    .select(TASK_SELECT)
-    .eq('work.project_id', projectId)
-    .eq('flowchart_set', set);
-  if (error) throw new Error(error.message);
-
-  const rawTasks = (data ?? []) as unknown as RawTaskRow[];
+  const rawTasks = (await fetchAllRows<unknown>(() =>
+    supabase.from('tasks').select(TASK_SELECT).eq('work.project_id', projectId).eq('flowchart_set', set).order('id')
+  )) as RawTaskRow[];
   const tasks = rawTasks.map(mapRawTaskRow);
   const ids = tasks.map((t) => t.id);
   if (ids.length === 0) return { tasks, seriesEdges: [], parallelEdges: [], taskTypes: [] };
 
-  const [depsRes, parallelRes] = await Promise.all([
-    supabase.from('task_dependencies').select('id, task_id, depends_on_task_id, type').in('task_id', ids),
-    supabase.from('task_parallel_links').select('id, task_a_id, task_b_id').in('task_a_id', ids),
+  const [depRows, parallelRows] = await Promise.all([
+    fetchAllInBatches<unknown>(ids, (batch) => supabase.from('task_dependencies').select('id, task_id, depends_on_task_id, type').in('task_id', batch).order('id')),
+    fetchParallelRows(ids),
   ]);
-  if (depsRes.error) throw new Error(depsRes.error.message);
-  if (parallelRes.error) throw new Error(parallelRes.error.message);
 
   const idSet = new Set(ids);
-  const seriesEdges = ((depsRes.data ?? []) as RawDependencyRow[])
+  const seriesEdges = (depRows as RawDependencyRow[])
     .filter((d) => idSet.has(d.depends_on_task_id))
     .map((d) => ({ id: d.id, taskId: d.task_id, dependsOnTaskId: d.depends_on_task_id, type: d.type }));
-  const parallelEdges = ((parallelRes.data ?? []) as RawParallelLinkRow[])
+  const parallelEdges = (parallelRows as RawParallelLinkRow[])
     .filter((p) => idSet.has(p.task_b_id))
     .map((p) => ({ id: p.id, taskAId: p.task_a_id, taskBId: p.task_b_id }));
 

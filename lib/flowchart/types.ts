@@ -83,6 +83,12 @@ export interface FlowchartSeriesEdge {
   color?: string;
   /** Draw the line without its FS/SS/… chip (display-only arrows). */
   hideLabel?: boolean;
+  /** Soft links only: drawn exactly like a real link (solid orange + type chip)
+   *  but still display-only — no date push, no warning (Past Tasks stacks). */
+  drawAsLink?: boolean;
+  /** A real link (dates flow through it) whose planned-date check is skipped —
+   *  the Past Works PT-30 → CIV-07 link, where the old planned dates overlap. */
+  noWarning?: boolean;
 }
 
 // Parallel link (task_parallel_links) — symmetric, non-blocking, visual only.

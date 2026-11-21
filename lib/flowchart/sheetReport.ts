@@ -3,7 +3,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as XLSX from 'xlsx';
-import { CHECKLIST_NOTE_FIELDS, CONTRACTOR_KEYS, contractorFor, SHEET_FIELD_ORDER, EMPTY_CHECKLIST_NOTES, type ChecklistNoteKey, type ChecklistNotes } from './checklistNotes';
+import { CHECKLIST_NOTE_FIELDS, CONTRACTOR_KEYS, contractorFor, EQUIPMENT_DELAY_FIELD, SHEET_FIELD_ORDER, EMPTY_CHECKLIST_NOTES, pointsText, type ChecklistNoteKey, type ChecklistNotes } from './checklistNotes';
 import { formatCardDateRange } from './delay';
 import { saveWorkbook } from './excelExport';
 import { sheetStatus, type SheetStatusTask } from './sheetStatus';
@@ -18,6 +18,11 @@ export const SHEET_FIELDS = SHEET_FIELD_ORDER.map((k) => {
   const f = CHECKLIST_NOTE_FIELDS.find((x) => x.key === k)!;
   return CONTRACTOR_KEYS.includes(k) ? { ...f, label: `Contractor — ${f.label}` } : f;
 });
+// Past Tasks reports add Equipment delays (2026-11-21). Reasons are always read
+// over these: Equipment is only ever written on Past Tasks, so other boards
+// come out exactly the same.
+export const STAGED_SHEET_FIELDS = [...SHEET_FIELDS, EQUIPMENT_DELAY_FIELD];
+const REASON_FIELDS = STAGED_SHEET_FIELDS;
 
 // Three groups only (2026-11-16, client) — every task is in exactly one, so they add up to the total:
 //   Pending   = not finished and late (planned start passed, or running past its planned end)
@@ -38,12 +43,15 @@ export interface SheetReportRow {
   delayed: boolean;
   delayDays: number; // total delay in days (0 = on time)
   notes: ChecklistNotes;
+  /** Past Tasks (2026-11-21): Construction-stage delays; `notes` is then the Pre-construction stage. */
+  constructionNotes?: ChecklistNotes;
 }
 
 export function sheetReportRows(
   tasks: ({ id: string; taskId: string; taskName: string; workName: string } & SheetStatusTask)[],
   notes: Map<string, ChecklistNotes>,
-  today: string
+  today: string,
+  constructionNotes?: Map<string, ChecklistNotes>
 ): SheetReportRow[] {
   const rows: SheetReportRow[] = tasks.map((t, i) => {
     const st = sheetStatus(t, today);
@@ -61,6 +69,7 @@ export function sheetReportRows(
       delayed: /\d+d delay|Total: [1-9]/.test(delay),
       delayDays: Math.max(0, Number(/Total: (-?\d+)d/.exec(delay)?.[1] ?? /(\d+)d delay/.exec(delay)?.[1] ?? 0)),
       notes: notes.get(t.id) ?? EMPTY_CHECKLIST_NOTES,
+      ...(constructionNotes ? { constructionNotes: constructionNotes.get(t.id) ?? EMPTY_CHECKLIST_NOTES } : {}),
     };
   });
   // Group by status in report order; tasks keep their date order inside a group.
@@ -103,6 +112,7 @@ export const REASON_WHO: Record<ChecklistNoteKey, string> = {
   contractorDelay: 'Contractor — Workers',
   contractorClientFinalization: 'Contractor / Vendor Finalization',
   other: 'Roof Erection Process',
+  equipmentDelay: 'Equipment',
 };
 
 /** The reason texts written for a task, one per line, text only (2026-11-16). */
@@ -134,16 +144,16 @@ export function waitingOn(rows: SheetReportRow[], skip: string[] = []): { who: s
 
 /** Each written reason with who it points at (2026-11-16): [{ who: 'Civil contractor — Workers', text: 'Workers Delay' }]. */
 export function reasonEntries(r: SheetReportRow): { who: string; text: string }[] {
-  return SHEET_FIELDS.filter((f) => r.notes[f.key]?.trim()).map((f) => ({ who: whoFor(f.key, r), text: r.notes[f.key].trim() }));
+  return REASON_FIELDS.filter((f) => r.notes[f.key]?.trim()).map((f) => ({ who: whoFor(f.key, r), text: pointsText(r.notes[f.key]) }));
 }
 
 export function reasonLines(r: SheetReportRow): string[] {
-  return SHEET_FIELDS.map((f) => r.notes[f.key]?.trim()).filter((v): v is string => !!v);
+  return REASON_FIELDS.map((f) => r.notes[f.key]?.trim()).filter((v): v is string => !!v);
 }
 
 /** Who is responsible, names only (2026-11-16), e.g. "Client, Other". */
 export function responsibleText(r: SheetReportRow): string {
-  return SHEET_FIELDS.filter((f) => r.notes[f.key]?.trim()).map((f) => whoFor(f.key, r)).join(', ');
+  return REASON_FIELDS.filter((f) => r.notes[f.key]?.trim()).map((f) => whoFor(f.key, r)).join(', ');
 }
 
 // ─── Party report (2026-11-16, client) ──────────────────────────────────
@@ -152,7 +162,7 @@ export function responsibleText(r: SheetReportRow): string {
 // Dependencies, PDF) is about that party alone. Normal filters are separate.
 export function partyRows(rows: SheetReportRow[], party: string): SheetReportRow[] {
   return rows.flatMap((r) => {
-    const keep = SHEET_FIELDS.filter((f) => r.notes[f.key]?.trim() && whoFor(f.key, r) === party).map((f) => f.key);
+    const keep = REASON_FIELDS.filter((f) => r.notes[f.key]?.trim() && whoFor(f.key, r) === party).map((f) => f.key);
     if (keep.length === 0) return [];
     const notes: ChecklistNotes = { ...EMPTY_CHECKLIST_NOTES };
     for (const k of keep) notes[k] = r.notes[k];
@@ -160,10 +170,50 @@ export function partyRows(rows: SheetReportRow[], party: string): SheetReportRow
   });
 }
 
+// ─── Past Works: Pre-construction and Construction kept apart (2026-11-21) ──
+const constructionView = (r: SheetReportRow): SheetReportRow => ({ ...r, notes: r.constructionNotes ?? EMPTY_CHECKLIST_NOTES });
+/** A Construction-stage reason is written for this task. */
+export const hasConstructionReason = (r: SheetReportRow) => !!r.constructionNotes && reasonEntries(constructionView(r)).length > 0;
+/** Any reason written, in either stage. */
+export const hasAnyReason = (r: SheetReportRow) => reasonEntries(r).length > 0 || hasConstructionReason(r);
+
+/** "Waiting on" for a status box, each stage separately: tasks are counted
+ *  under the stage(s) they have reasons in; `none` = no reason in either. */
+export function stagedWaitingOn(rows: SheetReportRow[], skip: string[] = []) {
+  return {
+    pre: waitingOn(rows.filter((r) => reasonEntries(r).length > 0), skip),
+    construction: waitingOn(rows.filter(hasConstructionReason).map(constructionView), skip),
+    none: rows.filter((r) => !hasAnyReason(r)).length,
+  };
+}
+
+/** Party report with both stages: each stage keeps only that party's reasons;
+ *  the task is in if the party is named in either stage. */
+export function partyRowsStaged(rows: SheetReportRow[], party: string): SheetReportRow[] {
+  return rows.flatMap((r) => {
+    const pick = (n: ChecklistNotes | undefined): [ChecklistNotes, boolean] => {
+      const out: ChecklistNotes = { ...EMPTY_CHECKLIST_NOTES };
+      let any = false;
+      for (const f of REASON_FIELDS) {
+        if (n?.[f.key]?.trim() && whoFor(f.key, r) === party) {
+          out[f.key] = n[f.key];
+          any = true;
+        }
+      }
+      return [out, any];
+    };
+    const [pre, inPre] = pick(r.notes);
+    const [con, inCon] = pick(r.constructionNotes);
+    return inPre || inCon ? [{ ...r, notes: pre, constructionNotes: con }] : [];
+  });
+}
+
 const PARTY_ORDER = ['Architect', 'Consultant (MEP)', 'Consultant (Structural)', 'Consultant', 'Client'];
-/** Everyone named in the reasons, Architect / Consultants / Client first, then the rest A–Z. */
+/** Everyone named in the reasons (both stages on Past Works), Architect / Consultants / Client first, then the rest A–Z. */
 export function reportParties(rows: SheetReportRow[]): string[] {
-  const all = new Set(rows.flatMap((r) => reasonEntries(r).map((e) => e.who)));
+  const all = new Set(
+    rows.flatMap((r) => [...reasonEntries(r), ...(r.constructionNotes ? reasonEntries(constructionView(r)) : [])].map((e) => e.who))
+  );
   const rank = (w: string) => (PARTY_ORDER.includes(w) ? PARTY_ORDER.indexOf(w) : PARTY_ORDER.length);
   return [...all].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }
@@ -229,7 +279,7 @@ export function reasonDetail(e: { who: string; text: string }): string {
 
 /** Reason for delay with who, e.g. "Client: On hold · Other: Roof erection". */
 export function reasonText(r: SheetReportRow): string {
-  return SHEET_FIELDS.filter((f) => r.notes[f.key]?.trim())
+  return REASON_FIELDS.filter((f) => r.notes[f.key]?.trim())
     .map((f) => `${REASON_WHO[f.key]}: ${r.notes[f.key].trim()}`)
     .join(' · ');
 }
@@ -258,9 +308,9 @@ export function summarizeReport(rows: SheetReportRow[]): ReportSummary {
     // Grouped by who — contractors split by department (Civil contractor, Electrical contractor …).
     reasons: (() => {
       const groups = new Map<string, { key: ChecklistNoteKey; label: string; who: string; tasks: number; delayed: number; items: { taskName: string; text: string; delay: string; delayed: boolean }[] }>();
-      for (const f of SHEET_FIELDS) {
+      for (const f of REASON_FIELDS) {
         for (const r of rows) {
-          const text = r.notes[f.key]?.trim();
+          const text = pointsText(r.notes[f.key]);
           if (!text) continue;
           const who = whoFor(f.key, r);
           const g = groups.get(who) ?? { key: f.key, label: f.label, who, tasks: 0, delayed: 0, items: [] };
@@ -278,19 +328,51 @@ export function summarizeReport(rows: SheetReportRow[]): ReportSummary {
 
 const HEADERS = ['S.No', 'Task ID', 'Task Name', 'Department', 'Status', 'Planned dates (completed)', 'Actual dates (completed)', 'Delay', 'Reason for delay', ...SHEET_FIELDS.map((f) => f.label)];
 
+// Past Tasks: the two stages side by side, each with its own reason + points.
+const STAGED_HEADERS = [
+  ...HEADERS.slice(0, 8),
+  'Pre-construction reason',
+  'Construction reason',
+  ...STAGED_SHEET_FIELDS.map((f) => `Pre-construction — ${f.label}`),
+  ...STAGED_SHEET_FIELDS.map((f) => `Construction — ${f.label}`),
+];
+
+/** The same rows with the Construction-stage delays as their notes (for the Construction sections). */
+export function asConstructionRows(rows: SheetReportRow[]): SheetReportRow[] {
+  return rows.map((r) => ({ ...r, notes: r.constructionNotes ?? EMPTY_CHECKLIST_NOTES }));
+}
+
+const reasonCellText = (r: SheetReportRow) => reasonEntries(r).map((e) => (reasonDetail(e) ? `${e.who}: ${e.text}` : e.who)).join('\n');
+
 function rowValues(r: SheetReportRow): (string | number)[] {
-  return [r.no, r.taskCode, r.taskName, r.department, r.status, r.plannedDates, r.actualDates, r.delay, reasonEntries(r).map((e) => (reasonDetail(e) ? `${e.who}: ${e.text}` : e.who)).join('\n'), ...SHEET_FIELDS.map((f) => r.notes[f.key as ChecklistNoteKey])];
+  return [r.no, r.taskCode, r.taskName, r.department, r.status, r.plannedDates, r.actualDates, r.delay, reasonCellText(r), ...SHEET_FIELDS.map((f) => pointsText(r.notes[f.key as ChecklistNoteKey]))];
+}
+
+function stagedRowValues(r: SheetReportRow): (string | number)[] {
+  const c = { ...r, notes: r.constructionNotes ?? EMPTY_CHECKLIST_NOTES };
+  return [
+    ...rowValues(r).slice(0, 8),
+    reasonCellText(r),
+    reasonCellText(c),
+    ...STAGED_SHEET_FIELDS.map((f) => pointsText(r.notes[f.key as ChecklistNoteKey])),
+    ...STAGED_SHEET_FIELDS.map((f) => pointsText(c.notes[f.key as ChecklistNoteKey])),
+  ];
 }
 
 export async function exportSheetReportExcel(rows: SheetReportRow[], projectName: string, filterText: string, party?: string | null, fileName?: string): Promise<string> {
   const body: (string | number)[][] = [];
+  const staged = rows.some((r) => r.constructionNotes);
   for (const s of REPORT_STATUSES) {
     const group = rows.filter((r) => r.status === s);
     if (group.length === 0) continue;
-    body.push([`${s.toUpperCase()} — ${group.length} task${group.length === 1 ? '' : 's'}`], ...group.map(rowValues));
+    body.push([`${s.toUpperCase()} — ${group.length} task${group.length === 1 ? '' : 's'}`], ...group.map(staged ? stagedRowValues : rowValues));
   }
-  const sheet = XLSX.utils.aoa_to_sheet([[`${reportTitle(party)} — ${filterText}`], [], HEADERS, ...body]);
-  sheet['!cols'] = [{ wch: 6 }, { wch: 9 }, { wch: 44 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 34 }, { wch: 50 }, ...SHEET_FIELDS.map(() => ({ wch: 28 }))];
+  const sheet = XLSX.utils.aoa_to_sheet([[`${reportTitle(party)} — ${filterText}`], [], staged ? STAGED_HEADERS : HEADERS, ...body]);
+  sheet['!cols'] = [
+    { wch: 6 }, { wch: 9 }, { wch: 44 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 18 }, { wch: 34 }, { wch: 50 },
+    ...(staged ? [{ wch: 50 }, ...STAGED_SHEET_FIELDS.map(() => ({ wch: 28 }))] : []),
+    ...(staged ? STAGED_SHEET_FIELDS : SHEET_FIELDS).map(() => ({ wch: 28 })),
+  ];
   sheet['!freeze'] = { xSplit: 3, ySplit: 3 };
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, 'Report');
@@ -300,6 +382,8 @@ export async function exportSheetReportExcel(rows: SheetReportRow[], projectName
 }
 
 const esc = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+// Several points in one reason (Past Works) stay on their own lines in the PDF.
+const escLines = (v: string) => esc(v).replace(/\n/g, '<br>');
 
 // ─── A4 portrait PDF (2026-11-16, client) ────────────────────────────────
 // Same order as the Reports screen; any number of pages, nothing squeezed:
@@ -352,7 +436,7 @@ function pdfDependencies(title: string, rows: SheetReportRow[], keepClient = fal
   // Heading in the person's colour with the count beside it; no chip row (2026-11-16).
   const color = pdfColorFor(reasons.map((x) => x.who));
   const lists = reasons
-    .map((x) => `<div class="who" style="border-left-color:${color(x.who)}"><div class="wh" style="color:${color(x.who)}">${esc(x.who)} <b style="color:#0b0b0b">${x.tasks}</b></div>${x.items.map((it) => `<div class="wi">${esc(it.taskName)}${it.text && it.text.toLowerCase() !== x.who.toLowerCase() ? `<div class="wt">${esc(it.text)}</div>` : ''}</div>`).join('')}</div>`)
+    .map((x) => `<div class="who" style="border-left-color:${color(x.who)}"><div class="wh" style="color:${color(x.who)}">${esc(x.who)} <b style="color:#0b0b0b">${x.tasks}</b></div>${x.items.map((it) => `<div class="wi">${esc(it.taskName)}${it.text && it.text.toLowerCase() !== x.who.toLowerCase() ? `<div class="wt">${escLines(it.text)}</div>` : ''}</div>`).join('')}</div>`)
     .join('');
   return `<div class="card deps"><h2>${esc(title)}</h2><div class="lists">${lists}</div></div>`;
 }
@@ -370,9 +454,12 @@ export function sheetReportHtml(
   filterText: string,
   projectCreatedAt?: string | null,
   party?: string | null,
-  picked?: ReportStatus[] | null
+  picked?: ReportStatus[] | null,
+  constructionRows?: SheetReportRow[] | null
 ): string {
   const keepClient = party === 'Client';
+  // Past Tasks: Pre-construction and Construction delays, each in its own sections.
+  const pre = constructionRows ? 'Pre-construction — ' : '';
   const sum = summarizeReport(rows);
   const pc = (n: number, t: number) => (t > 0 ? Math.round((n / t) * 100) : 0);
   const of = (st: ReportStatus) => rows.filter((r) => r.status === st);
@@ -382,7 +469,18 @@ export function sheetReportHtml(
     `<div class="tile"><div class="tl">Total tasks</div><div class="tv">${sum.total}</div><div class="ts">Pending + In progress + Upcoming + Completed</div>
       <div class="wbs">${REPORT_STATUSES.map((st) => `<div class="wb"><div class="wbl"><span>${st}</span><b>${sum.byStatus[st]}</b></div><div class="track"><div style="width:${pc(sum.byStatus[st], sum.total)}%;background:${STATUS_COLORS[st]}"></div></div></div>`).join('')}</div></div>`;
   const tileOf = (st: ReportStatus) => `<div class="tile"><div class="tl"><i style="background:${STATUS_COLORS[st]}"></i>${st}</div><div class="tv">${sum.byStatus[st]}</div><div class="ts">${pc(sum.byStatus[st], sum.total)}% of tasks</div>
-      ${!sum.byStatus[st] ? '' : st === 'In progress' ? `<div class="wbs">${of(st).map((r) => `<div class="wi"><b>${esc(r.taskCode)}</b> · ${esc(r.taskName)}</div>`).join('')}</div>` : `<div class="wbs">${pdfBars(waitingOn(of(st), ['Client']), sum.byStatus[st])}</div>`}</div>`;
+      ${!sum.byStatus[st] ? '' : st === 'In progress' ? `<div class="wbs">${of(st).map((r) => `<div class="wi"><b>${esc(r.taskCode)}</b> · ${esc(r.taskName)}</div>`).join('')}</div>` : `<div class="wbs">${constructionRows ? stagedBars(of(st), sum.byStatus[st]) : pdfBars(waitingOn(of(st), ['Client']), sum.byStatus[st])}</div>`}</div>`;
+  // Past Works: Pre-construction and Construction "waiting on", each under its own heading.
+  function stagedBars(group: SheetReportRow[], total: number): string {
+    const w = stagedWaitingOn(group, ['Client']);
+    const part = (label: string, items: { who: string; tasks: number }[]) =>
+      items.length ? `<div class="wst">${label}</div>${pdfBars(items, total)}` : '';
+    return (
+      part('Pre-construction delays', w.pre) +
+      part('Construction delays', w.construction) +
+      (w.none ? pdfBars([{ who: 'No reason written', tasks: w.none }], total) : '')
+    );
+  }
   // Layout (2026-11-16): Total | Pending, then [In progress + Completed stacked] | Upcoming,
   // so the short boxes don't stretch to the tall Upcoming box. Statuses picked → only their boxes (2026-11-17).
   const tiles = picked
@@ -403,7 +501,7 @@ export function sheetReportHtml(
 
   // 4. Task sheet
   const reasonCell = (r: SheetReportRow) =>
-    reasonEntries(r).map((e) => `<b>${esc(e.who)}</b>${reasonDetail(e) ? `<br>${esc(e.text)}` : ''}`).join('<br>');
+    reasonEntries(r).map((e) => `<b>${esc(e.who)}</b>${reasonDetail(e) ? `<br>${escLines(e.text)}` : ''}`).join('<br>');
   const taskRow = (r: SheetReportRow) =>
     `<tr><td class="num muted">${r.no}</td><td><b>${esc(r.taskCode)}</b></td><td>${esc(r.taskName)}</td><td>${esc(r.department)}</td><td>${esc(r.plannedDates)}</td><td>${esc(r.actualDates)}</td><td${r.delayed ? ' class="late"' : ''}>${esc(r.delay)}</td><td class="reason">${reasonCell(r)}</td></tr>`;
   const sheet = REPORT_STATUSES.map((st) => {
@@ -457,6 +555,7 @@ export function sheetReportHtml(
     .ts { font-size: 13.5px; color: #898781; }
     .wbs { margin-top: 6px; border-top: 1px solid #E7E5E0; padding-top: 5px; }
     .wb { margin-bottom: 4px; }
+    .wst { font-size: 12px; font-weight: 700; color: #0F1F33; margin: 6px 0 3px; }
     .wbl { display: flex; justify-content: space-between; font-size: 14px; color: #52514e; }
     .track { height: 11px; background: #F0EFEC; border-radius: 3px; overflow: hidden; margin-top: 2px; }
     .track > div { height: 100%; border-radius: 3px; }
@@ -505,9 +604,14 @@ export function sheetReportHtml(
   </style></head><body>
     <div class="head"><div><h1>${esc(projectName)} — ${esc(reportTitle(party))}</h1><div class="sub">${esc(filterText)}</div></div><div class="sub" style="text-align:right">Report generated: <b>${esc(fmtDate(today))}</b></div></div>
     <div class="tiles${picked?.length === 1 ? ' one' : ''}">${tiles}</div>
-    ${pdfDependencies('Dependencies for Pending Tasks', of('Pending'), keepClient)}
-    ${pdfDependencies('Dependencies for Completed Tasks', of('Completed'), keepClient)}
-    ${pdfDependencies('Dependencies for Upcoming Tasks', of('Upcoming'), keepClient)}
+    ${pdfDependencies(`${pre}Dependencies for Pending Tasks`, of('Pending'), keepClient)}
+    ${pdfDependencies(`${pre}Dependencies for Completed Tasks`, of('Completed'), keepClient)}
+    ${pdfDependencies(`${pre}Dependencies for Upcoming Tasks`, of('Upcoming'), keepClient)}
+    ${constructionRows
+      ? (['Pending', 'Completed', 'Upcoming'] as ReportStatus[])
+          .map((st) => pdfDependencies(`Construction — Dependencies for ${st} Tasks`, constructionRows.filter((r) => r.status === st), keepClient))
+          .join('')
+      : ''}
     <div style="height:10px"></div>
     ${party || picked ? '' : `<div class="card"><h2>Tasks by department</h2><div class="keys">${keys}</div>${deptBars}</div>`}
   </body></html>`;
@@ -521,9 +625,10 @@ export async function printSheetReport(
   projectCreatedAt?: string | null,
   party?: string | null,
   fileName?: string,
-  picked?: ReportStatus[] | null
+  picked?: ReportStatus[] | null,
+  constructionRows?: SheetReportRow[] | null
 ): Promise<void> {
-  let html = sheetReportHtml(rows, projectName, filterText, projectCreatedAt, party, picked);
+  let html = sheetReportHtml(rows, projectName, filterText, projectCreatedAt, party, picked, constructionRows);
   // The browser's "Save as PDF" names the file after the page title, so the title = the file name.
   if (fileName) html = html.replace(/<title>[\s\S]*?<\/title>/, `<title>${esc(fileName)}</title>`);
   if (Platform.OS === 'web') {

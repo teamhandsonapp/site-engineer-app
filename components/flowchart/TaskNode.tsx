@@ -30,6 +30,7 @@ export function TaskNode({
   runningDelayDays = 0,
   hidePlanned = false,
   checklistDots,
+  reasonGiven = false,
   onChecklistPress,
   onDprPress,
   onConnectorPress,
@@ -77,6 +78,9 @@ export function TaskNode({
   // Client-checklist wheel (Flowchart 2): one flag per checklist point —
   // undefined = no icon. Tapping it opens that task's Checklist tab.
   checklistDots?: boolean[];
+  // Past Tasks (2026-11-21): a delay reason is written (either stage) — the
+  // card gets a green border so done ones stand out.
+  reasonGiven?: boolean;
   onChecklistPress?: (taskId: string) => void;
   // DPR / PR note icon (Flowchart 2 only, 2026-11-18): undefined = no icon.
   // Tapping it opens the DPR / PR chooser so both can be filled from the board.
@@ -227,8 +231,8 @@ export function TaskNode({
     // right against the box above it. A border is part of the node's own
     // bounding box, so it can never get overlapped that way, whatever the
     // zoom or stacking. Still loses to the interaction states below it.
-    borderWidth: isSelected || isPendingLinkSource ? 2 : milestone ? 2.5 : 1,
-    borderColor: isSelected ? '#F0A227' : isPendingLinkSource ? '#0F1F33' : milestone ? milestone.color : '#000000',
+    borderWidth: isSelected || isPendingLinkSource ? 2 : reasonGiven ? 4 : milestone ? 2.5 : 1,
+    borderColor: isSelected ? '#F0A227' : isPendingLinkSource ? '#0F1F33' : reasonGiven ? '#16A34A' : milestone ? milestone.color : '#000000',
     backgroundColor: task.cardColor ?? boxMix?.background ?? '#F9FAFB',
     // A backstop for the padding/box-size change below, not a style choice
     // on its own — if a rare, unusually long real task name still needs

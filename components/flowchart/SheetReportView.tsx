@@ -12,11 +12,15 @@ import { FLOOR_LEVEL_PRESETS, ROOM_TYPE_PRESETS } from '../../lib/flowchart/type
 import {
   REPORT_STATUSES,
   SHEET_FIELDS,
+  STAGED_SHEET_FIELDS,
   STATUS_COLORS,
   DELAY_RED,
   exportSheetReportExcel,
   printSheetReport,
   partyRows,
+  partyRowsStaged,
+  stagedWaitingOn,
+  hasAnyReason,
   reportParties,
   reportTitle,
   reportFileName,
@@ -26,6 +30,7 @@ import {
   waitingOn,
   reasonDetail,
   sheetReportRows,
+  asConstructionRows,
   summarizeReport,
   type ReportStatus,
   type SheetReportRow,
@@ -161,6 +166,27 @@ function WaitingOnList({ items, total }: { items: { who: string; tasks: number }
         );
       })}
     </View>
+  );
+}
+
+// Past Works status box (2026-11-21): "waiting on" for Pre-construction and
+// Construction separately, each under its own heading; then tasks with no
+// reason in either stage.
+function StagedWaitingOn({ rows, total }: { rows: SheetReportRow[]; total: number }) {
+  const w = stagedWaitingOn(rows, ['Client']);
+  const part = (label: string, items: { who: string; tasks: number }[]) =>
+    items.length ? (
+      <View key={label}>
+        <Text style={{ fontSize: 11, fontWeight: '700', color: INK, marginTop: 10 }}>{label}</Text>
+        <WaitingOnList items={items} total={total} />
+      </View>
+    ) : null;
+  return (
+    <>
+      {part('Pre-construction delays', w.pre)}
+      {part('Construction delays', w.construction)}
+      {w.none ? <WaitingOnList items={[{ who: 'No reason written', tasks: w.none }]} total={total} /> : null}
+    </>
   );
 }
 
@@ -386,7 +412,14 @@ export function SheetReportView({
   projectName,
   topFilterText,
   pageFilters,
+  stages = false,
+  copiedTaskIds,
 }: {
+  /** Past Tasks (2026-11-21): Pre-construction and Construction delays reported separately. */
+  stages?: boolean;
+  /** Past Works: the Current Status tasks copied onto that board — their
+   *  Pre-construction is their own Past Works one (copyPreConstruction). */
+  copiedTaskIds?: ReadonlySet<string>;
   pageFilters: ReportPageFilters;
   tasks: ({ id: string; taskId: string; taskName: string; workName: string } & SheetStatusTask)[];
   projectName: string;
@@ -395,6 +428,8 @@ export function SheetReportView({
 }) {
   const { selectedProjectId } = useProject();
   const [notes, setNotes] = useState<Map<string, ChecklistNotes> | null>(null);
+  // Past Tasks: Construction-stage delays (empty if that table isn't set up yet).
+  const [constructionNotes, setConstructionNotes] = useState<Map<string, ChecklistNotes> | null>(null);
   // Status can be more than one (2026-11-17, client): e.g. Pending + Upcoming in one report. [] = All.
   const [statuses, setStatuses] = useState<ReportStatus[]>([]);
   const pickStatus = (s: StatusOption) => setStatuses((cur) => toggleStatus(cur, s));
@@ -406,49 +441,63 @@ export function SheetReportView({
   const [busy, setBusy] = useState<'excel' | 'pdf' | null>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
   const idsKey = tasks.map((t) => t.id).join(',');
+  const copiedKey = [...(copiedTaskIds ?? [])].sort().join(',');
 
   useEffect(() => {
     let cancelled = false;
     setNotes(null);
-    fetchChecklistNotesForTasks(idsKey ? idsKey.split(',') : [])
-      .then((m) => !cancelled && setNotes(m))
-      .catch(() => !cancelled && setNotes(new Map()));
+    setConstructionNotes(null);
+    const ids = idsKey ? idsKey.split(',') : [];
+    const copied = new Set(copiedKey ? copiedKey.split(',') : []);
+    const empty = () => new Map<string, ChecklistNotes>();
+    Promise.all([
+      fetchChecklistNotesForTasks(ids.filter((id) => !copied.has(id))).catch(empty),
+      copied.size ? fetchChecklistNotesForTasks(ids.filter((id) => copied.has(id)), 'copyPreConstruction').catch(empty) : Promise.resolve(empty()),
+      stages ? fetchChecklistNotesForTasks(ids, 'construction').catch(empty) : Promise.resolve(null),
+    ]).then(([pre, copiedPre, construction]) => {
+      if (cancelled) return;
+      for (const [id, n] of copiedPre) pre.set(id, n);
+      setNotes(pre);
+      setConstructionNotes(construction);
+    });
     return () => {
       cancelled = true;
     };
-  }, [idsKey]);
+  }, [idsKey, copiedKey, stages]);
 
-  const allRows = useMemo(() => (notes ? sheetReportRows(tasks, notes, todayKey()) : []), [tasks, notes]);
+  const allRows = useMemo(
+    () => (notes ? sheetReportRows(tasks, notes, todayKey(), stages ? constructionNotes ?? new Map() : undefined) : []),
+    [tasks, notes, constructionNotes, stages]
+  );
   const parties = useMemo(() => reportParties(allRows), [allRows]);
-  const partyAll = useMemo(() => (party ? partyRows(allRows, party) : []), [allRows, party]);
+  // Past Works: a party / checklist point counts in either stage (Pre-construction or Construction).
+  const byParty = (rs: SheetReportRow[], p: string) => (stages ? partyRowsStaged(rs, p) : partyRows(rs, p));
+  const partyAll = useMemo(() => (party ? byParty(allRows, party) : []), [allRows, party, stages]); // eslint-disable-line react-hooks/exhaustive-deps
   const rows = useMemo(
     () =>
-      (party ? partyRows(allRows, party) : allRows)
+      (party ? byParty(allRows, party) : allRows)
         .filter((r) => statuses.length === 0 || statuses.includes(r.status))
-        .filter((r) => (point ? !!r.notes[point]?.trim() : true))
+        .filter((r) => (point ? !!r.notes[point]?.trim() || (stages && !!r.constructionNotes?.[point]?.trim()) : true))
         .map((r, i) => ({ ...r, no: i + 1 })),
-    [allRows, statuses, point, party]
+    [allRows, statuses, point, party, stages] // eslint-disable-line react-hooks/exhaustive-deps
   );
   const sum = useMemo(() => summarizeReport(rows), [rows]);
+  // Past Tasks: the same tasks (same filters), with their Construction-stage delays.
+  const constructionRows = useMemo(() => {
+    if (!stages) return null;
+    const c = asConstructionRows(allRows);
+    return (party ? partyRows(c, party) : c)
+      .filter((r) => statuses.length === 0 || statuses.includes(r.status))
+      .filter((r) => (point ? !!r.notes[point]?.trim() : true))
+      .map((r, i) => ({ ...r, no: i + 1 }));
+  }, [stages, allRows, party, statuses, point]);
   const picked: ReportStatus[] | null = statuses.length ? statuses : null;
   const statusText = statuses.join(' + '); // "Pending + Upcoming"
   // "Responsible — by who": delayed tasks only, matching the bars in the Pending box (Client hidden there too).
-  const delayedReasons = useMemo(
-    () => summarizeReport(rows.filter((r) => r.status === 'Pending')).reasons.filter((x) => party === 'Client' || x.who !== 'Client'),
-    [rows, party]
-  );
-  const upcomingReasons = useMemo(
-    () => summarizeReport(rows.filter((r) => r.status === 'Upcoming')).reasons.filter((x) => party === 'Client' || x.who !== 'Client'),
-    [rows, party]
-  );
-  const completedReasons = useMemo(
-    () => summarizeReport(rows.filter((r) => r.status === 'Completed')).reasons.filter((x) => party === 'Client' || x.who !== 'Client'),
-    [rows, party]
-  );
   const screenWidth = useWindowDimensions().width;
 
   const filterText =
-    [topFilterText, statusText, point ? `${SHEET_FIELDS.find((f) => f.key === point)?.label} written` : '']
+    [topFilterText, statusText, point ? `${STAGED_SHEET_FIELDS.find((f) => f.key === point)?.label} written` : '']
       .filter(Boolean)
       .join(' · ') || 'All tasks';
 
@@ -457,7 +506,7 @@ export function SheetReportView({
     projectName,
     party,
     statuses.length ? statuses.join(' & ') : 'All',
-    [topFilterText, point ? `${SHEET_FIELDS.find((f) => f.key === point)?.label} written` : ''].filter(Boolean)
+    [topFilterText, point ? `${STAGED_SHEET_FIELDS.find((f) => f.key === point)?.label} written` : ''].filter(Boolean)
   );
 
   async function run(kind: 'excel' | 'pdf') {
@@ -472,7 +521,7 @@ export function SheetReportView({
         const { data: proj } = selectedProjectId
           ? await supabase.from('projects').select('created_at').eq('id', selectedProjectId).maybeSingle()
           : { data: null };
-        await printSheetReport(rows, projectName, filterText, (proj as { created_at?: string } | null)?.created_at ?? null, party, fileName, picked);
+        await printSheetReport(rows, projectName, filterText, (proj as { created_at?: string } | null)?.created_at ?? null, party, fileName, picked, constructionRows);
       }
     } catch (e) {
       setMessage({ text: e instanceof Error ? e.message : String(e), error: true });
@@ -567,7 +616,7 @@ export function SheetReportView({
         <View className="flex-row flex-wrap items-center" style={{ gap: 6 }}>
           <Text style={{ fontSize: 11, fontWeight: '700', color: MUTED, width: 86 }}>WRITTEN IN</Text>
           <Chip label="Any" active={point === null} onPress={() => setPoint(null)} />
-          {SHEET_FIELDS.map((f) => (
+          {(stages ? STAGED_SHEET_FIELDS : SHEET_FIELDS).map((f) => (
             <Chip key={f.key} label={f.label} active={point === f.key} onPress={() => setPoint(point === f.key ? null : f.key)} />
           ))}
         </View>
@@ -613,7 +662,11 @@ export function SheetReportView({
                 </View>
               ) : null
             ) : (
-              <WaitingOnList items={waitingOn(rows.filter((r) => r.status === s), ['Client'])} total={sum.byStatus[s]} />
+              stages ? (
+                <StagedWaitingOn rows={rows.filter((r) => r.status === s)} total={sum.byStatus[s]} />
+              ) : (
+                <WaitingOnList items={waitingOn(rows.filter((r) => r.status === s), ['Client'])} total={sum.byStatus[s]} />
+              )
             )}
           </Tile>
         ))}
@@ -624,46 +677,17 @@ export function SheetReportView({
       ) : (
         <>
 
-          {/* Dependencies: Pending with Completed under it on the left, Upcoming on the right (2026-11-16).
-              Each card sits in its own row so it sizes by width, never by a fixed height. */}
-          <View className="flex-row flex-wrap" style={{ gap: 12, alignItems: 'flex-start' }}>
-            {/* Empty boxes are hidden (2026-11-16), e.g. Pending/Completed when Status = Upcoming. */}
-            {delayedReasons.length > 0 || completedReasons.length > 0 ? (
-            <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: Math.min(380, Math.max(240, screenWidth - 32)), gap: 12 }}>
-              {delayedReasons.length > 0 ? (
-              <View className="flex-row">
-                <ResponsibleCard
-                  title="Dependencies for Pending Tasks"
-                  reasons={delayedReasons}
-                  countLabel="pending"
-                  countColor={DELAY_COLOR}
-                  noReason={rows.filter((r) => r.status === 'Pending' && reasonEntries(r).length === 0).length}
-                />
-              </View>
-              ) : null}
-              {completedReasons.length > 0 ? (
-              <View className="flex-row">
-                <ResponsibleCard
-                  title="Dependencies for Completed Tasks"
-                  reasons={completedReasons}
-                  countLabel="completed"
-                  countColor={MUTED}
-                  noReason={rows.filter((r) => r.status === 'Completed' && reasonEntries(r).length === 0).length}
-                />
-              </View>
-              ) : null}
-            </View>
-            ) : null}
-            {upcomingReasons.length > 0 ? (
-            <ResponsibleCard
-              title="Dependencies for Upcoming Tasks"
-              reasons={upcomingReasons}
-              countLabel="upcoming"
-              countColor={MUTED}
-              noReason={rows.filter((r) => r.status === 'Upcoming' && reasonEntries(r).length === 0).length}
-            />
-            ) : null}
-          </View>
+          {stages && constructionRows ? (
+            <>
+              <StageHeading label="Pre-construction delays" />
+              {/* "No one responsible" = no reason in EITHER stage, said once (under Pre-construction). */}
+              <DependenciesBlock rows={rows} party={party} prefix="Pre-construction — " screenWidth={screenWidth} emptyText="No pre-construction delays written yet." hasReason={hasAnyReason} />
+              <StageHeading label="Construction delays" />
+              <DependenciesBlock rows={constructionRows} party={party} prefix="Construction — " screenWidth={screenWidth} emptyText="No construction delays written yet." hasReason={() => true} />
+            </>
+          ) : (
+            <DependenciesBlock rows={rows} party={party} prefix="" screenWidth={screenWidth} />
+          )}
 
           {/* Status pie + tasks by department, moved to the end of the report (2026-11-16). */}
           {/* Full Project Status only (2026-11-16): hidden for a party report or a single status. */}
@@ -687,5 +711,83 @@ export function SheetReportView({
         </>
       )}
     </ScrollView>
+  );
+}
+
+function StageHeading({ label }: { label: string }) {
+  return (
+    <Text style={{ fontSize: 15, fontWeight: '700', color: '#0F1F33', marginTop: 4 }}>{label}</Text>
+  );
+}
+
+// "Dependencies for Pending / Completed / Upcoming Tasks" cards for one set of rows.
+// Past Tasks shows it twice: Pre-construction, then Construction (2026-11-21).
+function DependenciesBlock({
+  rows,
+  party,
+  prefix,
+  screenWidth,
+  emptyText,
+  hasReason = (r: SheetReportRow) => reasonEntries(r).length > 0,
+}: {
+  rows: SheetReportRow[];
+  party: string | null;
+  prefix: string;
+  screenWidth: number;
+  emptyText?: string;
+  /** Which tasks count as having someone responsible (Past Works: either stage). */
+  hasReason?: (r: SheetReportRow) => boolean;
+}) {
+  const reasonsFor = (s: ReportStatus) =>
+    summarizeReport(rows.filter((r) => r.status === s)).reasons.filter((x) => party === 'Client' || x.who !== 'Client');
+  const pendingR = reasonsFor('Pending');
+  const completedR = reasonsFor('Completed');
+  const upcomingR = reasonsFor('Upcoming');
+  if (emptyText && !pendingR.length && !completedR.length && !upcomingR.length) {
+    return <Text style={{ fontSize: 13, color: MUTED }}>{emptyText}</Text>;
+  }
+  return (
+    <>
+          {/* Dependencies: Pending with Completed under it on the left, Upcoming on the right (2026-11-16).
+              Each card sits in its own row so it sizes by width, never by a fixed height. */}
+          <View className="flex-row flex-wrap" style={{ gap: 12, alignItems: 'flex-start' }}>
+            {/* Empty boxes are hidden (2026-11-16), e.g. Pending/Completed when Status = Upcoming. */}
+            {pendingR.length > 0 || completedR.length > 0 ? (
+            <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: Math.min(380, Math.max(240, screenWidth - 32)), gap: 12 }}>
+              {pendingR.length > 0 ? (
+              <View className="flex-row">
+                <ResponsibleCard
+                  title={`${prefix}Dependencies for Pending Tasks`}
+                  reasons={pendingR}
+                  countLabel="pending"
+                  countColor={DELAY_COLOR}
+                  noReason={rows.filter((r) => r.status === 'Pending' && !hasReason(r)).length}
+                />
+              </View>
+              ) : null}
+              {completedR.length > 0 ? (
+              <View className="flex-row">
+                <ResponsibleCard
+                  title={`${prefix}Dependencies for Completed Tasks`}
+                  reasons={completedR}
+                  countLabel="completed"
+                  countColor={MUTED}
+                  noReason={rows.filter((r) => r.status === 'Completed' && !hasReason(r)).length}
+                />
+              </View>
+              ) : null}
+            </View>
+            ) : null}
+            {upcomingR.length > 0 ? (
+            <ResponsibleCard
+              title={`${prefix}Dependencies for Upcoming Tasks`}
+              reasons={upcomingR}
+              countLabel="upcoming"
+              countColor={MUTED}
+              noReason={rows.filter((r) => r.status === 'Upcoming' && !hasReason(r)).length}
+            />
+            ) : null}
+          </View>
+    </>
   );
 }

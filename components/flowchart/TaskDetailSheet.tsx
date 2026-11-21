@@ -186,7 +186,17 @@ export function TaskDetailSheet({
   onTaskEdited,
   showClientChecklist = false,
   durationPreds,
+  independentPlannedDates = false,
+  checklistStages = false,
+  copiedTask = false,
 }: {
+  // Past Works: a Current Status task copied below the stacks — its own Pre-construction delays.
+  copiedTask?: boolean;
+  // Past Tasks (2026-11-21): Checklist tab split into Pre-construction / Construction delays.
+  checklistStages?: boolean;
+  // Past Tasks (2026-11-21, client): Planned Start and Planned End can each be
+  // entered (or cleared) on their own — End isn't limited to after Start.
+  independentPlannedDates?: boolean;
   // Tasks linked into this one (with their planned dates) — used by the
   // "Duration (days)" trial (lib/flowchart/durationPlan.ts).
   durationPreds?: DurationPred[];
@@ -562,19 +572,28 @@ export function TaskDetailSheet({
                     value={form.plannedStartDate || null}
                     editable={canEdit}
                     onChange={(iso) => setForm((f) => (f ? { ...f, plannedStartDate: iso } : f))}
+                    onClear={independentPlannedDates ? () => setForm((f) => (f ? { ...f, plannedStartDate: '' } : f)) : undefined}
                   />
                 </View>
                 <View className="flex-1">
                   <DateField
                     label="Planned End"
                     value={form.dueDate || null}
-                    minDate={form.plannedStartDate || null}
+                    minDate={independentPlannedDates ? null : form.plannedStartDate || null}
                     editable={canEdit}
                     onChange={(iso) => setForm((f) => (f ? { ...f, dueDate: iso } : f))}
+                    onClear={independentPlannedDates ? () => setForm((f) => (f ? { ...f, dueDate: '' } : f)) : undefined}
                   />
                 </View>
               </View>
               )}
+              {independentPlannedDates && !useDuration ? (
+                <Text className="text-2xs mb-3 -mt-2" style={{ color: form.plannedStartDate && form.dueDate && form.dueDate < form.plannedStartDate ? '#B91C1C' : '#9CA3AF' }}>
+                  {form.plannedStartDate && form.dueDate && form.dueDate < form.plannedStartDate
+                    ? 'Planned End is before Planned Start — check the dates.'
+                    : 'Fill in Planned Start, Planned End, or both. Tap Clear to remove one.'}
+                </Text>
+              ) : null}
 
               <DropdownPicker
                 key={`${task.id}-procurement`}
@@ -715,7 +734,7 @@ export function TaskDetailSheet({
               )}
 
               {activeTab === 'checklist' && showClientChecklist && (
-                <ClientChecklistPanel taskId={task.id} editable={canEditChecklist} userId={userId} />
+                <ClientChecklistPanel taskId={task.id} editable={canEditChecklist} userId={userId} stages={checklistStages} preStage={copiedTask ? 'copyPreConstruction' : 'preConstruction'} />
               )}
 
               {activeTab === 'prerequisites' && (

@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { fetchAllInBatches, fetchAllRows } from './fetchAll';
 import { isPilotVisible } from './pilot';
 import { worstChecklistStatus, type ChecklistItem, type CompletionStatus } from './checklistHealth';
 import { computeGroundedIds, computeProjectDelays, type TaskDelayInfo } from './gantt/delayEngine';
@@ -111,36 +112,41 @@ async function fetchBlockedDates(years: Set<number>): Promise<Set<string>> {
 // board's tasks (e.g. 'flowchart-2' = the 70 Flowchart 2 tasks). Falls back
 // to every task when the project has none on that board.
 export async function fetchProjectTimeline(projectId: string, options?: { onlyFlowchartSet?: string }): Promise<ProjectTimelineData> {
-  const { data, error } = await supabase
-    .from('tasks')
-    .select(`
+  // Every row (lib/fetchAll.ts): Supabase stops at 1000 per request.
+  const data = await fetchAllRows<unknown>(() =>
+    supabase
+      .from('tasks')
+      .select(`
       id, task_id, task_name, status, planned_start_date, due_date,
       actual_start_date, actual_end_date, task_type_id, accountability_type, flowchart_set,
       work:works!inner(id, name, code, color, accountability_type, project_id),
       dependency_items(category, item_label, completion:dependency_completions(status))
     `)
-    .eq('work.project_id', projectId)
-    .is('deleted_at', null)
-    .order('planned_start_date', { ascending: true, nullsFirst: false });
-
-  if (error) throw new Error(error.message);
+      .eq('work.project_id', projectId)
+      .is('deleted_at', null)
+      .order('planned_start_date', { ascending: true, nullsFirst: false })
+      .order('id')
+  );
 
   // Pilot mode (lib/pilot.ts, mirrors admin-web's lib/config/pilot.ts):
   // client asked to scope every display surface down to only 12 Civil-work
   // tasks for now, everything else stays in the DB untouched but hidden.
-  let rows = ((data ?? []) as unknown as RawTaskRow[]).filter((r) => isPilotVisible(r.task_id, r.work?.code));
+  let rows = (data as RawTaskRow[]).filter((r) => isPilotVisible(r.task_id, r.work?.code));
   const onlySet = options?.onlyFlowchartSet;
   if (onlySet && rows.some((r) => r.flowchart_set === onlySet)) rows = rows.filter((r) => r.flowchart_set === onlySet);
   const taskIds = new Set(rows.map((r) => r.id));
 
-  const [depsRes, typesRes] = await Promise.all([
-    supabase.from('task_dependencies').select('task_id, depends_on_task_id, type'),
+  // Only these tasks' links, every row — reading the whole table in one
+  // request silently dropped links past Supabase's 1000-row cut-off.
+  const [depRows, typesRes] = await Promise.all([
+    fetchAllInBatches<unknown>([...taskIds], (batch) =>
+      supabase.from('task_dependencies').select('id, task_id, depends_on_task_id, type').in('task_id', batch).order('id')
+    ),
     supabase.from('task_types').select('id, name, default_duration_days').order('default_duration_days', { ascending: true }),
   ]);
-  if (depsRes.error) throw new Error(depsRes.error.message);
   if (typesRes.error) throw new Error(typesRes.error.message);
 
-  const dependencies = ((depsRes.data ?? []) as unknown as RawDependencyRow[]).filter(
+  const dependencies = (depRows as RawDependencyRow[]).filter(
     (d) => taskIds.has(d.task_id) && taskIds.has(d.depends_on_task_id)
   );
 

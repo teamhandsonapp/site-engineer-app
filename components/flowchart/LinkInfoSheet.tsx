@@ -28,7 +28,7 @@ export function LinkInfoSheet({
   onClose: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const warning = edge.soft ? null : linkDateWarning(edge.type, from, to);
+  const warning = edge.soft || edge.noWarning ? null : linkDateWarning(edge.type, from, to);
   return (
     <FormModal visible onRequestClose={onClose} position="bottom" animationType="slide">
       <View className="bg-white rounded-t-2xl px-4 pt-3 w-full self-center" style={{ maxWidth: 560, paddingBottom: insets.bottom + 16 }}>

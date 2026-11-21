@@ -161,7 +161,7 @@ export function EdgeLayer({
       if (!from || !to) return null;
       const r = route(from.id, to.id);
       const run = longestRun(r);
-      return { edge: e, route: r, from: run.from, to: run.to, warning: e.soft ? null : linkDateWarning(e.type, from, to) };
+      return { edge: e, route: r, from: run.from, to: run.to, warning: e.soft || e.noWarning ? null : linkDateWarning(e.type, from, to) };
     })
     .filter((v): v is NonNullable<typeof v> => v !== null);
   const labelPos = showLabels
@@ -184,7 +184,7 @@ export function EdgeLayer({
       <Svg style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }}>
         {seriesLines.map(({ edge, route: r }) => {
           const style = LINK_STYLE[edge.type];
-          if (edge.soft) {
+          if (edge.soft && !edge.drawAsLink) {
             // Soft link: thin dashed line (grey unless coloured), reference only.
             return <Polyline key={edge.id} points={pts(r)} fill="none" stroke={edge.color ?? SOFT_LINK_COLOR} strokeWidth={edge.color ? 2 : 1.5} strokeDasharray="6,4" />;
           }
@@ -208,7 +208,7 @@ export function EdgeLayer({
           );
         })}
         {seriesLines.map(({ edge, route: r }) => (
-          <Polygon key={`arrow-${edge.id}`} points={arrowheadPoints(r, nodeScale)} fill={edge.soft ? (edge.color ?? SOFT_LINK_COLOR) : LINK_COLOR} />
+          <Polygon key={`arrow-${edge.id}`} points={arrowheadPoints(r, nodeScale)} fill={edge.soft && !edge.drawAsLink ? (edge.color ?? SOFT_LINK_COLOR) : LINK_COLOR} />
         ))}
         {parallelLines.map(({ edge, route: r }) => (
           <Polyline key={edge.id} points={pts(r)} fill="none" stroke={PARALLEL_EDGE_COLOR} strokeWidth={2} strokeDasharray="6,5" />
@@ -238,12 +238,13 @@ export function EdgeLayer({
       {seriesLines.map(({ edge, warning }) => {
         const pos = labelPos.get(edge.id);
         if (!pos) return null;
-        const tint = warning ? LINK_WARNING_COLOR : edge.soft ? SOFT_LINK_COLOR : LINK_COLOR;
+        const looksSoft = edge.soft && !edge.drawAsLink;
+        const tint = warning ? LINK_WARNING_COLOR : looksSoft ? SOFT_LINK_COLOR : LINK_COLOR;
         const style = {
           position: 'absolute' as const,
-          left: edge.soft ? pos.left - LABEL_W * 0.35 * nodeScale : pos.left,
+          left: looksSoft ? pos.left - LABEL_W * 0.35 * nodeScale : pos.left,
           top: pos.top,
-          width: LABEL_W * (edge.soft ? 1.7 : 1) * nodeScale,
+          width: LABEL_W * (looksSoft ? 1.7 : 1) * nodeScale,
           height: LABEL_H * nodeScale,
           alignItems: 'center' as const,
           justifyContent: 'center' as const,
@@ -272,7 +273,7 @@ export function EdgeLayer({
             }}
           >
             <Text style={{ fontSize: 10 * nodeScale, lineHeight: 13 * nodeScale, fontWeight: '700', color: warning ? LINK_WARNING_COLOR : '#111827' }}>
-              {warning ? `${edge.type}!` : edge.soft ? `${edge.type} soft` : edge.type}
+              {warning ? `${edge.type}!` : looksSoft ? `${edge.type} soft` : edge.type}
             </Text>
           </View>
         );

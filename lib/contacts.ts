@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { fetchAllRows } from './fetchAll';
 
 // Admin's own address book — manually entered contractors/vendors/clients/
 // architects/consultants (and anything else, under 'other'), NOT pulled
@@ -80,9 +81,10 @@ const CONTACT_SELECT =
   'id, name, phone_number, alt_phone_number, team_member_number, email, location_link, company_name, category, notes, created_at';
 
 export async function fetchContacts(): Promise<Contact[]> {
-  const { data, error } = await supabase.from('contacts').select(CONTACT_SELECT).order('name', { ascending: true });
-  if (error) throw new Error(error.message);
-  return ((data ?? []) as RawContact[]).map(toContact);
+  const data = await fetchAllRows<RawContact>(() =>
+    supabase.from('contacts').select(CONTACT_SELECT).order('name', { ascending: true }).order('id')
+  );
+  return data.map(toContact);
 }
 
 export async function createContact(fields: ContactFields, createdBy: string | null): Promise<void> {

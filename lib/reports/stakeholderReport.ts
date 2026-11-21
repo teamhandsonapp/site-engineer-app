@@ -1,4 +1,5 @@
 import { supabase } from '../supabase';
+import { fetchAllInBatches } from '../fetchAll';
 import { isPilotVisible, REPORT_FLOWCHART_SET } from '../pilot';
 import { isCategoryNotRequired, type AccountabilityType, type CompletionStatus, type DependencyCategory } from '../taskDetail/constants';
 import { fetchContacts, type Contact, type ContactCategory } from '../contacts';
@@ -177,18 +178,17 @@ export async function fetchStakeholderReport(projectId: string, filter: Stakehol
   // own blockedBy/blocking, just the one direction this report needs.
   const taskIds = rows.map((r) => r.taskId);
   if (taskIds.length > 0) {
-    const { data: blockingRows, error: blockingError } = await supabase
-      .from('task_dependencies')
-      .select('task_id, depends_on_task_id')
-      .in('depends_on_task_id', taskIds);
-    if (blockingError) throw new Error(blockingError.message);
+    const blockingRows = await fetchAllInBatches<{ task_id: string; depends_on_task_id: string }>(taskIds, (batch) =>
+      supabase.from('task_dependencies').select('task_id, depends_on_task_id').in('depends_on_task_id', batch).order('id')
+    );
 
     const downstreamIds = [...new Set((blockingRows ?? []).map((d) => d.task_id as string))];
     const refMap = new Map<string, { taskCode: string; taskName: string }>();
     if (downstreamIds.length > 0) {
-      const { data: refTasks, error: refError } = await supabase.from('tasks').select('id, task_id, task_name').in('id', downstreamIds);
-      if (refError) throw new Error(refError.message);
-      for (const t of refTasks ?? []) refMap.set(t.id, { taskCode: t.task_id, taskName: t.task_name });
+      const refTasks = await fetchAllInBatches<{ id: string; task_id: string; task_name: string }>(downstreamIds, (batch) =>
+        supabase.from('tasks').select('id, task_id, task_name').in('id', batch).order('id')
+      );
+      for (const t of refTasks) refMap.set(t.id, { taskCode: t.task_id, taskName: t.task_name });
     }
 
     const blockingOf = new Map<string, { taskCode: string; taskName: string }[]>();

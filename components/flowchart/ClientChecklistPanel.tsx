@@ -1,30 +1,105 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, View } from 'react-native';
 import { Text, TextInput } from '../ui/AppText';
 import {
   CHECKLIST_NOTE_FIELDS,
+  CHECKLIST_STAGE_LABEL,
   EMPTY_CHECKLIST_NOTES,
   fetchChecklistNotes,
+  isMissingTableError,
+  joinPoints,
   saveChecklistNotes,
+  splitPoints,
+  STAGED_NOTE_FIELDS,
+  type ChecklistNoteKey,
   type ChecklistNotes,
+  type ChecklistStage,
 } from '../../lib/flowchart/checklistNotes';
 
-// Task sheet "Checklist" tab (Flowchart 2): the client's six checklist points
+
+// Task sheet "Checklist" tab (Flowchart 2): the client's checklist points
 // for this task — what they wrote on the checklist sheet ("On hold",
 // "Shop dwgs", "Roof erection", ...). Staff can edit and save; others read.
-export function ClientChecklistPanel({ taskId, editable, userId }: { taskId: string; editable: boolean; userId: string | null }) {
+// `stages` (Past Tasks, 2026-11-21): two tabs, Pre-construction and
+// Construction, each with its own delays, saved and reported separately.
+export function ClientChecklistPanel({
+  taskId,
+  editable,
+  userId,
+  stages = false,
+  preStage = 'preConstruction',
+}: {
+  taskId: string;
+  editable: boolean;
+  userId: string | null;
+  stages?: boolean;
+  // Past Works copy of a Current Status task: 'copyPreConstruction' (its own Pre-construction).
+  preStage?: ChecklistStage;
+}) {
+  const STAGES: ChecklistStage[] = [preStage, 'construction'];
+  const [stage, setStage] = useState<ChecklistStage>(preStage);
+  if (!stages) return <ChecklistStagePanel taskId={taskId} editable={editable} userId={userId} stage="preConstruction" />;
+  return (
+    <View>
+      <View className="flex-row rounded-xl p-1 mb-3" style={{ backgroundColor: '#F1F3F6' }}>
+        {STAGES.map((s) => {
+          const on = stage === s;
+          return (
+            <Pressable
+              key={s}
+              testID={`client-checklist-stage-${s}`}
+              onPress={() => setStage(s)}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: on }}
+              className="flex-1 items-center justify-center rounded-lg"
+              style={{ minHeight: 34, backgroundColor: on ? '#fff' : 'transparent' }}
+            >
+              <Text className="text-xs font-bold" style={{ color: on ? '#0F1F33' : '#9CA3AF' }}>
+                {CHECKLIST_STAGE_LABEL[s]} delays
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      {/* Both stay mounted, so typing in one tab isn't lost when switching to the other. */}
+      {STAGES.map((s) => (
+        <View key={s} style={{ display: stage === s ? 'flex' : 'none' }}>
+          <ChecklistPointsPanel taskId={taskId} editable={editable} userId={userId} stage={s} />
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function ChecklistStagePanel({
+  taskId,
+  editable,
+  userId,
+  stage,
+  fields = CHECKLIST_NOTE_FIELDS,
+}: {
+  taskId: string;
+  editable: boolean;
+  userId: string | null;
+  stage: ChecklistStage;
+  // Past Tasks tabs add Equipment delays (STAGED_NOTE_FIELDS).
+  fields?: typeof CHECKLIST_NOTE_FIELDS;
+}) {
   const [notes, setNotes] = useState<ChecklistNotes>(EMPTY_CHECKLIST_NOTES);
   const [saved, setSaved] = useState<ChecklistNotes>(EMPTY_CHECKLIST_NOTES);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ text: string; isError: boolean } | null>(null);
+  // The Construction table's migration hasn't been run on this database yet.
+  const [notSetUp, setNotSetUp] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setMessage(null);
-    fetchChecklistNotes(taskId)
+    setNotSetUp(false);
+    fetchChecklistNotes(taskId, stage)
       .then((n) => {
         if (cancelled) return;
         const value = n ? { ...EMPTY_CHECKLIST_NOTES, ...n } : EMPTY_CHECKLIST_NOTES;
@@ -32,25 +107,29 @@ export function ClientChecklistPanel({ taskId, editable, userId }: { taskId: str
         setSaved(value);
         setUpdatedAt(n?.updatedAt ?? null);
       })
-      .catch((err) => !cancelled && setMessage({ text: err instanceof Error ? err.message : String(err), isError: true }))
+      .catch((err) => {
+        if (cancelled) return;
+        if (stage !== 'preConstruction' && isMissingTableError(err)) setNotSetUp(true);
+        else setMessage({ text: err instanceof Error ? err.message : String((err as { message?: string })?.message ?? err), isError: true });
+      })
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [taskId]);
+  }, [taskId, stage]);
 
-  const dirty = CHECKLIST_NOTE_FIELDS.some((f) => notes[f.key].trim() !== saved[f.key].trim());
+  const dirty = fields.some((f) => notes[f.key].trim() !== saved[f.key].trim());
 
   async function handleSave() {
     setSaving(true);
     setMessage(null);
     try {
-      await saveChecklistNotes(taskId, notes, userId);
+      await saveChecklistNotes(taskId, notes, userId, stage);
       setSaved(notes);
       setUpdatedAt(new Date().toISOString());
-      setMessage({ text: 'Checklist saved', isError: false });
+      setMessage({ text: stage === 'construction' ? 'Construction delays saved' : 'Checklist saved', isError: false });
     } catch (err) {
-      setMessage({ text: `Could not save: ${err instanceof Error ? err.message : String(err)}`, isError: true });
+      setMessage({ text: `Could not save: ${err instanceof Error ? err.message : String((err as { message?: string })?.message ?? err)}`, isError: true });
     } finally {
       setSaving(false);
     }
@@ -64,16 +143,25 @@ export function ClientChecklistPanel({ taskId, editable, userId }: { taskId: str
     );
   }
 
+  if (notSetUp) {
+    return (
+      <View className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3">
+        <Text className="text-xs font-semibold text-amber-900">{CHECKLIST_STAGE_LABEL[stage]} delays aren&apos;t set up in the database yet.</Text>
+        <Text className="text-2xs text-amber-800 mt-1">The database update for this tab hasn&apos;t been run yet.</Text>
+      </View>
+    );
+  }
+
   return (
-    <View testID="client-checklist-panel">
-      {CHECKLIST_NOTE_FIELDS.map((f) => {
+    <View testID={`client-checklist-panel${stage === 'construction' ? '-construction' : ''}`}>
+      {fields.map((f) => {
         const value = notes[f.key];
         return (
           <View key={f.key} className="mb-2.5">
             <Text className="text-xs text-neutral-400 mb-1">{f.label}</Text>
             {editable ? (
               <TextInput
-                testID={`client-checklist-${f.key}`}
+                testID={`client-checklist-${stage === 'construction' ? 'construction-' : ''}${f.key}`}
                 value={value}
                 onChangeText={(t) => setNotes((n) => ({ ...n, [f.key]: t }))}
                 placeholder="Not given"
@@ -101,16 +189,251 @@ export function ClientChecklistPanel({ taskId, editable, userId }: { taskId: str
       ) : null}
       {editable ? (
         <Pressable
-          testID="client-checklist-save"
+          testID={`client-checklist-save${stage === 'construction' ? '-construction' : ''}`}
           onPress={handleSave}
           disabled={saving || !dirty}
           className="self-end px-3 py-1.5 rounded-lg bg-brand-navy flex-row items-center gap-1.5"
           style={{ opacity: saving || !dirty ? 0.5 : 1 }}
         >
           {saving && <ActivityIndicator size="small" color="#fff" />}
-          <Text className="text-xs font-semibold text-white">Save Checklist</Text>
+          <Text className="text-xs font-semibold text-white">{stage === 'construction' ? 'Save Construction Delays' : 'Save Checklist'}</Text>
         </Pressable>
       ) : null}
     </View>
   );
+}
+
+type Points = Record<ChecklistNoteKey, string[]>;
+const toPoints = (n: ChecklistNotes): Points =>
+  Object.fromEntries(STAGED_NOTE_FIELDS.map((f) => [f.key, splitPoints(n[f.key])])) as Points;
+const toNotes = (p: Points): ChecklistNotes =>
+  Object.fromEntries(STAGED_NOTE_FIELDS.map((f) => [f.key, joinPoints(p[f.key] ?? [])])) as unknown as ChecklistNotes;
+const sameNotes = (a: ChecklistNotes, b: ChecklistNotes) => STAGED_NOTE_FIELDS.every((f) => (a[f.key] ?? '') === (b[f.key] ?? ''));
+const AUTOSAVE_MS = 900;
+
+// Past Works stage tab (2026-11-21, client): each delay field is a list of
+// points — "+ Add point", type, and it auto-saves a moment after typing
+// stops; "Save Checklist" at the end saves (and confirms) everything.
+// Points are stored one per line in the same column (see splitPoints).
+function ChecklistPointsPanel({ taskId, editable, userId, stage }: { taskId: string; editable: boolean; userId: string | null; stage: ChecklistStage }) {
+  const [points, setPoints] = useState<Points>(() => toPoints(EMPTY_CHECKLIST_NOTES));
+  const [saved, setSaved] = useState<ChecklistNotes>(EMPTY_CHECKLIST_NOTES);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ text: string; isError: boolean } | null>(null);
+  const [notSetUp, setNotSetUp] = useState(false);
+  // The point just added (or split off with Enter) gets the cursor.
+  const [focus, setFocus] = useState<string | null>(null);
+
+  const notes = toNotes(points);
+  const dirty = !sameNotes(notes, saved);
+  // Saves run one after another, so a slow save never lands after a newer one.
+  const chain = useRef<Promise<void>>(Promise.resolve());
+  const latest = useRef({ notes, dirty, loaded: false });
+  latest.current = { notes, dirty, loaded: !loading && !notSetUp };
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setMessage(null);
+    setNotSetUp(false);
+    fetchChecklistNotes(taskId, stage)
+      .then((n) => {
+        if (cancelled) return;
+        const value = n ? { ...EMPTY_CHECKLIST_NOTES, ...n } : EMPTY_CHECKLIST_NOTES;
+        setPoints(toPoints(value));
+        setSaved(toNotes(toPoints(value)));
+        setUpdatedAt(n?.updatedAt ?? null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        if (stage !== 'preConstruction' && isMissingTableError(err)) setNotSetUp(true);
+        else setMessage({ text: errText(err), isError: true });
+      })
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [taskId, stage]);
+
+  function save(snapshot: ChecklistNotes, confirm: boolean): Promise<void> {
+    chain.current = chain.current.then(async () => {
+      setSaving(true);
+      try {
+        await saveChecklistNotes(taskId, snapshot, userId, stage);
+        setSaved(snapshot);
+        setUpdatedAt(new Date().toISOString());
+        setMessage(confirm ? { text: stage === 'construction' ? 'Construction delays saved' : 'Checklist saved', isError: false } : null);
+      } catch (err) {
+        setMessage({ text: `Could not save: ${errText(err)}`, isError: true });
+      } finally {
+        setSaving(false);
+      }
+    });
+    return chain.current;
+  }
+
+  // Auto-save a moment after typing stops.
+  const notesKey = STAGED_NOTE_FIELDS.map((f) => notes[f.key]).join('\u0001');
+  useEffect(() => {
+    if (!editable || loading || notSetUp || !dirty) return;
+    const t = setTimeout(() => void save(notes, false), AUTOSAVE_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notesKey, editable, loading, notSetUp]);
+
+  // Closing the sheet right after typing: still save what was written.
+  useEffect(
+    () => () => {
+      const l = latest.current;
+      if (editable && l.loaded && l.dirty) void saveChecklistNotes(taskId, l.notes, userId, stage).catch(() => {});
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [taskId, stage]
+  );
+
+  const setField = (key: ChecklistNoteKey, next: string[]) => setPoints((p) => ({ ...p, [key]: next }));
+  function changePoint(key: ChecklistNoteKey, i: number, text: string) {
+    const list = [...(points[key] ?? [])];
+    if (text.includes('\n')) {
+      // Enter (or pasting several lines) starts the next point.
+      const parts = text.split('\n');
+      list.splice(i, 1, ...parts.map((p, j) => (j === 0 ? p : p.trimStart())));
+      setFocus(`${key}:${i + parts.length - 1}`);
+    } else list[i] = text;
+    setField(key, list);
+  }
+  function addPoint(key: ChecklistNoteKey) {
+    const list = points[key] ?? [];
+    setField(key, [...list, '']);
+    setFocus(`${key}:${list.length}`);
+  }
+  function removePoint(key: ChecklistNoteKey, i: number) {
+    setField(key, (points[key] ?? []).filter((_, j) => j !== i));
+    setFocus(null);
+  }
+
+  if (loading) {
+    return (
+      <View className="py-8 items-center">
+        <ActivityIndicator color="#0F1F33" />
+      </View>
+    );
+  }
+  if (notSetUp) {
+    return (
+      <View className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3">
+        <Text className="text-xs font-semibold text-amber-900">{CHECKLIST_STAGE_LABEL[stage]} delays aren&apos;t set up in the database yet.</Text>
+        <Text className="text-2xs text-amber-800 mt-1">The database update for this tab hasn&apos;t been run yet.</Text>
+      </View>
+    );
+  }
+
+  const tid = stage === 'construction' ? 'construction-' : '';
+  return (
+    <View testID={`client-checklist-panel${stage === 'construction' ? '-construction' : ''}`}>
+      {/* One compact list (2026-11-21): a row per field with "+ Add" on the right;
+          points only appear under a field once there are some. */}
+      <View className="rounded-xl border border-neutral-200 overflow-hidden mb-3">
+        {STAGED_NOTE_FIELDS.map((f, fi) => {
+          const list = points[f.key] ?? [];
+          const count = list.filter((p) => p.trim()).length;
+          return (
+            <View key={f.key} className="px-3 py-2" style={{ borderTopWidth: fi ? 1 : 0, borderTopColor: '#F1F1F1', backgroundColor: count ? '#fff' : '#FCFCFC' }}>
+              <View className="flex-row items-center gap-2" style={{ minHeight: 28 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: count ? f.color : '#D4D4D4' }} />
+                <Text className="flex-1 text-xs" style={{ color: count ? '#171717' : '#737373', fontWeight: count ? '600' : '400' }} numberOfLines={1}>
+                  {f.label}
+                </Text>
+                {count ? (
+                  <View className="rounded-full px-1.5" style={{ backgroundColor: `${f.color}1A` }}>
+                    <Text className="text-2xs font-bold" style={{ color: f.color }}>{count}</Text>
+                  </View>
+                ) : !editable ? (
+                  <Text className="text-2xs" style={{ color: '#A3A3A3' }}>—</Text>
+                ) : null}
+                {editable ? (
+                  <Pressable
+                    testID={`client-checklist-${tid}${f.key}-add`}
+                    onPress={() => addPoint(f.key)}
+                    accessibilityLabel={`Add point to ${f.label}`}
+                    hitSlop={6}
+                    className="rounded-md px-2 py-1"
+                    style={{ backgroundColor: '#EFF6FF' }}
+                  >
+                    <Text className="text-2xs font-semibold" style={{ color: '#2563EB' }}>+ Add</Text>
+                  </Pressable>
+                ) : null}
+              </View>
+              {list.map((p, i) =>
+                editable ? (
+                  <View key={i} className="flex-row items-center gap-1.5 mt-1.5" style={{ paddingLeft: 16 }}>
+                    <Text className="text-2xs font-bold" style={{ color: f.color, width: 14 }}>{i + 1}.</Text>
+                    <TextInput
+                      testID={`client-checklist-${tid}${f.key}-${i}`}
+                      value={p}
+                      onChangeText={(t) => changePoint(f.key, i, t)}
+                      autoFocus={focus === `${f.key}:${i}`}
+                      placeholder="Type the delay…"
+                      placeholderTextColor="#A3A3A3"
+                      multiline
+                      className="flex-1 rounded-md px-2.5 py-1.5 text-sm text-neutral-900"
+                      style={{ minHeight: 32, textAlignVertical: 'top', backgroundColor: '#F5F5F5' }}
+                    />
+                    <Pressable
+                      testID={`client-checklist-${tid}${f.key}-${i}-remove`}
+                      onPress={() => removePoint(f.key, i)}
+                      accessibilityLabel={`Remove point ${i + 1}`}
+                      hitSlop={8}
+                      className="items-center justify-center"
+                      style={{ width: 22, height: 28 }}
+                    >
+                      <Text className="text-sm" style={{ color: '#A3A3A3' }}>✕</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <View key={i} className="flex-row items-start gap-1.5 mt-1" style={{ paddingLeft: 16 }}>
+                    <Text className="text-2xs font-bold" style={{ color: f.color, width: 14, marginTop: 2 }}>{i + 1}.</Text>
+                    <Text className="text-sm flex-1" style={{ color: '#171717' }}>{p}</Text>
+                  </View>
+                )
+              )}
+            </View>
+          );
+        })}
+      </View>
+
+      {message ? (
+        <Text className="text-xs mb-2" style={{ color: message.isError ? '#DC2626' : '#15803D' }}>{message.text}</Text>
+      ) : null}
+      <View className="flex-row items-center gap-2">
+        <Text className="flex-1 text-2xs" style={{ color: saving ? '#B45309' : editable && !dirty && updatedAt ? '#15803D' : '#A3A3A3' }}>
+          {saving
+            ? 'Saving…'
+            : editable && dirty
+              ? 'Auto-saves when you stop typing'
+              : updatedAt
+                ? `${editable ? 'Auto-saved · ' : ''}Last updated ${new Date(updatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                : ''}
+        </Text>
+        {editable ? (
+          <Pressable
+            testID={`client-checklist-save${stage === 'construction' ? '-construction' : ''}`}
+            onPress={() => void save(notes, true)}
+            disabled={saving}
+            className="px-3 py-1.5 rounded-lg bg-brand-navy flex-row items-center gap-1.5"
+            style={{ opacity: saving ? 0.5 : 1 }}
+          >
+            {saving && <ActivityIndicator size="small" color="#fff" />}
+            <Text className="text-xs font-semibold text-white">{stage === 'construction' ? 'Save Construction Delays' : 'Save Checklist'}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String((err as { message?: string })?.message ?? err);
 }

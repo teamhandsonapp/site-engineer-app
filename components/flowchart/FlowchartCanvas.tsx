@@ -36,11 +36,12 @@ import {
   updateTaskPosition,
   isFlowchart2Set,
   FLOWCHART_2_SET,
+  PAST_TASKS_SET,
 } from '../../lib/flowchart/data';
 import { linkProblem } from '../../lib/flowchart/linkTypes';
 import { ripplePlannedDates } from '../../lib/flowchart/plannedRipple';
 import { computeProjectedDates, runningDelayDays, shouldShowProjected } from '../../lib/flowchart/projected';
-import { CHECKLIST_NOTE_FIELDS, fetchChecklistNotesForTasks, type ChecklistNotes } from '../../lib/flowchart/checklistNotes';
+import { CHECKLIST_NOTE_FIELDS, EMPTY_CHECKLIST_NOTES, fetchChecklistNotesForTasks, STAGED_NOTE_FIELDS, type ChecklistNotes } from '../../lib/flowchart/checklistNotes';
 import { ChecklistPeek } from './ChecklistPeek';
 import { DprPrChooser } from './DprPrChooser';
 import { LinkInfoSheet } from './LinkInfoSheet';
@@ -104,7 +105,19 @@ export function FlowchartCanvas({
   flowchartSet = null,
   viewMemory,
   uniqueTaskCount,
+  detailTaskIds,
+  detailEditAllowed = false,
+  copiedTaskIds,
 }: {
+  // Past Works Date Order: the Current Status tasks copied below the stacks.
+  // Their Pre-construction delays here are their own (copyPreConstruction),
+  // not the Current Status checklist.
+  copiedTaskIds?: ReadonlySet<string>;
+  // View-only boards: these cards can still be opened (and edited when
+  // detailEditAllowed) like on a normal board — details only, the layout
+  // stays locked. Past Tasks Date Order passes its own Past Tasks here.
+  detailTaskIds?: ReadonlySet<string>;
+  detailEditAllowed?: boolean;
   // Boards that draw some tasks twice (Past Tasks date order): the real task
   // count for the corner chip; the "Task N of M" chip is hidden.
   uniqueTaskCount?: number;
@@ -607,6 +620,9 @@ export function FlowchartCanvas({
   // Re-read whenever the task sheet closes, so a checklist just saved there
   // shows straight away.
   const [checklistNotesById, setChecklistNotesById] = useState<Map<string, ChecklistNotes>>(new Map());
+  // Past Tasks (2026-11-21): Construction-stage delays + Equipment delays on the wheel / pop-up.
+  const isPastBoard = flowchartSet === PAST_TASKS_SET;
+  const [constructionNotesById, setConstructionNotesById] = useState<Map<string, ChecklistNotes>>(new Map());
   const [peekTaskId, setPeekTaskId] = useState<string | null>(null);
   // DPR / PR note icon on every card — Flowchart 2 only (the ~80 tasks, not
   // the Test copy), and only for the accounts the DPR tab itself allows
@@ -626,24 +642,42 @@ export function FlowchartCanvas({
   useEffect(() => {
     if (!isFlowchart2Set(flowchartSet) || detailTaskId !== null || !taskIdsKey) return;
     let cancelled = false;
-    fetchChecklistNotesForTasks(taskIdsKey.split(','))
-      .then((notes) => {
+    const ids = taskIdsKey.split(',');
+    // Copied Current Status tasks (Past Works): their own Pre-construction,
+    // not the Current Status checklist. Loaded together so one can't overwrite the other.
+    const copied = flowchartSet === PAST_TASKS_SET ? ids.filter((id) => copiedTaskIds?.has(id)) : [];
+    Promise.all([
+      fetchChecklistNotesForTasks(ids.filter((id) => !copiedTaskIds?.has(id) || flowchartSet !== PAST_TASKS_SET)),
+      copied.length ? fetchChecklistNotesForTasks(copied, 'copyPreConstruction').catch(() => new Map<string, ChecklistNotes>()) : Promise.resolve(new Map<string, ChecklistNotes>()),
+    ])
+      .then(([notes, own]) => {
         if (cancelled) return;
+        for (const [id, n] of own) notes.set(id, n);
         setChecklistNotesById(notes);
       })
       .catch(() => {});
+    if (flowchartSet === PAST_TASKS_SET) {
+      fetchChecklistNotesForTasks(ids, 'construction')
+        .then((notes) => !cancelled && setConstructionNotesById(notes))
+        .catch(() => {});
+    }
     return () => {
       cancelled = true;
     };
   }, [flowchartSet, detailTaskId, taskIdsKey]);
+  const wheelFields = isPastBoard ? STAGED_NOTE_FIELDS : CHECKLIST_NOTE_FIELDS;
   const checklistDotsById = useMemo(() => {
     const out = new Map<string, boolean[]>();
-    for (const [id, n] of checklistNotesById) {
-      const dots = CHECKLIST_NOTE_FIELDS.map((f) => !!n[f.key]?.trim());
+    const ids = new Set([...checklistNotesById.keys(), ...(isPastBoard ? constructionNotesById.keys() : [])]);
+    for (const id of ids) {
+      const pre = checklistNotesById.get(id);
+      const con = isPastBoard ? constructionNotesById.get(id) : undefined;
+      // A point counts as written if it is written in either stage.
+      const dots = wheelFields.map((f) => !!pre?.[f.key]?.trim() || !!con?.[f.key]?.trim());
       if (dots.some(Boolean)) out.set(id, dots);
     }
     return out;
-  }, [checklistNotesById]);
+  }, [checklistNotesById, constructionNotesById, isPastBoard, wheelFields]);
 
   const bounds = useMemo(() => computeBounds(tasks), [tasks]);
   // "Task N of M" position indicator + jump-to-task search — by explicit
@@ -1076,7 +1110,7 @@ export function FlowchartCanvas({
 
   function handleOpenTask(taskId: string) {
     setActionMenuTaskId(null);
-    if (viewOnly) return;
+    if (viewOnly && !detailTaskIds?.has(taskId)) return;
     setDetailTaskId(taskId);
     setDetailEditable(false);
     setDetailInitialTab('prerequisites');
@@ -1098,7 +1132,7 @@ export function FlowchartCanvas({
 
   function handleEditTask(taskId: string) {
     setActionMenuTaskId(null);
-    if (viewOnly) return;
+    if (viewOnly && !(detailTaskIds?.has(taskId) && detailEditAllowed)) return;
     setDetailTaskId(taskId);
     setDetailEditable(true);
     setDetailInitialTab('edit');
@@ -1459,6 +1493,7 @@ export function FlowchartCanvas({
                 projected={shouldShowProjected(task, projectedById.get(task.id), linkedTaskIds.has(task.id)) ? projectedById.get(task.id) : null}
                 runningDelayDays={runningDelayDays(projectedById.get(task.id))}
                 checklistDots={checklistDotsById.get(task.id)}
+                reasonGiven={isPastBoard && checklistDotsById.has(task.id)}
                 onChecklistPress={handleOpenChecklist}
                 onDprPress={showDprIcon && !selectMode ? handleOpenDpr : undefined}
                 onConnectorPress={showConnectors ? handleConnectorPress : undefined}
@@ -1963,8 +1998,8 @@ export function FlowchartCanvas({
       {actionMenuTask && (
         <TaskActionMenu
           taskCode={actionMenuTask.taskId}
-          onOpen={() => handleOpenTask(actionMenuTask.id)}
-          onEdit={() => handleEditTask(actionMenuTask.id)}
+          onOpen={!viewOnly || detailTaskIds?.has(actionMenuTask.id) ? () => handleOpenTask(actionMenuTask.id) : undefined}
+          onEdit={!viewOnly || (detailTaskIds?.has(actionMenuTask.id) && detailEditAllowed) ? () => handleEditTask(actionMenuTask.id) : undefined}
           onLink={
             editable
               ? () => {
@@ -2053,6 +2088,9 @@ export function FlowchartCanvas({
           return p ? [{ name: p.taskName, type: e.type, plannedStartDate: p.plannedStartDate, dueDate: p.dueDate }] : [];
         }) : undefined}
         canEdit={detailEditable}
+        independentPlannedDates={flowchartSet === PAST_TASKS_SET}
+        checklistStages={flowchartSet === PAST_TASKS_SET}
+        copiedTask={!!detailTask && !!copiedTaskIds?.has(detailTask.id)}
         canEditChecklist={canEditChecklist}
         userId={pushedByUserId}
         initialTab={detailInitialTab}
@@ -2079,7 +2117,10 @@ export function FlowchartCanvas({
       {peekTaskId && (
         <ChecklistPeek
           taskName={tasks.find((t) => t.id === peekTaskId)?.taskName ?? ''}
-          notes={checklistNotesById.get(peekTaskId) ?? null}
+          // A task with only Construction delays still opens (empty Pre-construction).
+          notes={checklistNotesById.get(peekTaskId) ?? (constructionNotesById.has(peekTaskId) ? EMPTY_CHECKLIST_NOTES : null)}
+          constructionNotes={constructionNotesById.get(peekTaskId) ?? null}
+          stages={isPastBoard}
           onClose={() => setPeekTaskId(null)}
         />
       )}

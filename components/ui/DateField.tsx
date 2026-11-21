@@ -28,7 +28,10 @@ export function DateField({
   maxDate,
   editable = true,
   onChange,
+  onClear,
 }: {
+  // Optional: shows a "Clear" link next to the label while a date is set.
+  onClear?: () => void;
   label?: string;
   value: string | null; // 'YYYY-MM-DD'
   minDate?: string | null;
@@ -40,7 +43,16 @@ export function DateField({
 
   return (
     <View>
-      {label && <Text className="text-xs text-neutral-400 mb-1">{label}</Text>}
+      {label || onClear ? (
+        <View className="flex-row items-center mb-1">
+          <Text className="flex-1 text-xs text-neutral-400">{label ?? ''}</Text>
+          {onClear && value && editable ? (
+            <Pressable onPress={onClear} hitSlop={8} accessibilityRole="button" accessibilityLabel={`Clear ${label ?? 'date'}`}>
+              <Text className="text-xs font-semibold text-red-600">Clear</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
       <Pressable
         onPress={() => editable && setOpen(true)}
         className="border border-neutral-200 rounded-lg px-3 py-2.5"

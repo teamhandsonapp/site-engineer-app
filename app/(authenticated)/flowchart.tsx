@@ -17,7 +17,7 @@ import {
 import { exportFilteredTasksPdf, printFilteredTasks } from '../../lib/flowchart/filterExport';
 import { exportChecklistExcel, exportFlowchartExcel } from '../../lib/flowchart/excelExport';
 import { downloadFlowchartA3Pdf } from '../../lib/flowchart/a3Pdf';
-import { buildDateOrderBoard } from '../../lib/flowchart/dateOrder';
+import { appendBoardBelow, buildDateOrderBoard } from '../../lib/flowchart/dateOrder';
 import { fetchMilestones, type Milestone } from '../../lib/flowchart/milestones';
 import { CANVAS_THEMES, type CanvasTheme } from '../../components/flowchart/GridBackground';
 import { matchesPlannedDateFilter, PLANNED_DATE_MODE_LABEL, type PlannedDateMode } from '../../lib/flowchart/plannedDateFilter';
@@ -28,6 +28,7 @@ import { FilteredTaskList } from '../../components/flowchart/FilteredTaskList';
 import { ChecklistSheetView } from '../../components/flowchart/ChecklistSheetView';
 import { SheetReportView } from '../../components/flowchart/SheetReportView';
 import { GanttView } from '../../components/flowchart/GanttView';
+import { SiteUpdateSheetView } from '../../components/flowchart/SiteUpdateSheetView';
 import { matchesStatusFilter, type StatusFilter } from '../../lib/flowchart/sheetStatus';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { FormModal } from '../../components/ui/FormModal';
@@ -77,6 +78,8 @@ function FlowchartScreenContent() {
   const projectName = projects.find((p) => p.id === selectedProjectId)?.name ?? 'Project';
 
   const [data, setData] = useState<FlowchartData | null>(null);
+  // Past Tasks: the Current Status board, drawn (copied, view-only) below the stacks.
+  const [currentStatusCopy, setCurrentStatusCopy] = useState<FlowchartData | null>(null);
   // Excel download (Task ID / dates / Delayed By / empty Delay Reason).
   const [excelExporting, setExcelExporting] = useState(false);
   const [excelNote, setExcelNote] = useState<{ text: string; isError: boolean } | null>(null);
@@ -110,6 +113,8 @@ function FlowchartScreenContent() {
   const [taskSet, setTaskSet] = useState<FlowchartSetKey | null>(null);
   // Which live board: the original flowchart or Flowchart 2.
   const [board, setBoard] = useState<FlowchartBoard>('fc2');
+  // "Site Update" tab (2026-11-21): the PMC site update sheet as a table only.
+  const [siteUpdate, setSiteUpdate] = useState(false);
   // Phones (2026-11-16): the button rows scroll sideways and use short labels instead of overflowing.
   const narrow = useWindowDimensions().width < 500;
   const [archive, setArchive] = useState<{ data: FlowchartData | null; loading: boolean; error: string | null }>({
@@ -147,7 +152,7 @@ function FlowchartScreenContent() {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   // Flowchart 2 extra views: "Sheet View" (the 7 checklist points as an
   // autosaving table) and "Reports" (that sheet as a downloadable report).
-  // 'dates' = Past Tasks "Date Order" (planned order left, actual order right).
+  // 'dates' = Past Tasks "Date Order" (actual-date order; undated tasks below).
   const [boardView, setBoardView] = useState<'chart' | 'sheet' | 'reports' | 'gantt' | 'dates'>('chart');
   const [dateMode, setDateMode] = useState<PlannedDateMode | null>(null);
   const [dateFrom, setDateFrom] = useState<string | null>(null);
@@ -165,11 +170,14 @@ function FlowchartScreenContent() {
   const load = useCallback(async (projectId: string) => {
     try {
       setError(null);
-      const [flowchartData, milestoneList] = await Promise.all([
+      const [flowchartData, milestoneList, statusCopy] = await Promise.all([
         withTimeout(fetchFlowchartData(projectId, board), FETCH_TIMEOUT_MS, "Couldn't reach the server — check your connection and try again."),
         fetchMilestones(projectId).catch(() => []), // filter option list only — a courtesy, not load-bearing, same as FlowchartCanvas's own fetchMilestones call
+        // Past Tasks only; the stacks still show if this fails.
+        board === 'past' ? fetchFlowchartData(projectId, 'fc2').catch(() => null) : Promise.resolve(null),
       ]);
       setData(flowchartData);
+      setCurrentStatusCopy(statusCopy);
       setMilestones(milestoneList);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -256,15 +264,14 @@ function FlowchartScreenContent() {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   })();
-  const filteredTasks = (data?.tasks ?? []).filter(
-    (t) =>
-      (floorFilter === null || t.floorLevel === floorFilter) &&
-      (deptFilter === null || t.workName === deptFilter) &&
-      (roomFilter === null || t.roomType === roomFilter) &&
-      (milestoneFilter === null || t.milestoneId === milestoneFilter) &&
-      (!plannedDateFilterActive || matchesPlannedDateFilter(t, dateMode!, dateFrom!, dateTo!)) &&
-      (statusFilter === null || matchesStatusFilter(t, statusFilter as StatusFilter, todayKey))
-  );
+  const matchesFilters = (t: NonNullable<typeof data>['tasks'][number]) =>
+    (floorFilter === null || t.floorLevel === floorFilter) &&
+    (deptFilter === null || t.workName === deptFilter) &&
+    (roomFilter === null || t.roomType === roomFilter) &&
+    (milestoneFilter === null || t.milestoneId === milestoneFilter) &&
+    (!plannedDateFilterActive || matchesPlannedDateFilter(t, dateMode!, dateFrom!, dateTo!)) &&
+    (statusFilter === null || matchesStatusFilter(t, statusFilter as StatusFilter, todayKey));
+  const filteredTasks = (data?.tasks ?? []).filter(matchesFilters);
   const filteredTaskIds = new Set(filteredTasks.map((t) => t.id));
   const filterOn = hasActiveFilter;
   // Filter on (2026-11-15, client): the matching tasks are shown in ONE
@@ -283,6 +290,22 @@ function FlowchartScreenContent() {
   // Sheet View / Reports: "Stack - Task name" (stack = the column's black heading).
   // Stack-name prefix removed (2026-11-16, client): plain task names in Sheet View / Reports.
   const sheetTasks = columnTasks;
+  // Past Works Reports (2026-11-21, client): everything on the Past Works
+  // board is counted — the Past Tasks AND the Current Status tasks copied
+  // below them (same filters, same date order). The copied tasks report their
+  // Past Works delays (own Pre-construction + Construction), not Current Status's.
+  const pastIds = new Set((data?.tasks ?? []).map((t) => t.id));
+  const copiedReportTasks =
+    board === 'past' ? [...(currentStatusCopy?.tasks ?? [])].filter((t) => !pastIds.has(t.id) && matchesFilters(t)).sort((a, b) => {
+      const ka = dateKey(a);
+      const kb = dateKey(b);
+      if (ka !== kb) return ka === null ? 1 : kb === null ? -1 : ka.localeCompare(kb);
+      return a.taskId.localeCompare(b.taskId, undefined, { numeric: true });
+    }) : [];
+  const reportTasks = board === 'past' ? [...sheetTasks, ...copiedReportTasks] : sheetTasks;
+  const reportDepartments = board === 'past'
+    ? Array.from(new Set([...allDepartments, ...(currentStatusCopy?.tasks ?? []).map((t) => t.workName)]))
+    : allDepartments;
   // Canvases remount on every filter change — FlowchartCanvas seeds its own
   // position/zoom state from initialTasks ONCE at mount (useMemo/useState
   // with an empty dep array), so swapping the prop alone would silently keep
@@ -290,8 +313,9 @@ function FlowchartScreenContent() {
   const canvasFilterKey = hasActiveFilter
     ? `filtered-${statusFilter}-${floorFilter}-${deptFilter}-${roomFilter}-${milestoneFilter}-${dateMode}-${dateFrom}-${dateTo}`
     : 'unfiltered';
-  // Past Tasks "Date Order": planned order (left) beside actual order (right). Display only.
-  const dateOrder = board === 'past' && boardView === 'dates' ? buildDateOrderBoard(filteredTasks) : null;
+  // Past Tasks "Date Order": actual-date order, "No actual dates" group below. Display only.
+  // Below them, a view-only copy of the Current Status board (not linked, nothing moved).
+  const dateOrder = board === 'past' && boardView === 'dates' ? appendBoardBelow(buildDateOrderBoard(filteredTasks), currentStatusCopy) : null;
   const filteredSeriesEdges = (data?.seriesEdges ?? []).filter((e) => filteredTaskIds.has(e.taskId) && filteredTaskIds.has(e.dependsOnTaskId));
   const filteredParallelEdges = (data?.parallelEdges ?? []).filter((e) => filteredTaskIds.has(e.taskAId) && filteredTaskIds.has(e.taskBId));
   const filterSummary = {
@@ -352,7 +376,10 @@ function FlowchartScreenContent() {
     setExcelExporting(true);
     setExcelNote(null);
     try {
-      const note = await downloadFlowchartA3Pdf(filteredTasks, filteredSeriesEdges, `${projectName} — ${BOARD_LABEL[board]}`);
+      // Past Tasks Date Order: print that chart exactly as shown on screen.
+      const note = dateOrder
+        ? await downloadFlowchartA3Pdf(dateOrder.tasks, dateOrder.edges, `${projectName} — ${BOARD_LABEL[board]} — Date Order`, { fillWidth: true, splitAtRowGap: true })
+        : await downloadFlowchartA3Pdf(filteredTasks, filteredSeriesEdges, `${projectName} — ${BOARD_LABEL[board]}`);
       setExcelNote({ text: note || 'A3 PDF created', isError: false });
     } catch (err) {
       setExcelNote({ text: `Could not create the A3 PDF: ${err instanceof Error ? err.message : String(err)}`, isError: true });
@@ -402,12 +429,13 @@ function FlowchartScreenContent() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexShrink: 1 }} contentContainerStyle={{ paddingRight: 8 }}>
         <View className="flex-row rounded-xl p-1" style={{ backgroundColor: isDark ? '#1F1F1F' : '#F1F3F6' }}>
           {(['fc2', 'fc3', 'fc2test', 'past', 'main'] as FlowchartBoard[]).map((b) => {
-            const active = board === b;
+            const active = board === b && !siteUpdate;
             return (
               <Pressable
                 key={b}
                 testID={`flowchart-board-${b}`}
                 onPress={() => {
+                  setSiteUpdate(false);
                   if (board === b) return;
                   setTaskSet(null);
                   // Flowchart 3 has Sheet View only (no Project Status / Gantt).
@@ -428,6 +456,18 @@ function FlowchartScreenContent() {
               </Pressable>
             );
           })}
+          <Pressable
+            testID="flowchart-board-site-update"
+            onPress={() => setSiteUpdate(true)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: siteUpdate }}
+            className="items-center justify-center rounded-lg"
+            style={{ minHeight: 36, paddingHorizontal: narrow ? 10 : 16, backgroundColor: siteUpdate ? (isDark ? '#141414' : '#fff') : 'transparent' }}
+          >
+            <Text className="text-xs font-bold" style={{ color: siteUpdate ? (isDark ? '#F5F5F5' : '#0F1F33') : '#9CA3AF' }}>
+              Site Update
+            </Text>
+          </Pressable>
         </View>
         </ScrollView>
         <View className="flex-1" />
@@ -450,7 +490,7 @@ function FlowchartScreenContent() {
       </View>
 
       {/* Top row (2026-11-13): Filter · ⋯ more (Excel) · 👁 old flowchart versions. */}
-      <View
+      {siteUpdate ? null : <View
         className="flex-row items-center gap-2 px-3 pt-2 pb-1.5"
         style={{ backgroundColor: CANVAS_THEMES[canvasTheme].bg }}
       >
@@ -474,7 +514,7 @@ function FlowchartScreenContent() {
         ) : null}
         {taskSet === null && board !== 'main' && data && data.tasks.length > 0
           ? ([
-              // Past Tasks only: planned order beside actual order.
+              // Past Tasks only: tasks in actual-date order.
               ['dates', 'Date Order', 'swap-horizontal-outline'],
               ['sheet', 'Sheet View', 'grid-outline'],
               ['reports', 'Project Status', 'document-text-outline'],
@@ -528,7 +568,7 @@ function FlowchartScreenContent() {
             {excelExporting ? <ActivityIndicator size="small" color="#0F1F33" /> : <Ionicons name="ellipsis-horizontal" size={18} color={isDark ? '#E5E5E5' : '#374151'} />}
           </Pressable>
         ) : null}
-      </View>
+      </View>}
 
       {/* "⋯" more options */}
       <FormModal visible={moreOpen} onRequestClose={() => setMoreOpen(false)} position="bottom" animationType="slide">
@@ -587,14 +627,14 @@ function FlowchartScreenContent() {
               <Ionicons name="document-outline" size={20} color="#B91C1C" />
               <View className="flex-1">
                 <Text className="text-sm font-semibold text-neutral-900">Download A3 PDF</Text>
-                <Text className="text-2xs text-neutral-500">Flowchart drawing, A3 portrait{hasActiveFilter ? ' (filtered)' : ''}</Text>
+                <Text className="text-2xs text-neutral-500">{dateOrder ? 'Date Order chart' : 'Flowchart drawing'}, A3 portrait{hasActiveFilter ? ' (filtered)' : ''}</Text>
               </View>
             </Pressable>
           ) : null}
         </View>
       </FormModal>
 
-      {showSets ? (
+      {showSets && !siteUpdate ? (
       <View
         className="flex-row flex-wrap items-center gap-1.5 px-3 pb-1.5"
         style={{ backgroundColor: CANVAS_THEMES[canvasTheme].bg }}
@@ -623,7 +663,9 @@ function FlowchartScreenContent() {
       </View>
       ) : null}
 
-      {taskSet !== null ? (
+      {siteUpdate ? (
+        <SiteUpdateSheetView />
+      ) : taskSet !== null ? (
         archive.loading ? (
           <View className="flex-1 items-center justify-center">
             <ActivityIndicator color="#0F1F33" />
@@ -763,13 +805,15 @@ function FlowchartScreenContent() {
             <ChecklistSheetView tasks={sheetTasks} editable={isStaff} userId={profile?.id ?? null} />
           ) : boardView === 'reports' && board !== 'main' && board !== 'fc3' ? (
             <SheetReportView
-              tasks={sheetTasks}
+              stages={board === 'past'}
+              tasks={reportTasks}
+              copiedTaskIds={board === 'past' ? new Set(copiedReportTasks.map((t) => t.id)) : undefined}
               projectName={projectName}
               topFilterText={[statusFilter, deptFilter, floorFilter, roomFilter, milestoneFilter ? milestones.find((m) => m.id === milestoneFilter)?.name : null, filterSummary.plannedDate]
                 .filter(Boolean)
                 .join(' · ')}
               pageFilters={{
-                departments: allDepartments,
+                departments: reportDepartments,
                 department: deptFilter,
                 floor: floorFilter,
                 room: roomFilter,
@@ -800,13 +844,24 @@ function FlowchartScreenContent() {
               key={`dates-${canvasFilterKey}-r${refreshKey}`}
               projectId={selectedProjectId}
               viewMemory={viewMemory}
+              // Past Tasks board: turns on the blue Estimated dates (and checklist
+              // wheel) exactly as on Current Status. View-only, so nothing is created here.
+              flowchartSet={flowchartSetForBoard(board)}
               initialTasks={dateOrder.tasks}
               seriesEdges={dateOrder.edges}
-              parallelEdges={[]}
+              parallelEdges={dateOrder.parallelEdges}
               taskTypes={data.taskTypes}
               canEdit={false}
               viewOnly
-              uniqueTaskCount={filteredTasks.length}
+              uniqueTaskCount={dateOrder.tasks.length}
+              // Every card opens/edits like a normal board (staff edit) — the
+              // Past Tasks stacks and, since 2026-11-21, the Current Status copy
+              // below (editing a copy card edits that Current Status task).
+              detailTaskIds={new Set(dateOrder.tasks.map((t) => t.id))}
+              // The Current Status copy: on Past Works its delays sit under Construction,
+              // with its own (empty) Pre-construction — Current Status itself is untouched.
+              copiedTaskIds={new Set(dateOrder.tasks.filter((t) => !filteredTaskIds.has(t.id)).map((t) => t.id))}
+              detailEditAllowed={isStaff}
               canvasTheme={canvasTheme}
               onCanvasThemeChange={setCanvasTheme}
             />
