@@ -36,9 +36,10 @@ import {
   updateTaskPosition,
   isFlowchart2Set,
   FLOWCHART_2_SET,
-  PAST_TASKS_SET,
+  isPastTasksSet,
 } from '../../lib/flowchart/data';
 import { linkProblem } from '../../lib/flowchart/linkTypes';
+import { isSavedLinkId, snapToBoard } from '../../lib/flowchart/boardLayout';
 import { ripplePlannedDates } from '../../lib/flowchart/plannedRipple';
 import { computeProjectedDates, runningDelayDays, shouldShowProjected } from '../../lib/flowchart/projected';
 import { CHECKLIST_NOTE_FIELDS, EMPTY_CHECKLIST_NOTES, fetchChecklistNotesForTasks, STAGED_NOTE_FIELDS, type ChecklistNotes } from '../../lib/flowchart/checklistNotes';
@@ -108,7 +109,19 @@ export function FlowchartCanvas({
   detailTaskIds,
   detailEditAllowed = false,
   copiedTaskIds,
+  boardLayout,
 }: {
+  // Worked-out boards (Past Tasks / Past Tasks Copy, 2026-11-22): moves and
+  // link changes are kept per board by the screen instead of on the task —
+  // see lib/flowchart/boardLayout.ts. A dropped card lines up with the
+  // nearest column / row.
+  boardLayout?: {
+    savePosition: (taskId: string, x: number, y: number) => Promise<void>;
+    /** A link removed here (the screen deletes it or hides it on this board). */
+    removeLink: (edge: FlowchartSeriesEdge) => Promise<void>;
+    /** A saved link made here, so it is always drawn on this board. */
+    linkCreated: (edge: FlowchartSeriesEdge) => Promise<void>;
+  };
   // Past Works Date Order: the Current Status tasks copied below the stacks.
   // Their Pre-construction delays here are their own (copyPreConstruction),
   // not the Current Status checklist.
@@ -459,7 +472,7 @@ export function FlowchartCanvas({
         // layoutTasks() rather than set directly, so it goes through the
         // exact same compression every other task on screen uses.
         const pos = isUndo ? action.before : action.after;
-        await updateTaskPosition(action.taskId, pos.x, pos.y);
+        await (boardLayout ? boardLayout.savePosition(action.taskId, pos.x, pos.y) : updateTaskPosition(action.taskId, pos.x, pos.y));
         setTasks((prev) => {
           const result = safeLayout(prev.map((t) => (
             t.id === action.taskId ? { ...t, manualPositionX: pos.x, manualPositionY: pos.y } : t
@@ -621,7 +634,7 @@ export function FlowchartCanvas({
   // shows straight away.
   const [checklistNotesById, setChecklistNotesById] = useState<Map<string, ChecklistNotes>>(new Map());
   // Past Tasks (2026-11-21): Construction-stage delays + Equipment delays on the wheel / pop-up.
-  const isPastBoard = flowchartSet === PAST_TASKS_SET;
+  const isPastBoard = isPastTasksSet(flowchartSet);
   const [constructionNotesById, setConstructionNotesById] = useState<Map<string, ChecklistNotes>>(new Map());
   const [peekTaskId, setPeekTaskId] = useState<string | null>(null);
   // DPR / PR note icon on every card — Flowchart 2 only (the ~80 tasks, not
@@ -635,9 +648,10 @@ export function FlowchartCanvas({
   // Last tap on a card's icon (DPR / checklist wheel / link dot) — the card's
   // own tap for that same press is ignored (see handleTap).
   const innerTapRef = useRef<{ taskId: string; at: number } | null>(null);
-  // Link dots on every box — the "Flowchart" board only (not Flowchart 2 /
-  // its Test copy), and only while Editing (unlocked), 2026-11-18.
-  const showConnectors = editable && !isFlowchart2Set(flowchartSet) && !viewOnly && !selectMode && !milestoneMode;
+  // Link dots on every box while Editing (unlocked), 2026-11-18. Every board
+  // since 2026-11-22 (client: "move and link on all the flowcharts"), not
+  // just the main Flowchart.
+  const showConnectors = editable && !viewOnly && !selectMode && !milestoneMode;
   const taskIdsKey = useMemo(() => tasks.map((t) => t.id).join(','), [tasks]);
   useEffect(() => {
     if (!isFlowchart2Set(flowchartSet) || detailTaskId !== null || !taskIdsKey) return;
@@ -645,9 +659,9 @@ export function FlowchartCanvas({
     const ids = taskIdsKey.split(',');
     // Copied Current Status tasks (Past Works): their own Pre-construction,
     // not the Current Status checklist. Loaded together so one can't overwrite the other.
-    const copied = flowchartSet === PAST_TASKS_SET ? ids.filter((id) => copiedTaskIds?.has(id)) : [];
+    const copied = isPastTasksSet(flowchartSet) ? ids.filter((id) => copiedTaskIds?.has(id)) : [];
     Promise.all([
-      fetchChecklistNotesForTasks(ids.filter((id) => !copiedTaskIds?.has(id) || flowchartSet !== PAST_TASKS_SET)),
+      fetchChecklistNotesForTasks(ids.filter((id) => !copiedTaskIds?.has(id) || !isPastTasksSet(flowchartSet))),
       copied.length ? fetchChecklistNotesForTasks(copied, 'copyPreConstruction').catch(() => new Map<string, ChecklistNotes>()) : Promise.resolve(new Map<string, ChecklistNotes>()),
     ])
       .then(([notes, own]) => {
@@ -656,7 +670,7 @@ export function FlowchartCanvas({
         setChecklistNotesById(notes);
       })
       .catch(() => {});
-    if (flowchartSet === PAST_TASKS_SET) {
+    if (isPastTasksSet(flowchartSet)) {
       fetchChecklistNotesForTasks(ids, 'construction')
         .then((notes) => !cancelled && setConstructionNotesById(notes))
         .catch(() => {});
@@ -896,6 +910,29 @@ export function FlowchartCanvas({
     }
 
     const previous = task;
+    if (boardLayout) {
+      // Worked-out board: line up with the nearest column / row, lay the
+      // board out again, and keep the move on this board only.
+      const others = tasks
+        .filter((t) => t.id !== taskId && t.manualPositionX != null && t.manualPositionY != null)
+        .map((t) => ({ x: t.manualPositionX!, y: t.manualPositionY! }));
+      const snapped = snapToBoard(afterReal, others, NODE_WIDTH * 0.55, NODE_HEIGHT * 0.9);
+      const relayout = (pos: { x: number; y: number }) =>
+        setTasks((prev) => {
+          const result = safeLayout(prev.map((t) => (t.id === taskId ? { ...t, manualPositionX: pos.x, manualPositionY: pos.y } : t)));
+          setNodeScale(result.nodeScale);
+          return result.tasks;
+        });
+      relayout(snapped);
+      boardLayout
+        .savePosition(taskId, snapped.x, snapped.y)
+        .then(() => pushHistory({ type: 'move', taskId, before: beforeReal, after: snapped }))
+        .catch((err) => {
+          relayout(beforeReal);
+          setLinkError(`Couldn't move the task — ${err instanceof Error ? err.message : 'check your connection'}. It was put back.`);
+        });
+      return;
+    }
     setTasks((prev) => prev.map((t) => (
       t.id === taskId ? { ...t, x: finalX, y: finalY, manualPositionX: afterReal.x, manualPositionY: afterReal.y } : t
     )));
@@ -1026,6 +1063,7 @@ export function FlowchartCanvas({
         const edge = await createDependency(target, source, type);
         setSeriesEdges((prev) => [...prev, edge]);
         pushHistory({ type: 'createSeriesLink', taskId: target, dependsOnTaskId: source, linkType: type });
+        await boardLayout?.linkCreated(edge);
       }
     } catch (err) {
       setLinkError(err instanceof Error ? err.message : 'Could not create the link — try again.');
@@ -1064,6 +1102,18 @@ export function FlowchartCanvas({
     const edge = seriesEdges.find((e) => e.id === edgeId);
     setChangeTypeEdgeId(null);
     if (!edge || edge.type === type) return;
+    if (boardLayout && !isSavedLinkId(edge.id)) {
+      // A drawn-in column arrow (not saved): changing its type saves a real
+      // link of that type in its place, shown on this board from now on.
+      try {
+        const saved = await createDependency(edge.taskId, edge.dependsOnTaskId, type);
+        setSeriesEdges((prev) => prev.map((e) => (e.id === edgeId ? saved : e)));
+        await boardLayout.linkCreated(saved);
+      } catch (err) {
+        setLinkError(`Couldn't change the link type — ${err instanceof Error ? err.message : 'check your connection'}.`);
+      }
+      return;
+    }
     setSeriesEdges((prev) => prev.map((e) => (e.id === edgeId ? { ...e, type } : e)));
     try {
       await updateDependencyType(edgeId, type);
@@ -1098,6 +1148,15 @@ export function FlowchartCanvas({
     const edge = seriesEdges.find((e) => e.id === id);
     setEdgeDeleteConfirmId(null);
     setSeriesEdges((prev) => prev.filter((e) => e.id !== id));
+    if (boardLayout) {
+      // Worked-out board: the screen deletes it or hides it on this board only.
+      if (!edge) return;
+      boardLayout.removeLink(edge).catch((err) => {
+        setSeriesEdges((prev) => (prev.some((e) => e.id === edge.id) ? prev : [...prev, edge]));
+        setLinkError(`Couldn't remove the link — ${err instanceof Error ? err.message : 'check your connection'}. It was restored.`);
+      });
+      return;
+    }
     deleteDependency(id)
       .then(() => {
         if (edge) pushHistory({ type: 'deleteSeriesLink', taskId: edge.taskId, dependsOnTaskId: edge.dependsOnTaskId, linkType: edge.type });
@@ -1222,10 +1281,11 @@ export function FlowchartCanvas({
       runOnJS(recomputePositionIndicator)();
     });
 
-  // Main Flowchart in Editing mode: boxes drag themselves (TaskNode's own Pan,
-  // no press-and-hold), so the board's pan never moves a box there and never
+  // Editing mode: boxes drag themselves (TaskNode's own Pan, no
+  // press-and-hold), so the board's pan never moves a box there and never
   // pans while a box is being dragged (2026-11-18: the board used to move along).
-  const directDrag = editable && !isFlowchart2Set(flowchartSet) && !viewOnly;
+  // Every board since 2026-11-22, not just the main Flowchart.
+  const directDrag = editable && !viewOnly;
   const pan = Gesture.Pan()
     .onUpdate((e) => {
       if (draggingNodeId.value != null) {
@@ -2088,8 +2148,8 @@ export function FlowchartCanvas({
           return p ? [{ name: p.taskName, type: e.type, plannedStartDate: p.plannedStartDate, dueDate: p.dueDate }] : [];
         }) : undefined}
         canEdit={detailEditable}
-        independentPlannedDates={flowchartSet === PAST_TASKS_SET}
-        checklistStages={flowchartSet === PAST_TASKS_SET}
+        independentPlannedDates={isPastTasksSet(flowchartSet)}
+        checklistStages={isPastTasksSet(flowchartSet)}
         copiedTask={!!detailTask && !!copiedTaskIds?.has(detailTask.id)}
         canEditChecklist={canEditChecklist}
         userId={pushedByUserId}

@@ -10,6 +10,15 @@ import type { SheetStatusTask } from '../../lib/flowchart/sheetStatus';
 import type { Milestone } from '../../lib/flowchart/milestones';
 import { FLOOR_LEVEL_PRESETS, ROOM_TYPE_PRESETS } from '../../lib/flowchart/types';
 import {
+  exportMilestoneExcel,
+  fmtDay,
+  milestoneSummary,
+  differenceText,
+  lineDelay,
+  printMilestoneReport,
+  type MilestoneSummary,
+} from '../../lib/flowchart/milestoneReport';
+import {
   REPORT_STATUSES,
   SHEET_FIELDS,
   STAGED_SHEET_FIELDS,
@@ -417,7 +426,8 @@ export function SheetReportView({
   pastMilestones,
 }: {
   /** Past Tasks (2026-11-21): the 4 client milestones; one picked → the report covers only its tasks. */
-  pastMilestones?: { options: { value: string; label: string }[]; value: string | null; onChange: (v: string | null) => void };
+  /** Past Tasks Copy: the level columns instead (title 'LEVEL'), same report format. */
+  pastMilestones?: { title?: string; options: { value: string; label: string }[]; value: string | null; onChange: (v: string | null) => void };
   /** Past Tasks (2026-11-21): Pre-construction and Construction delays reported separately. */
   stages?: boolean;
   /** Past Works: the Current Status tasks copied onto that board — their
@@ -516,11 +526,20 @@ export function SheetReportView({
     milestoneLabel
   );
 
+  // Milestone report (2026-11-21, client): cumulative planned / actual span, delay, and who — party only.
+  const milestoneSum = useMemo(() => (milestoneLabel ? milestoneSummary(rows, todayKey()) : null), [milestoneLabel, rows]);
+
   async function run(kind: 'excel' | 'pdf') {
     setBusy(kind);
     setMessage(null);
     try {
-      if (kind === 'excel') {
+      if (milestoneLabel && milestoneSum) {
+        // Milestone picked: the milestone report format (2026-11-21, client).
+        if (kind === 'excel') {
+          const note = await exportMilestoneExcel(milestoneSum, projectName, milestoneLabel, fileName);
+          setMessage({ text: note || `Milestone Excel with ${milestoneSum.tasks} tasks downloaded`, error: false });
+        } else await printMilestoneReport(milestoneSum, projectName, milestoneLabel, fileName);
+      } else if (kind === 'excel') {
         const note = await exportSheetReportExcel(rows, projectName, filterText, party, fileName, milestoneLabel);
         setMessage({ text: note || `Excel report with ${rows.length} tasks downloaded`, error: false });
       } else {
@@ -615,7 +634,7 @@ export function SheetReportView({
 
       {/* Filters, one row above the charts */}
       <View className="rounded-2xl p-3" style={{ backgroundColor: '#fcfcfb', borderWidth: 1, borderColor: BORDER, gap: 8 }}>
-        {pastMilestones ? <ChipLine label="MILESTONE" options={pastMilestones.options} value={pastMilestones.value} onChange={pastMilestones.onChange} /> : null}
+        {pastMilestones ? <ChipLine label={pastMilestones.title ?? 'MILESTONE'} options={pastMilestones.options} value={pastMilestones.value} onChange={pastMilestones.onChange} /> : null}
         <View className="flex-row flex-wrap items-center" style={{ gap: 6 }}>
           <Text style={{ fontSize: 11, fontWeight: '700', color: MUTED, width: 86 }}>STATUS</Text>
           {STATUS_OPTIONS.map((s) => (
@@ -651,6 +670,10 @@ export function SheetReportView({
         </View>
       </View>
 
+      {milestoneLabel ? (
+        <MilestoneReportCard summary={milestoneSum!} />
+      ) : (
+      <>
       {/* Headline tiles */}
       {/* Tiles keep their own height (a short tile no longer stretches to the Pending tile's). */}
       <View className="flex-row flex-wrap" style={{ gap: 12, alignItems: 'flex-start' }}>
@@ -719,7 +742,82 @@ export function SheetReportView({
           )}
         </>
       )}
+      </>
+      )}
     </ScrollView>
+  );
+}
+
+// Milestone report on screen (2026-11-21): same content as its PDF / Excel.
+function MilestoneReportCard({ summary: s }: { summary: MilestoneSummary }) {
+  const d = s.delayDays ?? 0;
+  const tone = s.delayDays === null ? MUTED : d > 0 ? '#B91C1C' : '#15803D';
+  const max = Math.max(1, ...s.reasons.map((r) => r.tasks), s.noReason);
+  const cell = (t: string, bold = false, right = false, color = INK) => (
+    <Text style={{ flex: 1, fontSize: 13, fontWeight: bold ? '700' : '400', color, textAlign: right ? 'right' : 'left' }}>{t}</Text>
+  );
+  const bar = (label: string, n: number, color: string) => (
+    <View key={label} className="flex-row items-center" style={{ gap: 10, marginTop: 8 }}>
+      <Text style={{ width: 150, fontSize: 13, fontWeight: '600', color: INK }}>{label}</Text>
+      <View style={{ flex: 1, height: 18, borderRadius: 4, backgroundColor: TRACK, overflow: 'hidden' }}>
+        <View style={{ width: `${(n / max) * 100}%`, height: 18, borderRadius: 4, backgroundColor: color }} />
+      </View>
+      <Text style={{ width: 32, textAlign: 'right', fontSize: 14, fontWeight: '700', color: INK }}>{n}</Text>
+    </View>
+  );
+  const countRow = (label: string, n: number, color: string) => (
+    <View key={label} className="flex-row items-center" style={{ paddingVertical: 7, borderTopWidth: 1, borderColor: BORDER }}>
+      <Text style={{ flex: 1, fontSize: 14, color: INK }}>{label}</Text>
+      <Text style={{ fontSize: 20, fontWeight: '800', color }}>{n}</Text>
+    </View>
+  );
+  // Client format (2026-11-22): Planned end → Actual end → Difference; then
+  // tasks in milestone, tasks delayed (with reasons), tasks completed on time.
+  return (
+    <View style={{ gap: 12 }}>
+      <Card title="Milestone summary" minWidth={320}>
+        <View style={{ borderWidth: 1, borderColor: BORDER, borderRadius: 8, overflow: 'hidden', marginBottom: 10 }}>
+          <View className="flex-row" style={{ paddingHorizontal: 10, paddingVertical: 8, gap: 8, backgroundColor: '#F1F5F9' }}>
+            {cell('Planned end', true)}
+            {cell('Actual end', true)}
+            {cell('Difference', true, true)}
+          </View>
+          <View className="flex-row" style={{ paddingHorizontal: 10, paddingVertical: 8, gap: 8, borderTopWidth: 1, borderColor: BORDER }}>
+            {cell(fmtDay(s.plannedEnd))}
+            {cell(s.finished ? fmtDay(s.actualEnd) : 'Not finished yet')}
+            {cell(differenceText(s), true, true, tone)}
+          </View>
+        </View>
+        {countRow('No. of tasks in milestone', s.tasks, INK)}
+        {countRow('No. of tasks delayed', s.delayedTasks, '#B91C1C')}
+        {countRow('No. of tasks completed on time', s.onTime, '#15803D')}
+        <Text style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>Difference = actual end − planned end.</Text>
+      </Card>
+      <Card title={`Reasons for delay (${s.delayedTasks} delayed)`} minWidth={320}>
+        {s.reasons.length || s.noReason ? (
+          <>
+            {s.reasons.map((r) => bar(r.reason, r.tasks, r.color))}
+            {s.noReason ? bar('Not written', s.noReason, '#9CA3AF') : null}
+          </>
+        ) : (
+          <Text style={{ fontSize: 13, color: MUTED }}>No delayed tasks.</Text>
+        )}
+        <Text style={{ fontSize: 11, color: MUTED, marginTop: 8 }}>Delayed tasks per reason; a task with two reasons counts for both.</Text>
+        {s.equipment.length ? (
+          <View style={{ marginTop: 12 }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: INK, marginBottom: 4 }}>Equipment delays</Text>
+            {s.equipment.map((e, i) => (
+              <View key={`${e.code}-${e.stage}-${i}`} className="flex-row" style={{ gap: 10, paddingVertical: 5, borderTopWidth: 1, borderColor: BORDER }}>
+                <Text style={{ width: 80, fontSize: 13, fontWeight: '700', color: INK }}>{e.code}</Text>
+                <Text style={{ width: 56, fontSize: 12, color: INK_2 }}>{e.stage}</Text>
+                <Text style={{ flex: 1, fontSize: 13, color: INK }}>{e.text}</Text>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: (e.delayDays ?? 0) > 0 ? '#B91C1C' : '#15803D' }}>{lineDelay(e.delayDays)}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
+      </Card>
+    </View>
   );
 }
 

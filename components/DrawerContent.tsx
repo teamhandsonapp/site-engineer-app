@@ -203,7 +203,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
       {/* Brand */}
       <View
         className="flex-row items-center gap-3 px-5 pb-4"
-        style={{ paddingTop: topInset + 18, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.08)' }}
+        style={{ paddingTop: topInset + 30, paddingBottom: 20, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.08)' }}
       >
         <Logo size={38} />
         <View>
@@ -215,7 +215,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
       {/* Nav */}
       <ScrollView
         style={{ flex: 1 }}
-        contentContainerStyle={{ paddingHorizontal: 10, paddingTop: 14, paddingBottom: 16 }}
+        contentContainerStyle={{ paddingHorizontal: 10, paddingTop: 18, paddingBottom: 24 }}
         showsVerticalScrollIndicator={false}
       >
         <View className="gap-0.5">
@@ -234,7 +234,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
       {/* Footer: who is signed in + Log out — always visible. */}
       <View
         className="flex-row items-center gap-3 px-4 pt-3"
-        style={{ paddingBottom: bottomInset + 14, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' }}
+        style={{ paddingTop: 14, paddingBottom: bottomInset + 28, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' }}
       >
         <View className="items-center justify-center rounded-full bg-brand-amber" style={{ width: 38, height: 38 }}>
           <Text className="text-sm font-bold text-brand-navy">{initials}</Text>

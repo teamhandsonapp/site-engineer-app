@@ -26,6 +26,42 @@ export function currentBuildNumber(): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+// ─── Admin control (2026-11-21, client) ─────────────────────────────────
+// Settings → "App update": raise the required Android build after a new
+// build is live on Google Play; phones on an older build then see the
+// "Update required" screen and can't enter the app until they update.
+
+export interface AppVersionSetting {
+  minBuild: number;
+  message: string | null;
+  updatedAt: string | null;
+}
+
+/** The required Android build, and the newest build any phone has opened the app with. */
+export async function fetchAndroidUpdateSetting(): Promise<{ setting: AppVersionSetting; newestSeen: number | null }> {
+  const [{ data, error }, seen] = await Promise.all([
+    supabase.from('app_versions').select('min_build, message, updated_at').eq('platform', 'android').maybeSingle(),
+    supabase.from('user_devices').select('build_number').eq('platform', 'android').order('last_seen_at', { ascending: false }).limit(200),
+  ]);
+  if (error) throw new Error(error.message);
+  const builds = (seen.data ?? []).map((r: { build_number: string | null }) => Number(r.build_number)).filter((n) => Number.isFinite(n) && n > 0);
+  return {
+    setting: { minBuild: Number(data?.min_build) || 0, message: data?.message ?? null, updatedAt: data?.updated_at ?? null },
+    newestSeen: builds.length ? Math.max(...builds) : null,
+  };
+}
+
+/** Admin only (RLS). 0 = nobody is blocked. */
+export async function setAndroidMinBuild(minBuild: number, message: string | null): Promise<void> {
+  const { data, error } = await supabase
+    .from('app_versions')
+    .update({ min_build: Math.max(0, Math.floor(minBuild)), message: message?.trim() || null, updated_at: new Date().toISOString() })
+    .eq('platform', 'android')
+    .select('platform');
+  if (error) throw new Error(error.message);
+  if (!data?.length) throw new Error('Only admins can change this.');
+}
+
 export async function checkForceUpdate(): Promise<UpdateRequirement | null> {
   if (Platform.OS === 'web') return null;
   const current = currentBuildNumber();

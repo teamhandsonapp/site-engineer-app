@@ -57,6 +57,18 @@ describe('A3 flowchart PDF', () => {
     expect(html).toContain('Linked from other pages: PT-22 (p.2) → CIV-07, FS');
   });
 
+  it('Date Order: a one-column group alone on its page (Glazing) prints normal-size cards, not stretched', () => {
+    const top = Array.from({ length: 6 }, (_, i) => task(`PT-${i + 1}`, i * 231, 0));
+    const glazing = [0, 1, 2].map((i) => task(`GLZ-0${i + 1}`, 0, 1600 + i * 200));
+    const html = buildFlowchartA3Html([...top, ...glazing], [], 'Copy', new Map(), { fillWidth: true, splitAtRowGap: true });
+    const last = html.split('class="page"').pop()!;
+    const sizes = [...last.matchAll(/class="card" style="[^"]*top:([\d.]+)px;width:([\d.]+)px;height:([\d.]+)px/g)].map((m) => m.slice(1).map(Number));
+    expect(sizes).toHaveLength(3);
+    for (const [, w] of sizes) expect(w).toBeLessThan(160);
+    // Packed at the top: card to card is about one card height, not a third of the sheet.
+    expect(sizes[1][0] - sizes[0][0]).toBeLessThan(sizes[0][2] + 60);
+  });
+
   it('leaves the ID out when a task has none', () => {
     const html = buildFlowchartA3Html([task('', 0, 0)], [], 'X');
     expect(html).not.toContain('class="tid"');

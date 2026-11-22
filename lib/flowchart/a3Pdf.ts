@@ -146,7 +146,9 @@ const NORMAL_CW = NORMAL_COL_W - Math.max(22, NORMAL_COL_W * 0.14);
 const NORMAL_CH = NORMAL_CW * 0.62;
 const STACK_ROWS = Math.floor((PH - PAGE_TOP - M - FOOT - 24) / (NORMAL_CH + 12));
 
-function paginate(blocks: Block[], edges: FlowchartSeriesEdge[]): PageSpec[] {
+// rowPages (A4 print, 2026-11-22): every page holds all the columns and the
+// rows are shared out over exactly that many pages, cut where fewest links cross.
+function paginate(blocks: Block[], edges: FlowchartSeriesEdge[], rowPages = 0): PageSpec[] {
   const pages: PageSpec[] = [];
   for (const { items: block, stacks } of blocks) {
     const minX = Math.min(...block.map((p) => p.x));
@@ -166,8 +168,12 @@ function paginate(blocks: Block[], edges: FlowchartSeriesEdge[]): PageSpec[] {
     const nColsAll = Math.max(...block.map((p) => colAbs(p.x))) + 1;
     const nRowsAll = Math.max(...block.map((p) => rowAbs(p.y))) + 1;
     const perPage = stacks ? Math.ceil(nRowsAll / Math.ceil(nRowsAll / STACK_ROWS)) : 0;
-    const rowChunks = stacks ? chunk(nRowsAll, perPage, perPage, crossing(rowOfTask)) : chunk(nRowsAll, MAX_ROWS, MIN_ROWS, crossing(rowOfTask));
-    for (const [c0, c1] of chunk(nColsAll, MAX_COLS, MIN_COLS, crossing(colOfTask))) {
+    const perRowPage = Math.ceil(nRowsAll / Math.max(rowPages, 1));
+    const rowChunks = rowPages
+      ? chunk(nRowsAll, perRowPage, perRowPage, crossing(rowOfTask))
+      : stacks ? chunk(nRowsAll, perPage, perPage, crossing(rowOfTask)) : chunk(nRowsAll, MAX_ROWS, MIN_ROWS, crossing(rowOfTask));
+    const colChunks: [number, number][] = rowPages ? [[0, nColsAll - 1]] : chunk(nColsAll, MAX_COLS, MIN_COLS, crossing(colOfTask));
+    for (const [c0, c1] of colChunks) {
       const inCols = block.filter((p) => colAbs(p.x) >= c0 && colAbs(p.x) <= c1);
       if (!inCols.length) continue;
       for (const [r0, r1] of rowChunks) {
@@ -229,6 +235,11 @@ function pageHtml(
 ): string {
   const { items, colOf, rowOf, nCols, nRows, normal } = spec;
   if (normal) fillWidth = false;
+  // A page of only one or two columns (e.g. the Glazing group alone at the
+  // bottom of Past Tasks Copy, 2026-11-22) was stretched to the whole sheet:
+  // giant cards spread down the page. It now prints normal-size cards, top-aligned.
+  const small = fillWidth && nCols <= 2;
+  if (small) fillWidth = false;
   const TOP = PAGE_TOP;
   // Columns and rows always share out the WHOLE page (no white space); cards
   // keep a sensible shape and the extra goes into the gaps between them.
@@ -273,7 +284,7 @@ function pageHtml(
   const CW = colW - GAP_X;
   const CH = Math.max(36, Math.min(rowH - 12, CW * 0.62, 170));
   // Stack pages: rows stay at the normal spacing (top-aligned), not spread to fill a short last page.
-  if (normal) rowH = Math.min(rowH, CH + 12 + 40);
+  if (normal || small) rowH = Math.min(rowH, CH + 12 + 40);
   const padY = (rowH - CH) / 2;
   // Text grows with the card, limited by the card width.
   const nameFs = Math.max(9, Math.min(CH * 0.14, CW * 0.075, 15));
@@ -400,14 +411,23 @@ function pageHtml(
 </div>`;
 }
 
+export interface A3PdfOptions {
+  fillWidth?: boolean;
+  splitAtRowGap?: boolean;
+  /** All columns on every page, rows shared out over this many pages. */
+  rowPages?: number;
+  /** A4: the same A3 layout scaled down by 1/√2 (A3 → A4 exactly). */
+  paper?: 'A3' | 'A4';
+}
+
 export function buildFlowchartA3Html(
   tasks: FlowchartTask[],
   edges: FlowchartSeriesEdge[],
   title: string,
   notesOf: Map<string, ChecklistNotes> = new Map(),
-  opts: { fillWidth?: boolean; splitAtRowGap?: boolean } = {}
+  opts: A3PdfOptions = {}
 ): string {
-  const specs = paginate(splitIntoBlocks(placeAll(tasks), !!opts.splitAtRowGap).filter((b) => b.items.length > 0), edges);
+  const specs = paginate(splitIntoBlocks(placeAll(tasks), !!opts.splitAtRowGap).filter((b) => b.items.length > 0), edges, opts.rowPages ?? 0);
   const pageOf = new Map<string, number>();
   specs.forEach((s, i) => s.items.forEach((p) => pageOf.set(p.task.id, i + 1)));
   const nameOf = new Map(tasks.map((t) => [t.id, t.taskName.trim()]));
@@ -423,7 +443,7 @@ export function buildFlowchartA3Html(
   }
   const pages = specs.map((s, i) => pageHtml(s, edges, title, i + 1, specs.length, pageOf, nameOf, notesOf, estOf, !!opts.fillWidth, codeOf, taskOf)).join('');
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>
-  @page { size: A3 portrait; margin: 0; }
+  @page { size: ${opts.paper === 'A4' ? 'A4' : 'A3'} portrait; margin: 0; }${opts.paper === 'A4' ? ' .page { zoom: 0.7071; }' : ''}
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   html, body { margin: 0; padding: 0; background: #fff; }
   body { font-family: "Segoe UI", Roboto, Arial, sans-serif; color: #1F2937; }
@@ -476,13 +496,15 @@ export async function downloadFlowchartA3Pdf(
   tasks: FlowchartTask[],
   edges: FlowchartSeriesEdge[],
   title: string,
-  opts: { fillWidth?: boolean; splitAtRowGap?: boolean } = {}
+  opts: A3PdfOptions = {}
 ): Promise<string> {
+  const paper = opts.paper ?? 'A3';
+  const pagePt = paper === 'A4' ? { width: 595, height: 842 } : A3_PT;
   if (tasks.length === 0) throw new Error('No tasks to put in the PDF.');
   // Client-checklist notes for the wheel icon; the PDF still prints without them.
   const notes = await fetchChecklistNotesForTasks(tasks.map((t) => t.id)).catch(() => new Map<string, ChecklistNotes>());
   const html = buildFlowchartA3Html(tasks, edges, title, notes, opts);
-  const fileName = title.replace(/[^a-zA-Z0-9-_]+/g, '_').replace(/_+$/, '') + '_A3';
+  const fileName = title.replace(/[^a-zA-Z0-9-_]+/g, '_').replace(/_+$/, '') + `_${paper}`;
 
   if (Platform.OS === 'web') {
     // Web has no PDF writer: open the A3 pages and the print dialog ("Save as PDF").
@@ -491,10 +513,10 @@ export async function downloadFlowchartA3Pdf(
     w.document.open();
     w.document.write(html.replace('</body>', '<script>window.onload=function(){setTimeout(function(){window.print()},400)}</script></body>'));
     w.document.close();
-    return 'Choose "Save as PDF", paper size A3 and Portrait in the print window.';
+    return `Choose "Save as PDF", paper size ${paper} and Portrait in the print window.`;
   }
   if (Platform.OS === 'android') {
-    const { base64 } = await Print.printToFileAsync({ html, base64: true, ...A3_PT });
+    const { base64 } = await Print.printToFileAsync({ html, base64: true, ...pagePt });
     if (!base64) throw new Error('Could not create the PDF.');
     let directoryUri = (await AsyncStorage.getItem(SAVE_DIR_KEY)) ?? (await pickSaveDirectory());
     let destUri: string;
@@ -505,9 +527,9 @@ export async function downloadFlowchartA3Pdf(
       destUri = await FileSystem.StorageAccessFramework.createFileAsync(directoryUri, fileName, 'application/pdf');
     }
     await FileSystem.writeAsStringAsync(destUri, base64, { encoding: FileSystem.EncodingType.Base64 });
-    return `A3 PDF saved to ${friendlyDirLabel(directoryUri)}`;
+    return `${paper} PDF saved to ${friendlyDirLabel(directoryUri)}`;
   }
-  const { uri } = await Print.printToFileAsync({ html, base64: false, ...A3_PT });
+  const { uri } = await Print.printToFileAsync({ html, base64: false, ...pagePt });
   if (!(await Sharing.isAvailableAsync())) throw new Error("Sharing isn't available on this device.");
   await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: title, UTI: 'com.adobe.pdf' });
   return '';

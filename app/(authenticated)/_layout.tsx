@@ -53,12 +53,14 @@ export default function AuthenticatedLayout() {
         headerShadowVisible: false,
         // Standard side menu (2026-11-18): plain navy panel with softly rounded
         // right corners; always leaves a strip of the app showing to tap-close.
+        // Narrower (2026-11-21, client): about two-thirds of a phone screen,
+        // never wider than 260, so most of the app stays visible beside it.
         drawerStyle: {
           backgroundColor: '#0F1F33',
-          width: Math.min(300, screenWidth - 56),
-          borderTopRightRadius: 16,
-          borderBottomRightRadius: 16,
-          overflow: 'hidden',
+          width: Math.min(260, Math.round(screenWidth * 0.66)),
+          // Straight edges (2026-11-21, client) — no rounded corners.
+          borderTopRightRadius: 0,
+          borderBottomRightRadius: 0,
         },
         overlayColor: 'rgba(0,0,0,0.55)',
         // Registered once here (not per-screen) so the bell — and its badge

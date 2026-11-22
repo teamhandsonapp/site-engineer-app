@@ -6,8 +6,12 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { appRoleFor, useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
 import {
+  deleteDependency,
+  fetchBoardLayout,
   fetchFlowchartData,
   fetchFlowchartSet,
+  saveBoardPosition,
+  setBoardLinkRule,
   FLOWCHART_SET_LABEL,
   flowchartSetForBoard,
   type FlowchartBoard,
@@ -17,7 +21,9 @@ import {
 import { exportFilteredTasksPdf, printFilteredTasks } from '../../lib/flowchart/filterExport';
 import { exportChecklistExcel, exportFlowchartExcel } from '../../lib/flowchart/excelExport';
 import { downloadFlowchartA3Pdf } from '../../lib/flowchart/a3Pdf';
-import { appendBoardBelow, buildDateOrderBoard } from '../../lib/flowchart/dateOrder';
+import { appendBoardBelow, buildDateOrderBoard, buildPastCopyBoard, PAST_COPY_LEVEL_STACKS, pastTaskCode } from '../../lib/flowchart/dateOrder';
+import { applyBoardLayout, EMPTY_BOARD_LAYOUT, isSavedLinkId, linkKey, type BoardLayout } from '../../lib/flowchart/boardLayout';
+import type { FlowchartSeriesEdge } from '../../lib/flowchart/types';
 import { fetchMilestones, type Milestone } from '../../lib/flowchart/milestones';
 import { CANVAS_THEMES, type CanvasTheme } from '../../components/flowchart/GridBackground';
 import { matchesPlannedDateFilter, PLANNED_DATE_MODE_LABEL, type PlannedDateMode } from '../../lib/flowchart/plannedDateFilter';
@@ -46,9 +52,33 @@ const BOARD_LABEL: Record<FlowchartBoard, string> = {
   fc3: '56 Tasks',
   fc2test: 'Copy',
   past: 'Past Tasks',
+  pastcopy: 'Past Tasks Copy',
+  pastcopystatus: 'Past Tasks Copy',
+  test: 'Test',
   main: 'Main Flowchart',
 };
+// Past Tasks and its copy (2026-11-21) work the same: Date Order, the Current
+// Status copy below, staged delays, milestone reports. Only the columns differ.
+const isPastBoard = (b: FlowchartBoard) => b === 'past' || b === 'pastcopy';
 const SHOW_SETS_KEY = 'flowchart:showOldVersions';
+// Past Tasks Copy level reports. LL, L and ML are one report (2026-11-22,
+// client); UL, Mezz and No level stay on their own.
+const COMBINED_LEVELS = 3;
+function pastCopyReportGroups() {
+  const levels = PAST_COPY_LEVEL_STACKS;
+  const short = (label: string) => label.split(/\s+/)[0];
+  const combined = levels.slice(0, COMBINED_LEVELS);
+  return [
+    {
+      name: combined.map((s) => short(s.label)).join(' + '),
+      label: `Level ${combined.map((s) => short(s.label)).join(' + ')} (−7'6" to −2'0")`,
+      taskCodes: combined.flatMap((s) => s.taskCodes),
+    },
+    ...levels.slice(COMBINED_LEVELS).map((s) => ({ name: s.label, label: `Level ${s.label.replace(/\s+/g, ' ')}`, taskCodes: s.taskCodes })),
+  ];
+}
+// Past Tasks Copy A4 print: down to this card (2026-11-22, client).
+const A4_PRINT_LAST_CODE = 'CIV-34';
 
 type FlowchartViewMode = 'flowchart' | 'list';
 
@@ -81,6 +111,9 @@ function FlowchartScreenContent() {
   const [data, setData] = useState<FlowchartData | null>(null);
   // Past Tasks: the Current Status board, drawn (copied, view-only) below the stacks.
   const [currentStatusCopy, setCurrentStatusCopy] = useState<FlowchartData | null>(null);
+  // Past Tasks / Past Tasks Copy: cards moved and links made or removed on
+  // that board (lib/flowchart/boardLayout.ts, 2026-11-22).
+  const [boardLayout, setBoardLayout] = useState<BoardLayout>(EMPTY_BOARD_LAYOUT);
   // Excel download (Task ID / dates / Delayed By / empty Delay Reason).
   const [excelExporting, setExcelExporting] = useState(false);
   const [excelNote, setExcelNote] = useState<{ text: string; isError: boolean } | null>(null);
@@ -173,14 +206,21 @@ function FlowchartScreenContent() {
   const load = useCallback(async (projectId: string) => {
     try {
       setError(null);
-      const [flowchartData, milestoneList, statusCopy] = await Promise.all([
+      const [flowchartData, milestoneList, statusCopy, layout] = await Promise.all([
         withTimeout(fetchFlowchartData(projectId, board), FETCH_TIMEOUT_MS, "Couldn't reach the server — check your connection and try again."),
         fetchMilestones(projectId).catch(() => []), // filter option list only — a courtesy, not load-bearing, same as FlowchartCanvas's own fetchMilestones call
-        // Past Tasks only; the stacks still show if this fails.
-        board === 'past' ? fetchFlowchartData(projectId, 'fc2').catch(() => null) : Promise.resolve(null),
+        // Past Tasks: the live Current Status board. Past Tasks Copy: its own copy
+        // of it (2026-11-22). The stacks still show if this fails.
+        board === 'pastcopy'
+          ? fetchFlowchartData(projectId, 'pastcopystatus').catch(() => null)
+          : board === 'past'
+            ? fetchFlowchartData(projectId, 'fc2').catch(() => null)
+            : Promise.resolve(null),
+        isPastBoard(board) ? fetchBoardLayout(board).catch(() => EMPTY_BOARD_LAYOUT) : Promise.resolve(EMPTY_BOARD_LAYOUT),
       ]);
       setData(flowchartData);
       setCurrentStatusCopy(statusCopy);
+      setBoardLayout(layout);
       setMilestones(milestoneList);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -299,18 +339,22 @@ function FlowchartScreenContent() {
   // Past Works delays (own Pre-construction + Construction), not Current Status's.
   const pastIds = new Set((data?.tasks ?? []).map((t) => t.id));
   const copiedReportTasks =
-    board === 'past' ? [...(currentStatusCopy?.tasks ?? [])].filter((t) => !pastIds.has(t.id) && matchesFilters(t)).sort((a, b) => {
+    isPastBoard(board) ? [...(currentStatusCopy?.tasks ?? [])].filter((t) => !pastIds.has(t.id) && matchesFilters(t)).sort((a, b) => {
       const ka = dateKey(a);
       const kb = dateKey(b);
       if (ka !== kb) return ka === null ? 1 : kb === null ? -1 : ka.localeCompare(kb);
       return a.taskId.localeCompare(b.taskId, undefined, { numeric: true });
     }) : [];
   // Past Tasks Reports: one of the 4 milestones picked → only its tasks (2026-11-21).
-  const pastMilestoneCodes = board === 'past' && pastMilestone ? new Set(PAST_MILESTONES.find((m) => m.name === pastMilestone)?.taskCodes ?? []) : null;
-  const reportTasks = (board === 'past' ? [...sheetTasks, ...copiedReportTasks] : sheetTasks).filter(
-    (t) => !pastMilestoneCodes || pastMilestoneCodes.has(t.taskId)
+  // Past Tasks Copy (2026-11-21, client): a report per LEVEL column instead (same format).
+  const reportGroups = board === 'pastcopy'
+    ? pastCopyReportGroups()
+    : PAST_MILESTONES.map((m) => ({ name: m.name, label: pastMilestoneLabel(m.name), taskCodes: m.taskCodes }));
+  const pastMilestoneCodes = isPastBoard(board) && pastMilestone ? new Set(reportGroups.find((m) => m.name === pastMilestone)?.taskCodes ?? []) : null;
+  const reportTasks = (isPastBoard(board) ? [...sheetTasks, ...copiedReportTasks] : sheetTasks).filter(
+    (t) => !pastMilestoneCodes || pastMilestoneCodes.has(pastTaskCode(t.taskId))
   );
-  const reportDepartments = board === 'past'
+  const reportDepartments = isPastBoard(board)
     ? Array.from(new Set([...allDepartments, ...(currentStatusCopy?.tasks ?? []).map((t) => t.workName)]))
     : allDepartments;
   // Canvases remount on every filter change — FlowchartCanvas seeds its own
@@ -322,7 +366,48 @@ function FlowchartScreenContent() {
     : 'unfiltered';
   // Past Tasks "Date Order": actual-date order, "No actual dates" group below. Display only.
   // Below them, a view-only copy of the Current Status board (not linked, nothing moved).
-  const dateOrder = board === 'past' && boardView === 'dates' ? appendBoardBelow(buildDateOrderBoard(filteredTasks), currentStatusCopy) : null;
+  const builtDateOrder = isPastBoard(board) && boardView === 'dates' ? board === 'pastcopy'
+      ? buildPastCopyBoard(filteredTasks, currentStatusCopy, data?.seriesEdges ?? [])
+      : appendBoardBelow(buildDateOrderBoard(filteredTasks), currentStatusCopy) : null;
+  // Cards dragged and links made / removed on this board (2026-11-22) win
+  // over the worked-out layout.
+  const savedBoardLinks = [...(data?.seriesEdges ?? []), ...(currentStatusCopy?.seriesEdges ?? [])];
+  const dateOrder = builtDateOrder ? applyBoardLayout(builtDateOrder, boardLayout, savedBoardLinks) : null;
+  // Past Tasks Copy's tasks are all its own copies, so a removed saved link is
+  // deleted. On Past Tasks the cards below are the live Current Status tasks:
+  // a link touching them is only hidden on Past Tasks.
+  const ownBoardTaskIds = new Set([
+    ...(data?.tasks ?? []).map((t) => t.id),
+    ...(board === 'pastcopy' ? (currentStatusCopy?.tasks ?? []).map((t) => t.id) : []),
+  ]);
+  const setLinkRuleLocal = (key: string, rule: 'show' | 'hide' | null) =>
+    setBoardLayout((prev) => {
+      const links = new Map(prev.links);
+      if (rule) links.set(key, rule);
+      else links.delete(key);
+      return { ...prev, links };
+    });
+  const dateBoardLayout = {
+    savePosition: async (taskId: string, x: number, y: number) => {
+      await saveBoardPosition(board, taskId, x, y);
+      setBoardLayout((prev) => ({ ...prev, positions: new Map(prev.positions).set(taskId, { x, y }) }));
+    },
+    removeLink: async (edge: FlowchartSeriesEdge) => {
+      const key = linkKey(edge.dependsOnTaskId, edge.taskId);
+      if (isSavedLinkId(edge.id) && ownBoardTaskIds.has(edge.taskId) && ownBoardTaskIds.has(edge.dependsOnTaskId)) {
+        await deleteDependency(edge.id);
+        if (boardLayout.links.has(key)) await setBoardLinkRule(board, edge.dependsOnTaskId, edge.taskId, null);
+        setLinkRuleLocal(key, null);
+      } else {
+        await setBoardLinkRule(board, edge.dependsOnTaskId, edge.taskId, 'hide');
+        setLinkRuleLocal(key, 'hide');
+      }
+    },
+    linkCreated: async (edge: FlowchartSeriesEdge) => {
+      await setBoardLinkRule(board, edge.dependsOnTaskId, edge.taskId, 'show');
+      setLinkRuleLocal(linkKey(edge.dependsOnTaskId, edge.taskId), 'show');
+    },
+  };
   const filteredSeriesEdges = (data?.seriesEdges ?? []).filter((e) => filteredTaskIds.has(e.taskId) && filteredTaskIds.has(e.dependsOnTaskId));
   const filteredParallelEdges = (data?.parallelEdges ?? []).filter((e) => filteredTaskIds.has(e.taskAId) && filteredTaskIds.has(e.taskBId));
   const filterSummary = {
@@ -395,6 +480,27 @@ function FlowchartScreenContent() {
     }
   }
 
+  // Past Tasks Copy (2026-11-22, client): the board from the top row down to
+  // PC-CIV-34 only, on 3 A4 portrait pages (all columns on every page).
+  async function handleDownloadA4Pdf() {
+    if (!dateOrder) return;
+    const last = dateOrder.tasks.find((t) => pastTaskCode(t.taskId) === A4_PRINT_LAST_CODE);
+    const lastY = last?.manualPositionY ?? Infinity;
+    const tasks = dateOrder.tasks.filter((t) => (t.manualPositionY ?? Infinity) <= lastY);
+    const ids = new Set(tasks.map((t) => t.id));
+    const edges = dateOrder.edges.filter((e) => ids.has(e.taskId) && ids.has(e.dependsOnTaskId));
+    setExcelExporting(true);
+    setExcelNote(null);
+    try {
+      const note = await downloadFlowchartA3Pdf(tasks, edges, `${projectName} — ${BOARD_LABEL[board]}`, { fillWidth: true, rowPages: 3, paper: 'A4' });
+      setExcelNote({ text: note || 'A4 PDF created', isError: false });
+    } catch (err) {
+      setExcelNote({ text: `Could not create the A4 PDF: ${err instanceof Error ? err.message : String(err)}`, isError: true });
+    } finally {
+      setExcelExporting(false);
+    }
+  }
+
   async function handlePrint() {
     setPrinting(true);
     try {
@@ -435,7 +541,7 @@ function FlowchartScreenContent() {
       <View className="flex-row px-3 pt-2" style={{ backgroundColor: CANVAS_THEMES[canvasTheme].bg }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexShrink: 1 }} contentContainerStyle={{ paddingRight: 8 }}>
         <View className="flex-row rounded-xl p-1" style={{ backgroundColor: isDark ? '#1F1F1F' : '#F1F3F6' }}>
-          {(['fc2', 'fc3', 'fc2test', 'past', 'main'] as FlowchartBoard[]).map((b) => {
+          {(['fc2', 'fc3', 'fc2test', 'past', 'pastcopy', 'test', 'main'] as FlowchartBoard[]).map((b) => {
             const active = board === b && !siteUpdate;
             return (
               <Pressable
@@ -445,10 +551,12 @@ function FlowchartScreenContent() {
                   setSiteUpdate(false);
                   if (board === b) return;
                   setTaskSet(null);
+                  // Milestones (Past Tasks) and levels (Past Tasks Copy) differ: start with none picked.
+                  setPastMilestone(null);
                   // Flowchart 3 has Sheet View only (no Project Status / Gantt).
                   if (b === 'fc3' && boardView !== 'sheet') setBoardView('chart');
                   // Past Tasks opens on Date Order (2026-11-20, client); it exists only there.
-                  if (b === 'past') setBoardView('dates');
+                  if (isPastBoard(b)) setBoardView('dates');
                   else if (boardView === 'dates') setBoardView('chart');
                   setBoard(b);
                 }}
@@ -529,7 +637,7 @@ function FlowchartScreenContent() {
               ['gantt', 'Gantt View', 'calendar-outline'],
             ] as const)
               .filter(([view]) => board !== 'fc3' || view === 'sheet')
-              .filter(([view]) => view !== 'dates' || board === 'past')
+              .filter(([view]) => view !== 'dates' || isPastBoard(board))
               .map(([view, label, icon]) => {
               const on = boardView === view;
               return (
@@ -620,7 +728,7 @@ function FlowchartScreenContent() {
               </View>
             </Pressable>
           ) : null}
-          {board === 'fc2' || board === 'fc2test' || board === 'past' ? (
+          {board === 'fc2' || board === 'fc2test' || board === 'test' || isPastBoard(board) ? (
             <Pressable
               testID="flowchart-more-a3pdf"
               onPress={() => {
@@ -635,6 +743,24 @@ function FlowchartScreenContent() {
               <View className="flex-1">
                 <Text className="text-sm font-semibold text-neutral-900">Download A3 PDF</Text>
                 <Text className="text-2xs text-neutral-500">{dateOrder ? 'Date Order chart' : 'Flowchart drawing'}, A3 portrait{hasActiveFilter ? ' (filtered)' : ''}</Text>
+              </View>
+            </Pressable>
+          ) : null}
+          {board === 'pastcopy' && dateOrder ? (
+            <Pressable
+              testID="flowchart-more-a4pdf"
+              onPress={() => {
+                setMoreOpen(false);
+                void handleDownloadA4Pdf();
+              }}
+              disabled={excelExporting}
+              className="flex-row items-center gap-3 border-t border-neutral-100"
+              style={{ minHeight: 52, opacity: excelExporting ? 0.5 : 1 }}
+            >
+              <Ionicons name="print-outline" size={20} color="#B91C1C" />
+              <View className="flex-1">
+                <Text className="text-sm font-semibold text-neutral-900">Download A4 PDF</Text>
+                <Text className="text-2xs text-neutral-500">Top row down to PC-CIV-34 · 3 pages, A4 portrait</Text>
               </View>
             </Pressable>
           ) : null}
@@ -812,13 +938,18 @@ function FlowchartScreenContent() {
             <ChecklistSheetView tasks={sheetTasks} editable={isStaff} userId={profile?.id ?? null} />
           ) : boardView === 'reports' && board !== 'main' && board !== 'fc3' ? (
             <SheetReportView
-              stages={board === 'past'}
+              stages={isPastBoard(board)}
               tasks={reportTasks}
-              copiedTaskIds={board === 'past' ? new Set(copiedReportTasks.map((t) => t.id)) : undefined}
+              copiedTaskIds={isPastBoard(board) ? new Set(copiedReportTasks.map((t) => t.id)) : undefined}
               projectName={projectName}
               pastMilestones={
-                board === 'past'
-                  ? { options: PAST_MILESTONES.map((m) => ({ value: m.name, label: pastMilestoneLabel(m.name) })), value: pastMilestone, onChange: setPastMilestone }
+                isPastBoard(board)
+                  ? {
+                      title: board === 'pastcopy' ? 'LEVEL' : 'MILESTONE',
+                      options: reportGroups.map((m) => ({ value: m.name, label: m.label })),
+                      value: pastMilestone,
+                      onChange: setPastMilestone,
+                    }
                   : undefined
               }
               topFilterText={[statusFilter, deptFilter, floorFilter, roomFilter, milestoneFilter ? milestones.find((m) => m.id === milestoneFilter)?.name : null, filterSummary.plannedDate]
@@ -863,8 +994,10 @@ function FlowchartScreenContent() {
               seriesEdges={dateOrder.edges}
               parallelEdges={dateOrder.parallelEdges}
               taskTypes={data.taskTypes}
-              canEdit={false}
-              viewOnly
+              // Move & link here too (2026-11-22, client): staff, once
+              // unlocked for Editing; kept on this board only (boardLayout).
+              canEdit={isStaff && !hasActiveFilter}
+              boardLayout={dateBoardLayout}
               uniqueTaskCount={dateOrder.tasks.length}
               // Every card opens/edits like a normal board (staff edit) — the
               // Past Tasks stacks and, since 2026-11-21, the Current Status copy

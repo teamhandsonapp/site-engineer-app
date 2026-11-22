@@ -45,6 +45,11 @@ export interface SheetReportRow {
   notes: ChecklistNotes;
   /** Past Tasks (2026-11-21): Construction-stage delays; `notes` is then the Pre-construction stage. */
   constructionNotes?: ChecklistNotes;
+  /** Raw dates ('YYYY-MM-DD'), for the milestone report's cumulative span (2026-11-21). */
+  plannedStart?: string | null;
+  plannedEnd?: string | null;
+  actualStart?: string | null;
+  actualEnd?: string | null;
 }
 
 export function sheetReportRows(
@@ -70,6 +75,10 @@ export function sheetReportRows(
       delayDays: Math.max(0, Number(/Total: (-?\d+)d/.exec(delay)?.[1] ?? /(\d+)d delay/.exec(delay)?.[1] ?? 0)),
       notes: notes.get(t.id) ?? EMPTY_CHECKLIST_NOTES,
       ...(constructionNotes ? { constructionNotes: constructionNotes.get(t.id) ?? EMPTY_CHECKLIST_NOTES } : {}),
+      plannedStart: t.plannedStartDate ?? null,
+      plannedEnd: t.dueDate ?? null,
+      actualStart: t.actualStartDate ?? null,
+      actualEnd: t.actualEndDate ?? null,
     };
   });
   // Group by status in report order; tasks keep their date order inside a group.
@@ -646,7 +655,11 @@ export async function printSheetReport(
   constructionRows?: SheetReportRow[] | null,
   milestone?: string | null
 ): Promise<void> {
-  let html = sheetReportHtml(rows, projectName, filterText, projectCreatedAt, party, picked, constructionRows, milestone);
+  await printReportHtml(sheetReportHtml(rows, projectName, filterText, projectCreatedAt, party, picked, constructionRows, milestone), fileName);
+}
+
+/** Prints a report page (web: hidden frame; phone: named PDF to share). Shared by the milestone report. */
+export async function printReportHtml(html: string, fileName?: string): Promise<void> {
   // The browser's "Save as PDF" names the file after the page title, so the title = the file name.
   if (fileName) html = html.replace(/<title>[\s\S]*?<\/title>/, `<title>${esc(fileName)}</title>`);
   if (Platform.OS === 'web') {

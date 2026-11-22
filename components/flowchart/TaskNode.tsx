@@ -244,7 +244,13 @@ export function TaskNode({
     // bumped in lockstep (see layout.ts) to keep real headroom for text —
     // see that file's own comment on why this couldn't be re-verified
     // against all 311 real tasks from this environment.
-    padding: 10 * nodeScale,
+    // Top strip kept clear for the task code (2026-11-22, client): on a busy
+    // card (planned + actual + estimate + delay line) the centred block grew
+    // up into the corner and covered a long code like "PC-CIV-03". Total
+    // vertical padding 26 (was 20), so the bottom line keeps its room.
+    paddingTop: 22 * nodeScale,
+    paddingBottom: 4 * nodeScale,
+    paddingHorizontal: 10 * nodeScale,
     justifyContent: 'center' as const,
     alignItems: 'center' as const,
   };
