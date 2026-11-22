@@ -45,7 +45,7 @@ describe('Equipment delays', () => {
     const n = await fetchChecklistNotes('t');
     expect(n?.architect).toBe('Late dwgs');
     expect(n?.equipmentDelay).toBe('');
-    expect(mockCalls).toHaveLength(2);
+    expect(mockCalls).toHaveLength(3); // with delay_days, with equipment_delay, then without both
   });
 
   it('before the SQL is run: saving the other points still works', async () => {

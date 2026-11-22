@@ -8,13 +8,46 @@ import {
   fetchChecklistNotes,
   isMissingTableError,
   joinPoints,
+  parseDays,
   saveChecklistNotes,
   splitPoints,
   STAGED_NOTE_FIELDS,
   type ChecklistNoteKey,
   type ChecklistNotes,
   type ChecklistStage,
+  type DelayDays,
 } from '../../lib/flowchart/checklistNotes';
+
+// Days box next to a delay (2026-11-22, client): whole days, saved with the delay.
+function DaysInput({ value, onChange, testID, label }: { value: number | null | undefined; onChange: (d: number | null) => void; testID: string; label: string }) {
+  const [text, setText] = useState(value ? String(value) : '');
+  useEffect(() => {
+    if (parseDays(text) !== (value ?? null)) setText(value ? String(value) : '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+  return (
+    <View className="flex-row items-center rounded-md" style={{ backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FED7AA', paddingHorizontal: 6, height: 32 }}>
+      <TextInput
+        testID={testID}
+        value={text}
+        onChangeText={(t) => {
+          const clean = t.replace(/[^0-9]/g, '').slice(0, 4);
+          setText(clean);
+          onChange(parseDays(clean));
+        }}
+        keyboardType="number-pad"
+        inputMode="numeric"
+        placeholder="0"
+        placeholderTextColor="#D6A77A"
+        accessibilityLabel={label}
+        className="text-sm text-neutral-900"
+        style={{ width: 40, textAlign: 'center', paddingVertical: 0 }}
+      />
+      <Text className="text-2xs font-semibold ml-1" style={{ color: '#C2410C' }}>days</Text>
+    </View>
+  );
+}
+const daysLabel = (d: number | null | undefined) => (d ? `${d} day${d === 1 ? '' : 's'}` : '');
 
 
 // Task sheet "Checklist" tab (Flowchart 2): the client's checklist points
@@ -118,7 +151,9 @@ function ChecklistStagePanel({
     };
   }, [taskId, stage]);
 
-  const dirty = fields.some((f) => notes[f.key].trim() !== saved[f.key].trim());
+  const dayOf = (n: ChecklistNotes, key: ChecklistNoteKey) => n.delayDays?.[key]?.[0] ?? null;
+  const dirty = fields.some((f) => notes[f.key].trim() !== saved[f.key].trim() || dayOf(notes, f.key) !== dayOf(saved, f.key));
+  const setDays = (key: ChecklistNoteKey, d: number | null) => setNotes((n) => ({ ...n, delayDays: { ...n.delayDays, [key]: [d] } }));
 
   async function handleSave() {
     setSaving(true);
@@ -160,19 +195,30 @@ function ChecklistStagePanel({
           <View key={f.key} className="mb-2.5">
             <Text className="text-xs text-neutral-400 mb-1">{f.label}</Text>
             {editable ? (
-              <TextInput
-                testID={`client-checklist-${stage === 'construction' ? 'construction-' : ''}${f.key}`}
-                value={value}
-                onChangeText={(t) => setNotes((n) => ({ ...n, [f.key]: t }))}
-                placeholder="Not given"
-                placeholderTextColor="#A3A3A3"
-                multiline
-                className="border border-neutral-200 rounded-lg px-3 py-2 text-sm text-neutral-900"
-                style={{ minHeight: 40, textAlignVertical: 'top' }}
-              />
+              <View className="flex-row items-start gap-1.5">
+                <TextInput
+                  testID={`client-checklist-${stage === 'construction' ? 'construction-' : ''}${f.key}`}
+                  value={value}
+                  onChangeText={(t) => setNotes((n) => ({ ...n, [f.key]: t }))}
+                  placeholder="Not given"
+                  placeholderTextColor="#A3A3A3"
+                  multiline
+                  className="flex-1 border border-neutral-200 rounded-lg px-3 py-2 text-sm text-neutral-900"
+                  style={{ minHeight: 40, textAlignVertical: 'top' }}
+                />
+                <View style={{ marginTop: 4 }}>
+                  <DaysInput
+                    testID={`client-checklist-${stage === 'construction' ? 'construction-' : ''}${f.key}-days`}
+                    value={dayOf(notes, f.key)}
+                    onChange={(d) => setDays(f.key, d)}
+                    label={`Days of delay for ${f.label}`}
+                  />
+                </View>
+              </View>
             ) : (
-              <View className="border border-neutral-100 bg-neutral-50 rounded-lg px-3 py-2">
-                <Text className="text-sm" style={{ color: value ? '#171717' : '#A3A3A3' }}>{value || 'Not given'}</Text>
+              <View className="flex-row items-start border border-neutral-100 bg-neutral-50 rounded-lg px-3 py-2">
+                <Text className="flex-1 text-sm" style={{ color: value ? '#171717' : '#A3A3A3' }}>{value || 'Not given'}</Text>
+                {dayOf(notes, f.key) ? <Text className="text-xs font-bold ml-2" style={{ color: '#C2410C' }}>{daysLabel(dayOf(notes, f.key))}</Text> : null}
               </View>
             )}
           </View>
@@ -206,9 +252,20 @@ function ChecklistStagePanel({
 type Points = Record<ChecklistNoteKey, string[]>;
 const toPoints = (n: ChecklistNotes): Points =>
   Object.fromEntries(STAGED_NOTE_FIELDS.map((f) => [f.key, splitPoints(n[f.key])])) as Points;
-const toNotes = (p: Points): ChecklistNotes =>
-  Object.fromEntries(STAGED_NOTE_FIELDS.map((f) => [f.key, joinPoints(p[f.key] ?? [])])) as unknown as ChecklistNotes;
-const sameNotes = (a: ChecklistNotes, b: ChecklistNotes) => STAGED_NOTE_FIELDS.every((f) => (a[f.key] ?? '') === (b[f.key] ?? ''));
+// Points and their days are kept side by side; blank points (and their days) drop out on save.
+const toNotes = (p: Points, days: DelayDays = {}): ChecklistNotes => {
+  const out = { ...EMPTY_CHECKLIST_NOTES } as ChecklistNotes;
+  const delayDays: DelayDays = {};
+  for (const f of STAGED_NOTE_FIELDS) {
+    const kept = (p[f.key] ?? []).map((text, i) => ({ text, d: days[f.key]?.[i] ?? null })).filter((x) => x.text.trim());
+    out[f.key] = joinPoints(kept.map((x) => x.text));
+    if (kept.some((x) => x.d)) delayDays[f.key] = kept.map((x) => x.d);
+  }
+  if (Object.keys(delayDays).length) out.delayDays = delayDays;
+  return out;
+};
+const daysKey = (n: ChecklistNotes) => JSON.stringify(STAGED_NOTE_FIELDS.map((f) => n.delayDays?.[f.key] ?? []));
+const sameNotes = (a: ChecklistNotes, b: ChecklistNotes) => STAGED_NOTE_FIELDS.every((f) => (a[f.key] ?? '') === (b[f.key] ?? '')) && daysKey(a) === daysKey(b);
 const AUTOSAVE_MS = 900;
 
 // Past Works stage tab (2026-11-21, client): each delay field is a list of
@@ -217,6 +274,8 @@ const AUTOSAVE_MS = 900;
 // Points are stored one per line in the same column (see splitPoints).
 function ChecklistPointsPanel({ taskId, editable, userId, stage }: { taskId: string; editable: boolean; userId: string | null; stage: ChecklistStage }) {
   const [points, setPoints] = useState<Points>(() => toPoints(EMPTY_CHECKLIST_NOTES));
+  // Days per point, same index as `points` (2026-11-22).
+  const [days, setDays] = useState<DelayDays>({});
   const [saved, setSaved] = useState<ChecklistNotes>(EMPTY_CHECKLIST_NOTES);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -226,7 +285,7 @@ function ChecklistPointsPanel({ taskId, editable, userId, stage }: { taskId: str
   // The point just added (or split off with Enter) gets the cursor.
   const [focus, setFocus] = useState<string | null>(null);
 
-  const notes = toNotes(points);
+  const notes = toNotes(points, days);
   const dirty = !sameNotes(notes, saved);
   // Saves run one after another, so a slow save never lands after a newer one.
   const chain = useRef<Promise<void>>(Promise.resolve());
@@ -243,7 +302,8 @@ function ChecklistPointsPanel({ taskId, editable, userId, stage }: { taskId: str
         if (cancelled) return;
         const value = n ? { ...EMPTY_CHECKLIST_NOTES, ...n } : EMPTY_CHECKLIST_NOTES;
         setPoints(toPoints(value));
-        setSaved(toNotes(toPoints(value)));
+        setDays(value.delayDays ?? {});
+        setSaved(toNotes(toPoints(value), value.delayDays ?? {}));
         setUpdatedAt(n?.updatedAt ?? null);
       })
       .catch((err) => {
@@ -275,7 +335,7 @@ function ChecklistPointsPanel({ taskId, editable, userId, stage }: { taskId: str
   }
 
   // Auto-save a moment after typing stops.
-  const notesKey = STAGED_NOTE_FIELDS.map((f) => notes[f.key]).join('\u0001');
+  const notesKey = STAGED_NOTE_FIELDS.map((f) => notes[f.key]).join('\u0001') + daysKey(notes);
   useEffect(() => {
     if (!editable || loading || notSetUp || !dirty) return;
     const t = setTimeout(() => void save(notes, false), AUTOSAVE_MS);
@@ -294,12 +354,25 @@ function ChecklistPointsPanel({ taskId, editable, userId, stage }: { taskId: str
   );
 
   const setField = (key: ChecklistNoteKey, next: string[]) => setPoints((p) => ({ ...p, [key]: next }));
+  const setDay = (key: ChecklistNoteKey, i: number, d: number | null) =>
+    setDays((prev) => {
+      const list = [...(prev[key] ?? [])];
+      while (list.length <= i) list.push(null);
+      list[i] = d;
+      return { ...prev, [key]: list };
+    });
   function changePoint(key: ChecklistNoteKey, i: number, text: string) {
     const list = [...(points[key] ?? [])];
     if (text.includes('\n')) {
       // Enter (or pasting several lines) starts the next point.
       const parts = text.split('\n');
       list.splice(i, 1, ...parts.map((p, j) => (j === 0 ? p : p.trimStart())));
+      // New points start without days; later points keep theirs.
+      setDays((prev) => {
+        const dl = [...(prev[key] ?? [])];
+        dl.splice(i + 1, 0, ...parts.slice(1).map(() => null));
+        return { ...prev, [key]: dl };
+      });
       setFocus(`${key}:${i + parts.length - 1}`);
     } else list[i] = text;
     setField(key, list);
@@ -311,6 +384,7 @@ function ChecklistPointsPanel({ taskId, editable, userId, stage }: { taskId: str
   }
   function removePoint(key: ChecklistNoteKey, i: number) {
     setField(key, (points[key] ?? []).filter((_, j) => j !== i));
+    setDays((prev) => ({ ...prev, [key]: (prev[key] ?? []).filter((_, j) => j !== i) }));
     setFocus(null);
   }
 
@@ -381,6 +455,12 @@ function ChecklistPointsPanel({ taskId, editable, userId, stage }: { taskId: str
                       className="flex-1 rounded-md px-2.5 py-1.5 text-sm text-neutral-900"
                       style={{ minHeight: 32, textAlignVertical: 'top', backgroundColor: '#F5F5F5' }}
                     />
+                    <DaysInput
+                      testID={`client-checklist-${tid}${f.key}-${i}-days`}
+                      value={days[f.key]?.[i] ?? null}
+                      onChange={(d) => setDay(f.key, i, d)}
+                      label={`Days of delay for point ${i + 1} of ${f.label}`}
+                    />
                     <Pressable
                       testID={`client-checklist-${tid}${f.key}-${i}-remove`}
                       onPress={() => removePoint(f.key, i)}
@@ -396,6 +476,7 @@ function ChecklistPointsPanel({ taskId, editable, userId, stage }: { taskId: str
                   <View key={i} className="flex-row items-start gap-1.5 mt-1" style={{ paddingLeft: 16 }}>
                     <Text className="text-2xs font-bold" style={{ color: f.color, width: 14, marginTop: 2 }}>{i + 1}.</Text>
                     <Text className="text-sm flex-1" style={{ color: '#171717' }}>{p}</Text>
+                    {days[f.key]?.[i] ? <Text className="text-xs font-bold" style={{ color: '#C2410C', marginTop: 2 }}>{daysLabel(days[f.key]?.[i])}</Text> : null}
                   </View>
                 )
               )}

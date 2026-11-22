@@ -1,4 +1,4 @@
-import { applyBoardLayout, EMPTY_BOARD_LAYOUT, isSavedLinkId, linkKey, snapToBoard, type BoardLayout } from '../flowchart/boardLayout';
+import { applyBoardLayout, EMPTY_BOARD_LAYOUT, isSavedLinkId, linkKey, placeDrop, snapToBoard, type BoardLayout } from '../flowchart/boardLayout';
 import type { FlowchartSeriesEdge, FlowchartTask } from '../flowchart/types';
 
 const task = (id: string, x: number, y: number): FlowchartTask => ({
@@ -78,4 +78,20 @@ it('isSavedLinkId tells saved links from drawn-in arrows', () => {
   expect(isSavedLinkId(SAVED_ID)).toBe(true);
   expect(isSavedLinkId('order:actual:a>b')).toBe(false);
   expect(isSavedLinkId('bridge:a>b')).toBe(false);
+});
+
+describe('placeDrop (every board)', () => {
+  // Two columns (0, 231), rows 0 / 200 / 400; column 0 is full down to 400.
+  const others = [{ x: 0, y: 0 }, { x: 0, y: 200 }, { x: 0, y: 400 }, { x: 231, y: 0 }];
+  it('a free spot near a column / row: lined up with it', () => {
+    expect(placeDrop({ x: 250, y: 190 }, others, 121, 135)).toEqual({ x: 231, y: 200 });
+  });
+  it('dropped on another card: goes to the nearest empty spot, never on top of it', () => {
+    expect(placeDrop({ x: 20, y: 10 }, others, 121, 135)).toEqual({ x: 231, y: 200 });
+    expect(placeDrop({ x: 10, y: 390 }, others, 121, 135)).toEqual({ x: 0, y: 600 });
+    expect(placeDrop({ x: 240, y: 5 }, others, 121, 135)).toEqual({ x: 231, y: 200 });
+  });
+  it('far from every column: stays where dropped', () => {
+    expect(placeDrop({ x: 700, y: 900 }, others, 121, 135)).toEqual({ x: 700, y: 900 });
+  });
 });

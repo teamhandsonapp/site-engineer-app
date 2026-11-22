@@ -15,9 +15,38 @@ export interface ChecklistNotes {
   contractorClientFinalization: string;
   // Past Tasks only (2026-11-21): written on both the Pre-construction and Construction tabs.
   equipmentDelay: string;
+  /** Days of delay per point (2026-11-22, client): a small box next to every
+   *  delay. Per field, one entry per point, in the same order as splitPoints
+   *  (column delay_days, jsonb). null = no days given. */
+  delayDays?: DelayDays;
 }
 
-export type ChecklistNoteKey = keyof ChecklistNotes;
+export type ChecklistNoteKey = Exclude<keyof ChecklistNotes, 'delayDays'>;
+export type DelayDays = Partial<Record<ChecklistNoteKey, (number | null)[]>>;
+
+/** Days given for one field (all its points added up); null when none were given. */
+export function fieldDays(n: ChecklistNotes | undefined, key: ChecklistNoteKey): number | null {
+  const list = (n?.delayDays?.[key] ?? []).slice(0, Math.max(splitPoints(n?.[key]).length, 1));
+  const given = list.filter((d): d is number => typeof d === 'number' && d > 0);
+  return given.length ? given.reduce((a, b) => a + b, 0) : null;
+}
+
+/** "5" / "" → 5 / null (whole days, 0–9999). */
+export function parseDays(text: string): number | null {
+  const n = Number(text.replace(/[^0-9]/g, ''));
+  return text.trim() && Number.isFinite(n) && n > 0 ? Math.min(n, 9999) : null;
+}
+
+/** Only fields with at least one day given; trailing empties dropped. */
+export function cleanDelayDays(d: DelayDays | undefined): DelayDays | null {
+  const out: DelayDays = {};
+  for (const [k, list] of Object.entries(d ?? {}) as [ChecklistNoteKey, (number | null)[]][]) {
+    const trimmed = [...(list ?? [])];
+    while (trimmed.length && !(typeof trimmed[trimmed.length - 1] === 'number')) trimmed.pop();
+    if (trimmed.length) out[k] = trimmed.map((v) => (typeof v === 'number' && v > 0 ? v : null));
+  }
+  return Object.keys(out).length ? out : null;
+}
 
 // Checklist stage (2026-11-21, Past Tasks): the same points, written
 // separately for Pre-construction (task_checklist_notes, the original) and
@@ -93,6 +122,13 @@ export function splitPoints(text: string | null | undefined): string[] {
 export function joinPoints(points: string[]): string {
   return points.map((p) => p.replace(/\s*\n\s*/g, ' ').trim()).filter(Boolean).join('\n');
 }
+/** One field's points with their days (2026-11-22): "Workers late (5 days)"; one point as it is, several as a "• " list. */
+export function notePointsText(n: ChecklistNotes | undefined, key: ChecklistNoteKey): string {
+  const days = n?.delayDays?.[key] ?? [];
+  const pts = splitPoints(n?.[key]).map((p, i) => (days[i] ? `${p} (${days[i]} day${days[i] === 1 ? '' : 's'})` : p));
+  return pts.length > 1 ? pts.map((p) => `• ${p}`).join('\n') : pts[0] ?? '';
+}
+
 /** For reports: one point as it is, several as a "• " list (one per line). */
 export function pointsText(text: string | null | undefined): string {
   const pts = splitPoints(text);
@@ -112,11 +148,20 @@ interface Row {
   contractor_delay: string | null;
   contractor_client_finalization: string | null;
   equipment_delay?: string | null;
+  delay_days?: DelayDays | null;
   updated_at: string | null;
 }
 
 const BASE_SELECT = 'task_id, architect, consultant, client, procurement_status, lead_time, other, contractor_delay, contractor_client_finalization, updated_at';
 const SELECT = `${BASE_SELECT}, equipment_delay`;
+const FULL_SELECT = `${SELECT}, delay_days`;
+let daysColumnMissing = false;
+
+/** The delay_days column isn't in this database yet (its migration hasn't been run). */
+export function isMissingDaysColumn(err: unknown): boolean {
+  const e = err as { code?: string; message?: string } | null;
+  return /delay_days/.test(e?.message ?? '') && (e?.code === '42703' || e?.code === 'PGRST204' || /column/i.test(e?.message ?? ''));
+}
 
 /** The equipment_delay column isn't in this database yet (its migration hasn't been run). */
 export function isMissingEquipmentColumn(err: unknown): boolean {
@@ -126,6 +171,13 @@ export function isMissingEquipmentColumn(err: unknown): boolean {
 
 /** Runs a read with equipment_delay; if that column doesn't exist yet, reads without it. */
 async function withEquipmentFallback<T>(run: (select: string) => PromiseLike<{ data: T; error: unknown }>): Promise<T> {
+  if (!daysColumnMissing) {
+    const full = await run(FULL_SELECT);
+    if (!full.error) return full.data;
+    if (!isMissingDaysColumn(full.error) && !isMissingEquipmentColumn(full.error)) throw full.error;
+    // Remembered for this session, so every later read doesn't try (and fail) first.
+    if (isMissingDaysColumn(full.error)) daysColumnMissing = true;
+  }
   const first = await run(SELECT);
   if (!first.error) return first.data;
   if (!isMissingEquipmentColumn(first.error)) throw first.error;
@@ -145,6 +197,7 @@ function fromRow(r: Row): ChecklistNotes & { updatedAt: string | null } {
     contractorDelay: r.contractor_delay ?? '',
     contractorClientFinalization: r.contractor_client_finalization ?? '',
     equipmentDelay: r.equipment_delay ?? '',
+    ...(r.delay_days ? { delayDays: r.delay_days } : {}),
     updatedAt: r.updated_at,
   };
 }
@@ -177,16 +230,27 @@ export async function saveChecklistNotes(taskId: string, notes: ChecklistNotes, 
       contractor_delay: clean(notes.contractorDelay),
       contractor_client_finalization: clean(notes.contractorClientFinalization),
       equipment_delay: clean(notes.equipmentDelay ?? ''),
+      delay_days: cleanDelayDays(notes.delayDays),
       updated_at: new Date().toISOString(),
       updated_by: updatedBy,
   };
-  const { error } = await supabase.from(STAGE_TABLE[stage]).upsert(row, { onConflict: 'task_id' });
+  let attempt: Partial<typeof row> = row;
+  let { error } = await supabase.from(STAGE_TABLE[stage]).upsert(row, { onConflict: 'task_id' });
   if (!error) return;
+  // Database without the delay_days column yet: save the delays, unless days
+  // were actually given (then say what's needed).
+  if (isMissingDaysColumn(error)) {
+    if (row.delay_days) throw new Error('Days need a database update first (run supabase/migrations/20261122130000_checklist_delay_days.sql).');
+    const { delay_days: _days, ...withoutDays } = row;
+    attempt = withoutDays;
+    ({ error } = await supabase.from(STAGE_TABLE[stage]).upsert(attempt, { onConflict: 'task_id' }));
+    if (!error) return;
+  }
   // Database without the equipment_delay column yet: save the rest, unless an
   // Equipment delay was actually written (then say what's needed).
   if (isMissingEquipmentColumn(error)) {
     if (row.equipment_delay) throw new Error('Equipment delays need a database update first (run supabase/migrations/20261121130000_checklist_equipment_delay.sql).');
-    const { equipment_delay: _skip, ...rest } = row;
+    const { equipment_delay: _skip, delay_days: _noDays, ...rest } = attempt;
     const retry = await supabase.from(STAGE_TABLE[stage]).upsert(rest, { onConflict: 'task_id' });
     if (retry.error) throw retry.error;
     return;

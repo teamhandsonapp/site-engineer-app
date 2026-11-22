@@ -39,7 +39,7 @@ import {
   isPastTasksSet,
 } from '../../lib/flowchart/data';
 import { linkProblem } from '../../lib/flowchart/linkTypes';
-import { isSavedLinkId, snapToBoard } from '../../lib/flowchart/boardLayout';
+import { isSavedLinkId, placeDrop } from '../../lib/flowchart/boardLayout';
 import { ripplePlannedDates } from '../../lib/flowchart/plannedRipple';
 import { computeProjectedDates, runningDelayDays, shouldShowProjected } from '../../lib/flowchart/projected';
 import { CHECKLIST_NOTE_FIELDS, EMPTY_CHECKLIST_NOTES, fetchChecklistNotesForTasks, STAGED_NOTE_FIELDS, type ChecklistNotes } from '../../lib/flowchart/checklistNotes';
@@ -909,41 +909,27 @@ export function FlowchartCanvas({
       afterReal = { x: inverseAxisMap(xMap, finalX), y: inverseAxisMap(yMap, finalY) };
     }
 
-    const previous = task;
-    if (boardLayout) {
-      // Worked-out board: line up with the nearest column / row, lay the
-      // board out again, and keep the move on this board only.
-      const others = tasks
-        .filter((t) => t.id !== taskId && t.manualPositionX != null && t.manualPositionY != null)
-        .map((t) => ({ x: t.manualPositionX!, y: t.manualPositionY! }));
-      const snapped = snapToBoard(afterReal, others, NODE_WIDTH * 0.55, NODE_HEIGHT * 0.9);
-      const relayout = (pos: { x: number; y: number }) =>
-        setTasks((prev) => {
-          const result = safeLayout(prev.map((t) => (t.id === taskId ? { ...t, manualPositionX: pos.x, manualPositionY: pos.y } : t)));
-          setNodeScale(result.nodeScale);
-          return result.tasks;
-        });
-      relayout(snapped);
-      boardLayout
-        .savePosition(taskId, snapped.x, snapped.y)
-        .then(() => pushHistory({ type: 'move', taskId, before: beforeReal, after: snapped }))
-        .catch((err) => {
-          relayout(beforeReal);
-          setLinkError(`Couldn't move the task — ${err instanceof Error ? err.message : 'check your connection'}. It was put back.`);
-        });
-      return;
-    }
-    setTasks((prev) => prev.map((t) => (
-      t.id === taskId ? { ...t, x: finalX, y: finalY, manualPositionX: afterReal.x, manualPositionY: afterReal.y } : t
-    )));
-    // Stored as REAL coordinates — applyHistoryAction's own 'move' case
-    // re-derives the compressed render position via layoutTasks(), same as
-    // every other position-affecting action in this file. Only recorded once
-    // the move is really saved; a failed save snaps the task back and says so.
-    updateTaskPosition(taskId, afterReal.x, afterReal.y)
-      .then(() => pushHistory({ type: 'move', taskId, before: beforeReal, after: afterReal }))
+    // Every board (2026-11-22): the drop lines up with the nearest column /
+    // row and never lands on another card (placeDrop), and the board is laid
+    // out again — so what shows now is exactly what shows after a reload.
+    const others = tasks
+      .filter((t) => t.id !== taskId && t.manualPositionX != null && t.manualPositionY != null)
+      .map((t) => ({ x: t.manualPositionX!, y: t.manualPositionY! }));
+    const placed = placeDrop(afterReal, others, NODE_WIDTH * 0.55, NODE_HEIGHT * 0.9);
+    const relayout = (pos: { x: number; y: number }) =>
+      setTasks((prev) => {
+        const result = safeLayout(prev.map((t) => (t.id === taskId ? { ...t, manualPositionX: pos.x, manualPositionY: pos.y } : t)));
+        setNodeScale(result.nodeScale);
+        return result.tasks;
+      });
+    relayout(placed);
+    // Worked-out boards keep the move on that board only; others save it on the task.
+    // Stored as REAL coordinates (see above). Only recorded once really saved;
+    // a failed save puts the card back and says so.
+    (boardLayout ? boardLayout.savePosition(taskId, placed.x, placed.y) : updateTaskPosition(taskId, placed.x, placed.y))
+      .then(() => pushHistory({ type: 'move', taskId, before: beforeReal, after: placed }))
       .catch((err) => {
-        setTasks((prev) => prev.map((t) => (t.id === taskId ? previous : t)));
+        relayout(beforeReal);
         setLinkError(`Couldn't move the task — ${err instanceof Error ? err.message : 'check your connection'}. It was put back.`);
       });
   }

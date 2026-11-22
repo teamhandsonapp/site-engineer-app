@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { STAGED_NOTE_FIELDS, type ChecklistNoteKey, type ChecklistNotes } from './checklistNotes';
+import { fieldDays, STAGED_NOTE_FIELDS, type ChecklistNoteKey, type ChecklistNotes } from './checklistNotes';
 import { saveWorkbook } from './excelExport';
 import { printReportHtml, type SheetReportRow } from './sheetReport';
 
@@ -61,12 +61,18 @@ export interface MilestoneTaskLine {
   /** Every delay written, both stages, for the task list (2026-11-22, client):
    *  "Pre-con: Workers delay, Client approval · Const: Equipment delays". */
   delays: string;
-  equipment: { stage: 'Pre-con' | 'Const'; text: string }[];
+  equipment: { stage: 'Pre-con' | 'Const'; text: string; days: number | null }[];
+  /** Days given per reason on this task, both stages added. */
+  reasonDays: Partial<Record<ChecklistNoteKey, number>>;
 }
 
 /** The delay points written on a task, per stage, as one line. */
 export function rowDelays(r: Pick<SheetReportRow, 'notes' | 'constructionNotes'>): string {
-  const labels = (n?: ChecklistNotes) => STAGED_NOTE_FIELDS.filter((f) => !!n?.[f.key]?.trim()).map((f) => f.label);
+  const labels = (n?: ChecklistNotes) =>
+    STAGED_NOTE_FIELDS.filter((f) => !!n?.[f.key]?.trim()).map((f) => {
+      const d = fieldDays(n, f.key);
+      return d ? `${f.label} (${d}d)` : f.label;
+    });
   const pre = labels(r.notes);
   const con = labels(r.constructionNotes);
   return [pre.length ? `Pre-con: ${pre.join(', ')}` : '', con.length ? `Const: ${con.join(', ')}` : ''].filter(Boolean).join(' · ');
@@ -93,11 +99,12 @@ export interface MilestoneSummary {
   /** Finished on or before its planned end. */
   onTime: number;
   /** Delayed tasks per reason (checklist point written, either stage); a task with two reasons counts for both. */
-  reasons: { reason: string; tasks: number; color: string }[];
+  /** days: days given for that reason on the delayed tasks, both stages (null = none given). */
+  reasons: { reason: string; tasks: number; color: string; days: number | null }[];
   /** Delayed tasks with no reason written. */
   noReason: number;
   /** Equipment delays as written (e.g. "Compactor – 4 days"), per task and stage (2026-11-22, client). */
-  equipment: { code: string; stage: 'Pre-con' | 'Const'; text: string; delayDays: number | null }[];
+  equipment: { code: string; stage: 'Pre-con' | 'Const'; text: string; delayDays: number | null; days: number | null }[];
   lines: MilestoneTaskLine[];
 }
 
@@ -123,9 +130,12 @@ export function milestoneSummary(rows: SheetReportRow[], today: string): Milesto
         reasons: rowReasons(r),
         delays: rowDelays(r),
         equipment: [
-          { stage: 'Pre-con' as const, text: r.notes?.equipmentDelay?.trim() ?? '' },
-          { stage: 'Const' as const, text: r.constructionNotes?.equipmentDelay?.trim() ?? '' },
+          { stage: 'Pre-con' as const, text: r.notes?.equipmentDelay?.trim() ?? '', days: fieldDays(r.notes, 'equipmentDelay') },
+          { stage: 'Const' as const, text: r.constructionNotes?.equipmentDelay?.trim() ?? '', days: fieldDays(r.constructionNotes, 'equipmentDelay') },
         ].filter((e) => e.text),
+        reasonDays: Object.fromEntries(
+          STAGED_NOTE_FIELDS.map((f) => [f.key, (fieldDays(r.notes, f.key) ?? 0) + (fieldDays(r.constructionNotes, f.key) ?? 0)]).filter(([, d]) => (d as number) > 0)
+        ),
       };
     })
     .sort((a, b) => (a.plannedStart ?? '9999').localeCompare(b.plannedStart ?? '9999') || a.code.localeCompare(b.code, undefined, { numeric: true }));
@@ -142,7 +152,12 @@ export function milestoneSummary(rows: SheetReportRow[], today: string): Milesto
   const count = new Map<string, number>();
   for (const l of delayed) for (const p of l.parties) count.set(p, (count.get(p) ?? 0) + 1);
   const reasonCount = new Map<ChecklistNoteKey, number>();
-  for (const l of delayed) for (const k of l.reasons) reasonCount.set(k, (reasonCount.get(k) ?? 0) + 1);
+  const reasonDayTotal = new Map<ChecklistNoteKey, number>();
+  for (const l of delayed)
+    for (const k of l.reasons) {
+      reasonCount.set(k, (reasonCount.get(k) ?? 0) + 1);
+      if (l.reasonDays[k]) reasonDayTotal.set(k, (reasonDayTotal.get(k) ?? 0) + l.reasonDays[k]!);
+    }
   return {
     tasks: lines.length,
     completed,
@@ -159,10 +174,10 @@ export function milestoneSummary(rows: SheetReportRow[], today: string): Milesto
     delayedTasks: delayed.length,
     onTime: lines.filter((l) => l.actualEnd && (l.delayDays ?? 0) <= 0).length,
     reasons: STAGED_NOTE_FIELDS.filter((f) => reasonCount.has(f.key))
-      .map((f) => ({ reason: f.label, tasks: reasonCount.get(f.key)!, color: f.color }))
+      .map((f) => ({ reason: f.label, tasks: reasonCount.get(f.key)!, color: f.color, days: reasonDayTotal.get(f.key) ?? null }))
       .sort((a, b) => b.tasks - a.tasks),
     noReason: delayed.filter((l) => l.reasons.length === 0).length,
-    equipment: lines.flatMap((l) => l.equipment.map((e) => ({ code: l.code, stage: e.stage, text: e.text, delayDays: l.delayDays }))),
+    equipment: lines.flatMap((l) => l.equipment.map((e) => ({ code: l.code, stage: e.stage, text: e.text, delayDays: l.delayDays, days: e.days }))),
     lines,
   };
 }
@@ -194,15 +209,15 @@ export function milestoneReportHtml(s: MilestoneSummary, projectName: string, mi
   const d = s.delayDays ?? 0;
   const tone = s.delayDays === null ? '#6B7280' : d > 0 ? '#B91C1C' : '#15803D';
   const max = Math.max(1, ...s.reasons.map((r) => r.tasks), s.noReason);
-  const bar = (label: string, n: number, color: string) =>
-    `<div class="br"><div class="bl">${esc(label)}</div><div class="bt"><div style="width:${(n / max) * 100}%;background:${color}"></div></div><div class="bv">${n}</div></div>`;
+  const bar = (label: string, n: number, color: string, days: number | null = null) =>
+    `<div class="br"><div class="bl">${esc(label)}</div><div class="bt"><div style="width:${(n / max) * 100}%;background:${color}"></div></div><div class="bv">${n} task${n === 1 ? '' : 's'}${days ? `<br><span class="dd">${days} day${days === 1 ? '' : 's'}</span>` : ''}</div></div>`;
   const equipmentHtml = s.equipment.length
     ? `<h3 class="eq">Equipment delays</h3><table class="list">${s.equipment
-        .map((e) => `<tr><td style="width:12%"><b>${esc(e.code)}</b></td><td style="width:10%">${e.stage}</td><td>${esc(e.text)}</td><td style="width:12%"${(e.delayDays ?? 0) > 0 ? ' class="late"' : ''}>${lineDelay(e.delayDays)}</td></tr>`)
+        .map((e) => `<tr><td style="width:12%"><b>${esc(e.code)}</b></td><td style="width:10%">${e.stage}</td><td>${esc(e.text)}</td><td style="width:9%;font-weight:700;color:#C2410C">${e.days ? `${e.days}d` : ''}</td><td style="width:12%"${(e.delayDays ?? 0) > 0 ? ' class="late"' : ''}>${lineDelay(e.delayDays)}</td></tr>`)
         .join('')}</table>`
     : '';
   const reasons = s.reasons.length || s.noReason
-    ? s.reasons.map((r) => bar(r.reason, r.tasks, r.color)).join('') + (s.noReason ? bar('Not written', s.noReason, '#9CA3AF') : '')
+    ? s.reasons.map((r) => bar(r.reason, r.tasks, r.color, r.days)).join('') + (s.noReason ? bar('Not written', s.noReason, '#9CA3AF') : '')
     : '<p class="muted">No delayed tasks.</p>';
   // No task list in the report (2026-11-22, client).
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(projectName)} — ${esc(milestone)}</title><style>
@@ -228,6 +243,7 @@ export function milestoneReportHtml(s: MilestoneSummary, projectName: string, mi
     .bt > div { height: 100%; border-radius: 4px; } .bv { width: 70px; text-align: right; font-weight: 700; }
     .counts { margin-top: 12px; } .counts td { padding: 6px 4px; font-size: 15px; border-bottom: 1px solid #F0EFEC; } .counts td.cv { text-align: right; font-size: 20px; font-weight: 800; width: 80px; }
     .bl { width: 210px; }
+    .bv { width: 80px; } .dd { color: #C2410C; font-size: 12px; }
     h3.eq { font-size: 13px; margin: 12px 0 4px; color: #0F1F33; }
     .muted { color: #898781; }
     .list th, .list td { border: 1px solid #DDDCD7; padding: 4px 6px; font-size: 11.5px; vertical-align: top; text-align: left; }
@@ -264,10 +280,10 @@ export function exportMilestoneExcel(s: MilestoneSummary, projectName: string, m
     [],
     ['No. of tasks in milestone', s.tasks],
     ['No. of tasks delayed', s.delayedTasks],
-    ...s.reasons.map((r) => [`   ${r.reason}`, r.tasks]),
+    ...s.reasons.map((r) => [`   ${r.reason}`, r.tasks, r.days ? `${r.days} days` : '']),
     ...(s.noReason ? [['   Not written', s.noReason]] : []),
     ['No. of tasks completed on time', s.onTime],
-    ...(s.equipment.length ? [[], ['Equipment delays', 'Stage', 'Written', 'Task delay'], ...s.equipment.map((e) => [e.code, e.stage, e.text, lineDelay(e.delayDays)])] : []),
+    ...(s.equipment.length ? [[], ['Equipment delays', 'Stage', 'Written', 'Days', 'Task delay'], ...s.equipment.map((e) => [e.code, e.stage, e.text, e.days ?? '', lineDelay(e.delayDays)])] : []),
   ];
   const sheet = XLSX.utils.aoa_to_sheet(aoa);
   sheet['!cols'] = [{ wch: 34 }, { wch: 14 }, { wch: 44 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 60 }];

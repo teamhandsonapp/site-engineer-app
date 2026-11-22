@@ -5,7 +5,7 @@ import { FormModal, useBackdropGuard } from '../ui/FormModal';
 import {
   CHECKLIST_NOTE_FIELDS,
   CHECKLIST_STAGE_LABEL,
-  pointsText,
+  notePointsText,
   STAGED_NOTE_FIELDS,
   type ChecklistNotes,
   type ChecklistStage,
@@ -82,7 +82,7 @@ export function ChecklistPeek({
           <ScrollView style={{ flexShrink: 1 }}>
             {fields.map((f) => {
               // Several points (Past Works) show as a "• " list.
-              const value = pointsText(shown?.[f.key]);
+              const value = notePointsText(shown ?? undefined, f.key);
               return (
                 <View
                   key={f.key}

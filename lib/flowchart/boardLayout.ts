@@ -78,3 +78,43 @@ export function snapToBoard(
   };
   return { x: nearest(p.x, others.map((o) => o.x), tolX), y: nearest(p.y, others.map((o) => o.y), tolY) };
 }
+
+/** Two stored positions this close draw as the same column / row (layout.ts AXIS_GROUP_EPSILON). */
+const SAME_SPOT = 70;
+
+/**
+ * Where a dropped card really goes (every board, 2026-11-22): lined up with the
+ * nearest column / row, and never on top of another card — a taken spot moves
+ * it to the nearest empty spot (any column, existing rows or one row below
+ * the last). What is shown after the drop is then exactly what is shown after
+ * a reload (stored positions this close are drawn as one column / row, which
+ * used to hide a card under another).
+ */
+export function placeDrop(
+  p: { x: number; y: number },
+  others: { x: number; y: number }[],
+  tolX: number,
+  tolY: number
+): { x: number; y: number } {
+  const at = snapToBoard(p, others, tolX, tolY);
+  const taken = (x: number, y: number) => others.some((o) => Math.abs(o.x - x) <= SAME_SPOT && Math.abs(o.y - y) <= SAME_SPOT);
+  if (!taken(at.x, at.y)) return at;
+  const rows = [...new Set(others.map((o) => o.y))].sort((a, b) => a - b);
+  const gaps = rows.slice(1).map((y, i) => y - rows[i]).filter((g) => g > SAME_SPOT).sort((a, b) => a - b);
+  const step = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 200;
+  const cols = [...new Set([at.x, ...others.map((o) => o.x)])];
+  const ys = [...rows, rows[rows.length - 1] + step, at.y + step];
+  let best = { x: at.x, y: at.y + step };
+  let bestD = Infinity;
+  for (const x of cols)
+    for (const y of ys) {
+      if (taken(x, y)) continue;
+      const d = Math.hypot(x - p.x, y - p.y);
+      if (d < bestD) {
+        bestD = d;
+        best = { x, y };
+      }
+    }
+  while (taken(best.x, best.y)) best = { x: best.x, y: best.y + step };
+  return best;
+}

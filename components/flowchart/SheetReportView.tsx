@@ -756,13 +756,14 @@ function MilestoneReportCard({ summary: s }: { summary: MilestoneSummary }) {
   const cell = (t: string, bold = false, right = false, color = INK) => (
     <Text style={{ flex: 1, fontSize: 13, fontWeight: bold ? '700' : '400', color, textAlign: right ? 'right' : 'left' }}>{t}</Text>
   );
-  const bar = (label: string, n: number, color: string) => (
+  const bar = (label: string, n: number, color: string, days: number | null = null) => (
     <View key={label} className="flex-row items-center" style={{ gap: 10, marginTop: 8 }}>
       <Text style={{ width: 150, fontSize: 13, fontWeight: '600', color: INK }}>{label}</Text>
       <View style={{ flex: 1, height: 18, borderRadius: 4, backgroundColor: TRACK, overflow: 'hidden' }}>
         <View style={{ width: `${(n / max) * 100}%`, height: 18, borderRadius: 4, backgroundColor: color }} />
       </View>
       <Text style={{ width: 32, textAlign: 'right', fontSize: 14, fontWeight: '700', color: INK }}>{n}</Text>
+      <Text style={{ width: 64, textAlign: 'right', fontSize: 12, fontWeight: '700', color: '#C2410C' }}>{days ? `${days} day${days === 1 ? '' : 's'}` : ''}</Text>
     </View>
   );
   const countRow = (label: string, n: number, color: string) => (
@@ -796,7 +797,7 @@ function MilestoneReportCard({ summary: s }: { summary: MilestoneSummary }) {
       <Card title={`Reasons for delay (${s.delayedTasks} delayed)`} minWidth={320}>
         {s.reasons.length || s.noReason ? (
           <>
-            {s.reasons.map((r) => bar(r.reason, r.tasks, r.color))}
+            {s.reasons.map((r) => bar(r.reason, r.tasks, r.color, r.days))}
             {s.noReason ? bar('Not written', s.noReason, '#9CA3AF') : null}
           </>
         ) : (
@@ -811,6 +812,7 @@ function MilestoneReportCard({ summary: s }: { summary: MilestoneSummary }) {
                 <Text style={{ width: 80, fontSize: 13, fontWeight: '700', color: INK }}>{e.code}</Text>
                 <Text style={{ width: 56, fontSize: 12, color: INK_2 }}>{e.stage}</Text>
                 <Text style={{ flex: 1, fontSize: 13, color: INK }}>{e.text}</Text>
+                {e.days ? <Text style={{ fontSize: 12, fontWeight: '700', color: '#C2410C' }}>{e.days}d</Text> : null}
                 <Text style={{ fontSize: 12, fontWeight: '700', color: (e.delayDays ?? 0) > 0 ? '#B91C1C' : '#15803D' }}>{lineDelay(e.delayDays)}</Text>
               </View>
             ))}

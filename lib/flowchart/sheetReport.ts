@@ -3,7 +3,7 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as XLSX from 'xlsx';
-import { CHECKLIST_NOTE_FIELDS, CONTRACTOR_KEYS, contractorFor, EQUIPMENT_DELAY_FIELD, SHEET_FIELD_ORDER, EMPTY_CHECKLIST_NOTES, pointsText, type ChecklistNoteKey, type ChecklistNotes } from './checklistNotes';
+import { CHECKLIST_NOTE_FIELDS, CONTRACTOR_KEYS, contractorFor, EQUIPMENT_DELAY_FIELD, SHEET_FIELD_ORDER, EMPTY_CHECKLIST_NOTES, notePointsText, type ChecklistNoteKey, type ChecklistNotes } from './checklistNotes';
 import { formatCardDateRange } from './delay';
 import { saveWorkbook } from './excelExport';
 import { sheetStatus, type SheetStatusTask } from './sheetStatus';
@@ -153,7 +153,7 @@ export function waitingOn(rows: SheetReportRow[], skip: string[] = []): { who: s
 
 /** Each written reason with who it points at (2026-11-16): [{ who: 'Civil contractor — Workers', text: 'Workers Delay' }]. */
 export function reasonEntries(r: SheetReportRow): { who: string; text: string }[] {
-  return REASON_FIELDS.filter((f) => r.notes[f.key]?.trim()).map((f) => ({ who: whoFor(f.key, r), text: pointsText(r.notes[f.key]) }));
+  return REASON_FIELDS.filter((f) => r.notes[f.key]?.trim()).map((f) => ({ who: whoFor(f.key, r), text: notePointsText(r.notes, f.key) }));
 }
 
 export function reasonLines(r: SheetReportRow): string[] {
@@ -329,7 +329,7 @@ export function summarizeReport(rows: SheetReportRow[]): ReportSummary {
       const groups = new Map<string, { key: ChecklistNoteKey; label: string; who: string; tasks: number; delayed: number; items: { taskName: string; text: string; delay: string; delayed: boolean }[] }>();
       for (const f of REASON_FIELDS) {
         for (const r of rows) {
-          const text = pointsText(r.notes[f.key]);
+          const text = notePointsText(r.notes, f.key);
           if (!text) continue;
           const who = whoFor(f.key, r);
           const g = groups.get(who) ?? { key: f.key, label: f.label, who, tasks: 0, delayed: 0, items: [] };
@@ -364,7 +364,7 @@ export function asConstructionRows(rows: SheetReportRow[]): SheetReportRow[] {
 const reasonCellText = (r: SheetReportRow) => reasonEntries(r).map((e) => (reasonDetail(e) ? `${e.who}: ${e.text}` : e.who)).join('\n');
 
 function rowValues(r: SheetReportRow): (string | number)[] {
-  return [r.no, r.taskCode, r.taskName, r.department, r.status, r.plannedDates, r.actualDates, r.delay, reasonCellText(r), ...SHEET_FIELDS.map((f) => pointsText(r.notes[f.key as ChecklistNoteKey]))];
+  return [r.no, r.taskCode, r.taskName, r.department, r.status, r.plannedDates, r.actualDates, r.delay, reasonCellText(r), ...SHEET_FIELDS.map((f) => notePointsText(r.notes, f.key as ChecklistNoteKey))];
 }
 
 function stagedRowValues(r: SheetReportRow): (string | number)[] {
@@ -373,8 +373,8 @@ function stagedRowValues(r: SheetReportRow): (string | number)[] {
     ...rowValues(r).slice(0, 8),
     reasonCellText(r),
     reasonCellText(c),
-    ...STAGED_SHEET_FIELDS.map((f) => pointsText(r.notes[f.key as ChecklistNoteKey])),
-    ...STAGED_SHEET_FIELDS.map((f) => pointsText(c.notes[f.key as ChecklistNoteKey])),
+    ...STAGED_SHEET_FIELDS.map((f) => notePointsText(r.notes, f.key as ChecklistNoteKey)),
+    ...STAGED_SHEET_FIELDS.map((f) => notePointsText(c.notes, f.key as ChecklistNoteKey)),
   ];
 }
 

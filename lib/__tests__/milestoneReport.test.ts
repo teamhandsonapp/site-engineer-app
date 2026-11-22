@@ -78,7 +78,7 @@ describe('milestone report format', () => {
   });
 
   it('equipment delays: what was written, per task and stage, with the task delay', () => {
-    expect(s.equipment).toEqual([{ code: 'PT-16', stage: 'Pre-con', text: 'Compactor', delayDays: 3 }]);
+    expect(s.equipment).toEqual([{ code: 'PT-16', stage: 'Pre-con', text: 'Compactor', delayDays: 3, days: null }]);
     expect(milestoneReportHtml(s, 'ROAST', 'M1')).toContain('>Compactor<');
   });
 
