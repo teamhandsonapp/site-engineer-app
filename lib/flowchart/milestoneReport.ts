@@ -266,43 +266,61 @@ export function allDelays(
   // PTC-19 both "Material (Acro span, Jacks …) 5 days", same dates) is one delay:
   // same cause, same responsible, same reason and overlapping dates → its days
   // count once (the larger), and the reason is listed once with both task codes.
-  const seen = new Map<string, { reason: string; start: string | null; end: string | null; days: number }[]>();
+  const seen = new Map<string, { words: Set<string>; start: string | null; end: string | null; days: number; line: { code: string; text: string } | null }[]>();
+  const taskSeen = new Map<string, Set<string>>();
+  // Tasks that start and finish on the same days (SS + FF, side by side — e.g.
+  // PTC-18 and PTC-19, both 22 Aug – 1 Sep) are one piece of work for the delay
+  // (2026-11-23, client): only the one with the most delay days entered counts,
+  // and its reasons carry all their codes ("PTC-18 / PTC-19").
+  const { skip, codeOf } = sameDateTasks(rows);
   for (const r of rows) {
-    const span = { start: day(r.actualStart ?? r.plannedStart), end: day(r.actualEnd ?? r.actualStart ?? r.plannedEnd) };
-    // Both stages of one task: one entry per reason, days added.
-    const perTask = new Map<string, DelayCause>();
-    for (const c of [...stageCauses(r.notes), ...stageCauses(r.constructionNotes)]) {
-      const prev = perTask.get(c.id);
-      perTask.set(
-        c.id,
-        prev ? { ...prev, days: prev.days || c.days ? (prev.days ?? 0) + (c.days ?? 0) : null, texts: [...new Set([...prev.texts, ...c.texts])] } : c
-      );
-    }
-    for (const c of perTask.values()) {
-      const responsible = responsibleFor(c, r.department);
-      const key = `${c.id}|${responsible}`;
-      const prev = out.get(key);
-      const reason = c.texts.map(reasonKey).filter(Boolean).sort().join('|');
-      const earlier = seen.get(key) ?? [];
-      const same = reason ? earlier.find((x) => x.reason === reason && overlaps(x, span)) : undefined;
-      // Days: a side-by-side duplicate adds only what it has over the first one.
-      const add = same ? Math.max(0, (c.days ?? 0) - same.days) : c.days ?? 0;
-      if (same) same.days += add;
-      else earlier.push({ reason, ...span, days: c.days ?? 0 });
-      seen.set(key, earlier);
-      const d = prev ?? { label: c.label, color: c.color, responsible, days: null, given: null, tasks: 0, reasons: [] };
-      d.tasks += 1;
-      if (add) d.given = (d.given ?? 0) + add;
-      // Each reason once; the same reason on another task just adds its code.
-      for (const text of c.texts) {
-        const k = reasonKey(text);
-        const w = k ? d.reasons.find((x) => reasonKey(x.text) === k) : undefined;
-        if (w) {
-          if (!w.code.split(', ').includes(r.taskCode)) w.code = `${w.code}, ${r.taskCode}`;
-        } else d.reasons.push({ code: r.taskCode, text });
+    if (skip.has(r)) continue;
+    // When each stage's delay happened: Pre-construction is the wait before the
+    // start (planned start → actual start), Construction the work itself.
+    const preSpan = { start: day(r.plannedStart), end: day(r.actualStart) };
+    const conSpan = { start: day(r.actualStart ?? r.plannedStart), end: day(r.actualEnd ?? r.actualStart ?? r.plannedEnd) };
+    const code = codeOf.get(r) ?? r.taskCode;
+    const stages: [DelayCause[], { start: string | null; end: string | null }][] = [
+      [stageCauses(r.notes), preSpan],
+      [stageCauses(r.constructionNotes), conSpan],
+    ];
+    for (const [causes, span] of stages)
+      for (const c of causes) {
+        const responsible = responsibleFor(c, r.department);
+        const key = `${c.id}|${responsible}`;
+        const prev = out.get(key);
+        const reason = reasonWords(c.texts);
+        const earlier = seen.get(key) ?? [];
+        // The same delay again: same cause and responsible, the same reason (wording
+        // aside) and at the same time → it is one delay, its days counted once.
+        const same = reason.size ? earlier.find((x) => sameReason(x.words, reason) && overlaps(x, span)) : undefined;
+        const add = same ? Math.max(0, (c.days ?? 0) - same.days) : c.days ?? 0;
+        if (same) same.days += add;
+        seen.set(key, earlier);
+        const d = prev ?? { label: c.label, color: c.color, responsible, days: null, given: null, tasks: 0, reasons: [] };
+        // Tasks on this delay, each task once (both stages, or a same-dates group, = 1).
+        if (!taskSeen.get(key)?.has(code)) d.tasks += 1;
+        taskSeen.set(key, (taskSeen.get(key) ?? new Set()).add(code));
+        if (add) d.given = (d.given ?? 0) + add;
+        // Each reason once: the same delay again (above), or the same words on
+        // another task, just adds its code to the line already there.
+        const words = (t: string) => [...reasonWords([t])].sort().join(' ');
+        let first: { code: string; text: string } | null = null;
+        for (const text of c.texts) {
+          const w = same?.line ?? d.reasons.find((x) => words(x.text) !== '' && words(x.text) === words(text));
+          if (w) {
+            if (!w.code.split(', ').includes(code)) w.code = `${w.code}, ${code}`;
+            first ??= w;
+            if (same) break;
+          } else {
+            const line = { code, text };
+            d.reasons.push(line);
+            first ??= line;
+          }
+        }
+        if (!same) earlier.push({ words: reason, ...span, days: c.days ?? 0, line: first });
+        if (!prev) out.set(key, d);
       }
-      if (!prev) out.set(key, d);
-    }
   }
   const items = [...out.values()];
   const delaysGiven = items.reduce((a, d) => a + (d.given ?? 0), 0);
@@ -323,17 +341,57 @@ export function allDelays(
 }
 
 const day = (k: string | null | undefined) => (k ? k.slice(0, 10) : null);
+
+/** Days entered on a task, both stages (delay table, or checklist days). */
+const enteredDays = (r: Pick<SheetReportRow, 'notes' | 'constructionNotes'>) =>
+  [...stageCauses(r.notes), ...stageCauses(r.constructionNotes)].reduce((a, c) => a + (c.days ?? 0), 0);
+
+/**
+ * Finished tasks with the same actual start and the same actual finish (SS + FF):
+ * all but the one with the most delay days entered are skipped, and the one kept
+ * shows every code of its group, most days first ("PTC-19 / PTC-18").
+ */
+export function sameDateTasks<R extends Pick<SheetReportRow, 'notes' | 'constructionNotes' | 'taskCode' | 'actualStart' | 'actualEnd'>>(
+  rows: R[]
+): { skip: Set<R>; codeOf: Map<R, string> } {
+  const groups = new Map<string, R[]>();
+  for (const r of rows) {
+    const a = day(r.actualStart);
+    const b = day(r.actualEnd);
+    if (!a || !b) continue;
+    groups.set(`${a}|${b}`, [...(groups.get(`${a}|${b}`) ?? []), r]);
+  }
+  const skip = new Set<R>();
+  const codeOf = new Map<R, string>();
+  for (const g of groups.values()) {
+    if (g.length < 2) continue;
+    const sorted = [...g].sort((x, y) => enteredDays(y) - enteredDays(x) || stageCauses(y.constructionNotes).length + stageCauses(y.notes).length - (stageCauses(x.constructionNotes).length + stageCauses(x.notes).length));
+    sorted.slice(1).forEach((r) => skip.add(r));
+    codeOf.set(sorted[0], sorted.map((r) => r.taskCode).join(' / '));
+  }
+  return { skip, codeOf };
+}
 const overlaps = (a: { start: string | null; end: string | null }, b: { start: string | null; end: string | null }) =>
   !!a.start && !!a.end && !!b.start && !!b.end && a.start <= b.end && b.start <= a.end;
-/** A reason written slightly differently is still the same reason:
- *  "Concrete Supply Delayed" = "Concrete supply delay", "… - 8 Days delayed" left off. */
-export function reasonKey(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[-–—:]?\s*\d+\s*days?(\s*delay(ed)?)?/g, '')
-    .replace(/delayed/g, 'delay')
-    .replace(/[^a-z0-9]+/g, '');
+const FILLER = new Set(['got', 'by', 'of', 'the', 'a', 'an', 'to', 'in', 'on', 'for', 'due', 'is', 'was', 'and', 'delay', 'delayed', 'days', 'day', 'not']);
+/** The words that say what a reason is about ("Soil Compactor got delayed by 20 days" → soil, compactor). */
+export function reasonWords(texts: string[]): Set<string> {
+  const out = new Set<string>();
+  for (const t of texts)
+    for (const w of t.toLowerCase().split(/[^a-z]+/)) {
+      if (w.length < 2 || FILLER.has(w)) continue;
+      out.add(w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w);
+    }
+  return out;
 }
+/** The same reason, worded differently: one's words are all in the other's
+ *  ("Delayed by compactor" = "Soil Compactor delayed by 20 days"). */
+export function sameReason(a: Set<string>, b: Set<string>): boolean {
+  if (!a.size || !b.size) return false;
+  const [small, big] = a.size <= b.size ? [a, b] : [b, a];
+  return [...small].every((w) => big.has(w));
+}
+
 
 /** Milestone report layouts: the standard one, or "All delays" (L (−4'6") report, 2026-11-23). */
 /** 'taskDelays' (2026-11-23, client, Mezzanine Slab Casting milestone): All delays + every task's delays one by one. */
