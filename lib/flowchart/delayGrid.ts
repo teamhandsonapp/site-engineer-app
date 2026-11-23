@@ -112,6 +112,30 @@ const rowOf = (key: string, cellId: string): number | null => {
   return Number.isInteger(n) && n > 1 ? n : null;
 };
 
+/** Table cells with no checklist point of their own: the point they stand for. */
+export const GRID_COVERS_FIELD: Record<string, ChecklistNoteKey> = {
+  'contractor.workersShortage': 'contractorDelay',
+  'drawings.structural': 'consultant', // "Structural consultant: …" → Consultant (Structural)
+  'drawings.mep': 'consultant', // "MEP consultant: …" → Consultant (MEP)
+};
+
+/**
+ * One delay, written once (2026-11-23, client: "2 MEP drawings, 2 plywood …
+ * keep only a single thing"). A checklist point the delay table has days for
+ * is the same delay written the old way, so in that stage the table alone
+ * counts and the old point (its text and days) is left out — e.g. checklist
+ * "MEP Electrical drawing – 6 Days" next to the table's MEP consultant 6 days.
+ */
+export function gridCoveredFields(grid: DelayGrid | null | undefined): Set<ChecklistNoteKey> {
+  const out = new Set<ChecklistNoteKey>();
+  for (const c of DELAY_GRID_CELLS) {
+    if (c.column.carried) continue;
+    const key = c.column.field ?? GRID_COVERS_FIELD[c.id];
+    if (key && cellDays(grid, c.id) > 0) out.add(key);
+  }
+  return out;
+}
+
 /** One cause's days over all its rows. */
 export function cellDays(grid: DelayGrid | null | undefined, cellId: string): number {
   let sum = 0;

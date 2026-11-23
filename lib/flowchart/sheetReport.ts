@@ -3,8 +3,8 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as XLSX from 'xlsx';
-import { CHECKLIST_NOTE_FIELDS, CONTRACTOR_KEYS, contractorFor, EQUIPMENT_DELAY_FIELD, SHEET_FIELD_ORDER, EMPTY_CHECKLIST_NOTES, joinPoints, notePointsText, pointDays, splitPoints, type ChecklistNoteKey, type ChecklistNotes } from './checklistNotes';
-import { DELAY_GRID_CELLS, DELAY_GRID_TABLES, rowCellId, tableRows } from './delayGrid';
+import { CHECKLIST_NOTE_FIELDS, CONTRACTOR_KEYS, contractorFor, EQUIPMENT_DELAY_FIELD, SHEET_FIELD_ORDER, EMPTY_CHECKLIST_NOTES, joinPoints, notePointsText, splitPoints, type ChecklistNoteKey, type ChecklistNotes } from './checklistNotes';
+import { DELAY_GRID_CELLS, DELAY_GRID_TABLES, GRID_COVERS_FIELD, rowCellId, tableRows } from './delayGrid';
 import { formatCardDateRange } from './delay';
 import { saveWorkbook } from './excelExport';
 import { sheetStatus, type SheetStatusTask } from './sheetStatus';
@@ -60,17 +60,11 @@ export interface SheetReportRow {
 // days, and the table itself is dropped so nothing is counted twice. (The
 // level / milestone report reads the table directly — see milestoneReport.ts.)
 // Causes with no checklist point of their own go under the nearest one.
-const GRID_ONLY_FIELD: Record<string, ChecklistNoteKey> = {
-  'contractor.workersShortage': 'contractorDelay',
-  'drawings.structural': 'consultant', // "Structural consultant: …" → Consultant (Structural)
-  'drawings.mep': 'consultant', // "MEP consultant: …" → Consultant (MEP)
-};
+const GRID_ONLY_FIELD = GRID_COVERS_FIELD;
 export function foldDelayGrid(n: ChecklistNotes): ChecklistNotes {
   const grid = n.delayGrid;
   if (!grid || !Object.keys(grid).length) return n;
   const added = new Map<ChecklistNoteKey, { text: string; days: number }[]>();
-  // A table cell for a checklist point: its days replace the checklist's days (as in the reports).
-  const replaced = new Set<ChecklistNoteKey>();
   for (const table of DELAY_GRID_TABLES) {
     const rows = tableRows(table, grid, n.delayGridNotes);
     for (const cell of DELAY_GRID_CELLS.filter((c) => c.table === table && !c.column.carried)) {
@@ -80,19 +74,19 @@ export function foldDelayGrid(n: ChecklistNotes): ChecklistNotes {
         const id = rowCellId(cell.id, r);
         const days = grid[id] ?? 0;
         if (days <= 0) continue;
-        const why = n.delayGridNotes?.[id]?.replace(/\s+/g, ' ').trim();
+        // No reason typed in the cell: the old checklist text for that point, if any.
+        const why = n.delayGridNotes?.[id]?.replace(/\s+/g, ' ').trim() || (cell.column.field ? splitPoints(n[key]).join('; ') : '');
         const text = cell.column.field ? why || cell.column.label : why ? `${cell.column.label}: ${why}` : cell.column.label;
         added.set(key, [...(added.get(key) ?? []), { text, days }]);
-        if (cell.column.field) replaced.add(key);
       }
     }
   }
   const out: ChecklistNotes = { ...n, delayDays: { ...(n.delayDays ?? {}) } };
+  // The table is the delay for these points; the old checklist text is the same
+  // delay written the old way, so it is left out (2026-11-23, client: no duplicates).
   for (const [key, pts] of added) {
-    const old = splitPoints(n[key]);
-    const oldDays = replaced.has(key) ? old.map(() => null) : pointDays(n, key);
-    out[key] = joinPoints([...pts.map((p) => p.text), ...old]);
-    out.delayDays![key] = [...pts.map((p) => p.days), ...oldDays];
+    out[key] = joinPoints(pts.map((p) => p.text));
+    out.delayDays![key] = pts.map((p) => p.days);
   }
   delete out.delayGrid;
   delete out.delayGridNotes;

@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { contractorFor, fieldDays, pointDays, splitPoints, STAGED_NOTE_FIELDS, type ChecklistNoteKey, type ChecklistNotes } from './checklistNotes';
-import { cellDays, cellNotes, DELAY_GRID_CELLS, DELAY_GRID_TABLES, gridCellId, rowCellId, tableRows } from './delayGrid';
+import { cellDays, cellNotes, DELAY_GRID_CELLS, DELAY_GRID_TABLES, gridCellId, gridCoveredFields, rowCellId, tableRows } from './delayGrid';
 import { saveWorkbook } from './excelExport';
 import { printReportHtml, type SheetReportRow } from './sheetReport';
 
@@ -74,7 +74,10 @@ export const reasonDef = (id: string) => REASON_BY_ID.get(id);
  *  same reason, and its days replace the days written in the checklist. */
 export function stageCauses(n: ChecklistNotes | undefined): DelayCause[] {
   const out = new Map<string, DelayCause>();
+  // Points the delay table has days for: the table alone counts (no duplicates).
+  const covered = gridCoveredFields(n?.delayGrid);
   for (const f of STAGED_NOTE_FIELDS) {
+    if (covered.has(f.key)) continue;
     if (n?.[f.key]?.trim()) out.set(f.key, { ...REASON_BY_ID.get(f.key)!, days: fieldDays(n, f.key), texts: splitPoints(n[f.key]) });
   }
   for (const c of DELAY_GRID_CELLS) {
@@ -84,8 +87,9 @@ export function stageCauses(n: ChecklistNotes | undefined): DelayCause[] {
     const d = cellDays(n?.delayGrid, c.id);
     if (!d || d <= 0) continue;
     const id = c.column.field ?? `grid:${c.id}`;
-    // The table's reasons first, then anything written for the same point in the checklist.
-    const texts = [...cellNotes(n?.delayGridNotes, c.id), ...(out.get(id)?.texts ?? [])];
+    // The table's reasons; none typed → the old checklist text for that point.
+    const typed = cellNotes(n?.delayGridNotes, c.id);
+    const texts = typed.length ? typed : c.column.field ? splitPoints(n?.[c.column.field]) : [];
     out.set(id, { ...REASON_BY_ID.get(id)!, days: d, texts });
   }
   return REASON_DEFS.filter((d) => out.has(d.id)).map((d) => out.get(d.id)!);
@@ -150,7 +154,7 @@ export interface TaskDelayEntry {
 export function taskDelayEntries(n: ChecklistNotes | undefined, stage: TaskDelayEntry['stage'], department: string | null | undefined): TaskDelayEntry[] {
   const out: TaskDelayEntry[] = [];
   const grid = n?.delayGrid ?? {};
-  const covered = new Set<ChecklistNoteKey>();
+  const covered = gridCoveredFields(grid);
   for (const table of DELAY_GRID_TABLES) {
     const rows = tableRows(table, grid, n?.delayGridNotes);
     for (const col of table.columns) {
@@ -158,7 +162,6 @@ export function taskDelayEntries(n: ChecklistNotes | undefined, stage: TaskDelay
         const id = rowCellId(gridCellId(table, col), r);
         const days = grid[id] ?? 0;
         if (days <= 0) continue;
-        if (col.field) covered.add(col.field);
         out.push({
           stage,
           cause: col.label,
@@ -248,7 +251,7 @@ export function responsibleFor(c: Pick<DelayCause, 'party' | 'who'>, department:
  * the milestone's delay. Otherwise the days given are shown as they are.
  */
 export function allDelays(
-  rows: Pick<SheetReportRow, 'notes' | 'constructionNotes' | 'department' | 'taskCode'>[],
+  rows: Pick<SheetReportRow, 'notes' | 'constructionNotes' | 'department' | 'taskCode' | 'plannedStart' | 'plannedEnd' | 'actualStart' | 'actualEnd'>[],
   milestoneDelay: number | null = null
 ): {
   allDelays: AllDelay[];
@@ -259,7 +262,13 @@ export function allDelays(
   delaysShared: boolean;
 } {
   const out = new Map<string, AllDelay>();
+  // The same delay on tasks running side by side (2026-11-23, client: PTC-18 and
+  // PTC-19 both "Material (Acro span, Jacks …) 5 days", same dates) is one delay:
+  // same cause, same responsible, same reason and overlapping dates → its days
+  // count once (the larger), and the reason is listed once with both task codes.
+  const seen = new Map<string, { reason: string; start: string | null; end: string | null; days: number }[]>();
   for (const r of rows) {
+    const span = { start: day(r.actualStart ?? r.plannedStart), end: day(r.actualEnd ?? r.actualStart ?? r.plannedEnd) };
     // Both stages of one task: one entry per reason, days added.
     const perTask = new Map<string, DelayCause>();
     for (const c of [...stageCauses(r.notes), ...stageCauses(r.constructionNotes)]) {
@@ -273,12 +282,26 @@ export function allDelays(
       const responsible = responsibleFor(c, r.department);
       const key = `${c.id}|${responsible}`;
       const prev = out.get(key);
-      const reasons = c.texts.map((text) => ({ code: r.taskCode, text }));
-      if (prev) {
-        prev.tasks += 1;
-        if (c.days) prev.given = (prev.given ?? 0) + c.days;
-        prev.reasons.push(...reasons);
-      } else out.set(key, { label: c.label, color: c.color, responsible, days: null, given: c.days ?? null, tasks: 1, reasons });
+      const reason = c.texts.map(reasonKey).filter(Boolean).sort().join('|');
+      const earlier = seen.get(key) ?? [];
+      const same = reason ? earlier.find((x) => x.reason === reason && overlaps(x, span)) : undefined;
+      // Days: a side-by-side duplicate adds only what it has over the first one.
+      const add = same ? Math.max(0, (c.days ?? 0) - same.days) : c.days ?? 0;
+      if (same) same.days += add;
+      else earlier.push({ reason, ...span, days: c.days ?? 0 });
+      seen.set(key, earlier);
+      const d = prev ?? { label: c.label, color: c.color, responsible, days: null, given: null, tasks: 0, reasons: [] };
+      d.tasks += 1;
+      if (add) d.given = (d.given ?? 0) + add;
+      // Each reason once; the same reason on another task just adds its code.
+      for (const text of c.texts) {
+        const k = reasonKey(text);
+        const w = k ? d.reasons.find((x) => reasonKey(x.text) === k) : undefined;
+        if (w) {
+          if (!w.code.split(', ').includes(r.taskCode)) w.code = `${w.code}, ${r.taskCode}`;
+        } else d.reasons.push({ code: r.taskCode, text });
+      }
+      if (!prev) out.set(key, d);
     }
   }
   const items = [...out.values()];
@@ -297,6 +320,19 @@ export function allDelays(
     who.set(d.responsible, w);
   }
   return { allDelays: list, byResponsible: [...who.values()].sort((a, b) => b.days - a.days || b.delays - a.delays), delaysGiven, delaysShared };
+}
+
+const day = (k: string | null | undefined) => (k ? k.slice(0, 10) : null);
+const overlaps = (a: { start: string | null; end: string | null }, b: { start: string | null; end: string | null }) =>
+  !!a.start && !!a.end && !!b.start && !!b.end && a.start <= b.end && b.start <= a.end;
+/** A reason written slightly differently is still the same reason:
+ *  "Concrete Supply Delayed" = "Concrete supply delay", "… - 8 Days delayed" left off. */
+export function reasonKey(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[-–—:]?\s*\d+\s*days?(\s*delay(ed)?)?/g, '')
+    .replace(/delayed/g, 'delay')
+    .replace(/[^a-z0-9]+/g, '');
 }
 
 /** Milestone report layouts: the standard one, or "All delays" (L (−4'6") report, 2026-11-23). */
