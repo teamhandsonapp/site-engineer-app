@@ -41,13 +41,45 @@ export interface MeetingRecording {
 
 export interface SendLogEntry {
   channel: SendChannel;
+  // WhatsApp only: 'api' = sent by the Meta Cloud API test number,
+  // missing/'link' = opened a wa.me chat for the person to press Send.
+  via?: 'api' | 'link';
   what: 'invite' | 'agenda-request' | 'final-agenda';
   recipientKeys: string[];
   atISO: string;
 }
 
+// Something to discuss in a meeting: a Flowchart task (picked by department)
+// or a free-text topic. Shaped like a future Supabase row
+// (meeting_discussion_items: id, meeting_id, sort_order, type, task_id,
+// department_id, title, discussed, note) so the move later is a 1:1 copy.
+export const AGENDA_MAX = 1000;
+export const TOPIC_MAX = 200;
+
+export interface DiscussionItem {
+  id: string;
+  type: 'task' | 'topic';
+  taskId: string | null; // tasks.id — task items only
+  taskCode: string | null; // e.g. CIVIL-790684 (copy)
+  departmentId: string | null; // works.id — task items only
+  departmentName: string | null; // copy, so it still shows if renamed/deleted
+  title: string; // task name (copy) or the topic text
+  // Filled in while writing the minutes (Record tab).
+  discussed?: boolean;
+  note?: string;
+}
+
 export interface Meeting {
   id: string;
+  // Added 2026-11-13. Optional: meetings saved before have neither and still open.
+  agenda?: string;
+  discussionItems?: DiscussionItem[];
+  // Chosen in the Create/Edit form: put the meeting in the company Google
+  // Calendar (lib/mom/googleCalendar.ts). The fields below record the result.
+  addToCalendar?: boolean;
+  calendarEventId?: string | null; // set once Google has the event
+  calendarLink?: string | null; // the event's page in Google Calendar
+  calendarError?: string | null; // last sync failure, shown with Retry
   projectId: string;
   title: string;
   date: string; // 'YYYY-MM-DD'

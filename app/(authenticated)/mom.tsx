@@ -8,20 +8,22 @@
 //                      upcoming task lists to client & architect.
 // Project-specific (uses the selected project). Admin / manager only.
 
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { Text } from '../../components/ui/AppText';
+import { KeyboardAvoider } from '../../components/ui/KeyboardAvoider';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Card } from '../../components/ui/Card';
 import { useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
-import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
 import { useMomData } from '../../lib/mom/store';
 import { MeetingTab } from '../../components/mom/MeetingTab';
 import { ReportsTab } from '../../components/mom/ReportsTab';
 import { CustomAlertsTab } from '../../components/mom/CustomAlertsTab';
 import { EmailReportsTab } from '../../components/mom/EmailReportsTab';
 import { NAVY } from '../../components/mom/ui';
+import { MomScrollContext } from '../../components/mom/scrollContext';
 
 export type MomTab = 'meeting' | 'reports' | 'alerts' | 'email';
 
@@ -37,9 +39,15 @@ export default function MomScreen() {
   const params = useLocalSearchParams<{ tab?: string }>();
   const { state } = useAuth();
   const { projects, selectedProjectId, setSelectedProjectId } = useProject();
-  const bottomPadding = useSafeBottomOffset(24);
+  // Drawer screen: BottomTabBar already clears the home indicator / nav bar,
+  // so this is plain end-of-list space (was useSafeBottomOffset, which added the
+  // inset a second time on phones — batch 5). Same value as before on web.
+  const bottomPadding = 48;
   const [tab, setTab] = useState<MomTab>('meeting');
   const { data, update } = useMomData(selectedProjectId);
+  // Lets the meeting form scroll to its first error.
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollTo = useCallback((y: number) => scrollRef.current?.scrollTo({ y: Math.max(0, y), animated: true }), []);
 
   // The drawer's sub-items (Meeting / Reports / Custom Alerts) open this
   // screen with ?tab=…
@@ -84,7 +92,7 @@ export default function MomScreen() {
   const activeTab: MomTab = tab === 'email' && !isAdmin ? 'meeting' : tab;
 
   return (
-    <View className="flex-1 bg-neutral-50">
+    <KeyboardAvoider style={{ backgroundColor: '#FAFAFA' }}>
       <View className="bg-white border-b border-neutral-100 px-4 pt-3">
         <Text className="text-2xs font-bold uppercase tracking-wider text-neutral-400">{projectName}</Text>
         <View className="flex-row mt-2">
@@ -102,7 +110,8 @@ export default function MomScreen() {
         </View>
       </View>
 
-      <ScrollView className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: bottomPadding }} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={scrollRef} className="flex-1" contentContainerStyle={{ padding: 16, paddingBottom: bottomPadding }} keyboardShouldPersistTaps="handled">
+        <MomScrollContext.Provider value={scrollTo}>
         {activeTab === 'email' ? (
           <EmailReportsTab defaultEmail={profile.email} />
         ) : !data ? (
@@ -114,8 +123,9 @@ export default function MomScreen() {
         ) : (
           <CustomAlertsTab projectId={selectedProjectId} projectName={projectName} update={update} me={me} />
         )}
+        </MomScrollContext.Provider>
       </ScrollView>
-    </View>
+    </KeyboardAvoider>
   );
 }
 

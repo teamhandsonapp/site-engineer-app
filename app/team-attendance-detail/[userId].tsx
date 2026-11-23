@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, ScrollView, View } from 'react-native';
+import { Text } from '../../components/ui/AppText';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
@@ -283,7 +284,7 @@ function LiveStatusCard({
   return (
     <Card className="mb-4">
       <View className="flex-row items-center justify-between mb-1">
-        <Text className="text-md font-bold text-neutral-900">{fullName}</Text>
+        <Text className="flex-1 mr-2 text-md font-bold text-neutral-900" numberOfLines={1}>{fullName}</Text>
         {LOCATION_FEATURES_ENABLED && <StatusBadge level={health.level} label={health.label} isLocked={isLocked} />}
       </View>
       {LOCATION_FEATURES_ENABLED && health.detail && <Text className="text-2xs text-neutral-400 text-right mb-2">{health.detail}</Text>}

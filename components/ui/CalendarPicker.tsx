@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Modal, Pressable, Text, View } from 'react-native';
+import { Modal, Pressable, View } from 'react-native';
+import { Text } from './AppText';
 
 // A plain month-grid calendar, built from scratch in RN primitives — no
 // native date-picker dependency added for this. This app has no native

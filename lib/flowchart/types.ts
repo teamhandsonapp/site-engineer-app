@@ -49,6 +49,9 @@ export interface FlowchartTask {
   // yet — not for the main date-range chip, which always shows the original.
   currentPlannedStartDate: string | null;
   currentDueDate: string | null;
+  // When the site expects the task to really start (e.g. "client says 16 Nov").
+  // Only feeds the blue projected-dates chip (lib/flowchart/projected.ts).
+  expectedStartDate?: string | null;
   cascadeDelayDays: number | null;
   accountabilityType: AccountabilityType | null; // task-level override
   workAccountabilityType: AccountabilityType | null; // resolved: task's own ?? work's default
@@ -60,6 +63,12 @@ export interface FlowchartTask {
   roomType: string | null;
   floorLevel: string | null;
   milestoneId: string | null;
+  // Small title drawn above this task's card (e.g. "West side"); null = none.
+  sectionTitle?: string | null;
+  // Draw a horizontal divider line across the board just below this card.
+  dividerBelow?: boolean;
+  // Optional card background override (e.g. light red), else the Task Type colour.
+  cardColor?: string | null;
 }
 
 // Series link (task_dependencies) — a real, enforced ordering relationship.
@@ -68,6 +77,18 @@ export interface FlowchartSeriesEdge {
   taskId: string; // the blocked task
   dependsOnTaskId: string; // the prerequisite
   type: DependencyType;
+  /** Soft link: drawn for reference only (grey dashed) — no date push, no warning. */
+  soft?: boolean;
+  /** Soft links only: line colour instead of grey (Past Tasks date-order arrows). */
+  color?: string;
+  /** Draw the line without its FS/SS/… chip (display-only arrows). */
+  hideLabel?: boolean;
+  /** Soft links only: drawn exactly like a real link (solid orange + type chip)
+   *  but still display-only — no date push, no warning (Past Tasks stacks). */
+  drawAsLink?: boolean;
+  /** A real link (dates flow through it) whose planned-date check is skipped —
+   *  the Past Works PT-30 → CIV-07 link, where the old planned dates overlap. */
+  noWarning?: boolean;
 }
 
 // Parallel link (task_parallel_links) — symmetric, non-blocking, visual only.

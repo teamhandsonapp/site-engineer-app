@@ -925,6 +925,7 @@ model tasks {
   checklist_verified_at                                         DateTime?                @db.Timestamptz(6)
   checklist_verification_note                                   String?
   hidden_from_flowchart                                         Boolean                  @default(false)
+  flowchart_set                                                 String?
   room_type                                                     String?
   floor_level                                                   String?
   urgent_pushed_at                                              DateTime?                @db.Timestamptz(6)

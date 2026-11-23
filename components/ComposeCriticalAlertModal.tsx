@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { Text, TextInput } from './ui/AppText';
+import { FormModal } from './ui/FormModal';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { fetchProjectEngineers, sendCriticalAlertMessage, type ProjectEngineer } from '../lib/criticalAlertMessages';
 
@@ -69,8 +71,7 @@ export function ComposeCriticalAlertModal({
   const selectedEngineer = engineers.find((e) => e.id === selectedEngineerId) ?? null;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
+    <FormModal visible={visible} onRequestClose={onClose}>
         <Pressable onPress={() => {}} className="bg-white rounded-2xl p-4 w-full" style={{ maxWidth: 380, maxHeight: '80%' }}>
           <View className="flex-row items-center justify-between mb-1">
             <Text className="text-md font-bold text-neutral-900">
@@ -82,7 +83,7 @@ export function ComposeCriticalAlertModal({
           </View>
           {/* Body scrolls and the message box stops growing, so Send stays
               inside the dialog on small phones / large text. */}
-          <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="handled">
+          <ScrollView nestedScrollEnabled style={{ flexGrow: 0, flexShrink: 1 }} keyboardShouldPersistTaps="handled">
           <Text className="text-xs text-neutral-400 mb-3">
             {mode === 'admin'
               ? `Reaches the selected engineer directly on ${projectName ?? 'this project'} — a real push notification, not just an in-app message.`
@@ -106,7 +107,7 @@ export function ComposeCriticalAlertModal({
                         onPress={() => setSelectedEngineerId(eng.id)}
                         className={`flex-row items-center justify-between px-3 py-2.5 rounded-lg mb-1 ${active ? 'bg-neutral-100' : ''}`}
                       >
-                        <Text className="text-sm font-medium text-neutral-800">{eng.fullName}</Text>
+                        <Text className="flex-1 mr-2 text-sm font-medium text-neutral-800" numberOfLines={1}>{eng.fullName}</Text>
                         {active && <Ionicons name="checkmark-circle" size={16} color="#0F1F33" />}
                       </Pressable>
                     );
@@ -149,7 +150,6 @@ export function ComposeCriticalAlertModal({
             <Text className="text-sm font-bold text-white">{sending ? 'Sending…' : 'Send'}</Text>
           </Pressable>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }

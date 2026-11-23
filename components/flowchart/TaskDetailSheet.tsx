@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { Text, TextInput } from '../ui/AppText';
+import { FormModal } from '../ui/FormModal';
 import { Card } from '../ui/Card';
 import { DateField } from '../ui/DateField';
 import { ChecklistItemRow } from '../taskDetail/ChecklistItemRow';
 import { SubtaskListEditor } from '../dpr/SubtaskListEditor';
+import { TaskDrawingsSection } from '../drawingFiles/TaskDrawingsSection';
 import { resolveDelayChip, formatCardDateRange, splitTaskName } from '../../lib/flowchart/delay';
 import { applyTaskFieldChanges, editableFieldsEqual, type EditableTaskFields } from '../../lib/flowchart/undo';
 import { fetchWorksForProject, type WorkOption } from '../../lib/flowchart/data';
@@ -11,6 +14,10 @@ import { fetchTaskDetail, type ChecklistItem } from '../../lib/taskDetail/data';
 import { CATEGORIES, CATEGORY_LABEL } from '../../lib/taskDetail/constants';
 import { addDaysToKey, fetchSubtasksForTask, type DprSubtaskItem } from '../../lib/dprEntries';
 import { FLOOR_LEVEL_PRESETS, ROOM_TYPE_PRESETS, type AccountabilityType, type PositionedTask, type TaskTypeOption } from '../../lib/flowchart/types';
+import { ClientChecklistPanel } from './ClientChecklistPanel';
+import { PrPanel } from './PrPanel';
+import { planFromDuration, type DurationPred } from '../../lib/flowchart/durationPlan';
+import { daysBetween } from '../../lib/flowchart/projected';
 
 const FULL_MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -21,7 +28,7 @@ function formatDateKeyLabel(key: string): string {
   return `${d} ${FULL_MONTHS[m - 1].slice(0, 3)} ${y}`;
 }
 
-type DetailTab = 'edit' | 'subtasks' | 'prerequisites';
+type DetailTab = 'edit' | 'subtasks' | 'prerequisites' | 'checklist' | 'pr';
 
 // taskTypes (prop) is fetched ordered by default_duration_days ascending —
 // same deterministic A/B/C.../G-by-index labeling as CreateTaskSheet.tsx/
@@ -78,8 +85,8 @@ function DropdownPicker<T extends string>({
         onPress={() => editable && setOpen((v) => !v)}
         className="flex-row items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5"
       >
-        <Text className="text-sm text-neutral-900">{valueLabel}</Text>
-        {editable && <Text className="text-neutral-400">{open ? '▲' : '▼'}</Text>}
+        <Text className="flex-1 mr-2 text-sm text-neutral-900" numberOfLines={1}>{valueLabel}</Text>
+        {editable && <Text className="shrink-0 text-neutral-400">{open ? '▲' : '▼'}</Text>}
       </Pressable>
       {editable && open && (
         <View className="mt-1 border border-neutral-100 rounded-lg overflow-hidden">
@@ -133,6 +140,7 @@ interface EditableFields {
   dueDate: string;
   actualStartDate: string;
   actualEndDate: string;
+  expectedStartDate: string;
   taskTypeId: string | null;
   // The per-task override — null means "no override, inherit from the
   // Work's own default" (see task.workAccountabilityType, the resolved
@@ -154,6 +162,7 @@ function toEditable(task: PositionedTask): EditableFields {
     dueDate: task.dueDate ?? '',
     actualStartDate: task.actualStartDate ?? '',
     actualEndDate: task.actualEndDate ?? '',
+    expectedStartDate: task.expectedStartDate ?? '',
     taskTypeId: task.taskTypeId,
     accountabilityType: task.accountabilityType,
     roomType: task.roomType,
@@ -175,7 +184,24 @@ export function TaskDetailSheet({
   initialTab = 'edit',
   onClose,
   onTaskEdited,
+  showClientChecklist = false,
+  durationPreds,
+  independentPlannedDates = false,
+  checklistStages = false,
+  copiedTask = false,
 }: {
+  // Past Works: a Current Status task copied below the stacks — its own Pre-construction delays.
+  copiedTask?: boolean;
+  // Past Tasks (2026-11-21): Checklist tab split into Pre-construction / Construction delays.
+  checklistStages?: boolean;
+  // Past Tasks (2026-11-21, client): Planned Start and Planned End can each be
+  // entered (or cleared) on their own — End isn't limited to after Start.
+  independentPlannedDates?: boolean;
+  // Tasks linked into this one (with their planned dates) — used by the
+  // "Duration (days)" trial (lib/flowchart/durationPlan.ts).
+  durationPreds?: DurationPred[];
+  // Flowchart 2: adds the "Checklist" (client's six points) and "PR" tabs.
+  showClientChecklist?: boolean;
   task: PositionedTask | null;
   taskTypes: TaskTypeOption[];
   projectId: string;
@@ -213,11 +239,15 @@ export function TaskDetailSheet({
   // this sheet itself uses to save.
   onTaskEdited: (taskId: string, before: EditableTaskFields, after: EditableTaskFields) => void;
 }) {
+  // Flowchart 2 tasks don't use the big pre-construction checklist — only the
+  // client's six points (Checklist tab) — so Prerequisites is hidden there and
+  // "Open" starts on Checklist instead (2026-11-14).
+  const startTab: DetailTab = showClientChecklist && initialTab === 'prerequisites' ? 'checklist' : initialTab;
   const [form, setForm] = useState<EditableFields | null>(task ? toEditable(task) : null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [works, setWorks] = useState<WorkOption[]>([]);
-  const [activeTab, setActiveTab] = useState<DetailTab>(initialTab);
+  const [activeTab, setActiveTab] = useState<DetailTab>(startTab);
 
   // Subtasks tab — one section per planned calendar day, by explicit
   // request: "its planned date is Aug 14 to 17, 4 days, so it needs to
@@ -251,10 +281,16 @@ export function TaskDetailSheet({
   const [itemsLoading, setItemsLoading] = useState(false);
   const [itemsError, setItemsError] = useState<string | null>(null);
 
+  // Duration trial: start the box from the saved planned dates (every day counted).
+  const initialDuration = (t: PositionedTask | null) =>
+    t?.plannedStartDate && t.dueDate ? String(daysBetween(t.plannedStartDate, t.dueDate) + 1) : '';
+  const [durationText, setDurationText] = useState(() => initialDuration(task));
+
   useEffect(() => {
     setForm(task ? toEditable(task) : null);
+    setDurationText(initialDuration(task));
     setError(null);
-    setActiveTab(initialTab);
+    setActiveTab(startTab);
     setSubtasksByDate({});
     setSubtasksFetched(false);
     setItems([]);
@@ -304,6 +340,14 @@ export function TaskDetailSheet({
 
   if (!task || !form) return null;
 
+  // "Duration (days)" planning — Flowchart 2 only (the canvas passes durationPreds there).
+  const useDuration = !!durationPreds;
+  const hasDatedPred = useDuration && planFromDuration(1, durationPreds ?? []) !== null;
+  const durationPlan = useDuration ? planFromDuration(Number(durationText), durationPreds ?? [], hasDatedPred ? null : form.plannedStartDate || null) : null;
+  function applyDuration(text: string, ownStart: string | null) {
+    const plan = planFromDuration(Number(text), durationPreds ?? [], hasDatedPred ? null : ownStart);
+    setForm((f) => (f ? { ...f, plannedStartDate: plan?.start ?? (hasDatedPred ? '' : ownStart ?? ''), dueDate: plan?.end ?? '' } : f));
+  }
   const delayChip = resolveDelayChip(task);
   const selectedType = taskTypes.find((t) => t.id === form.taskTypeId);
 
@@ -333,6 +377,7 @@ export function TaskDetailSheet({
       dueDate: task.dueDate,
       actualStartDate: task.actualStartDate,
       actualEndDate: task.actualEndDate,
+      expectedStartDate: task.expectedStartDate ?? null,
       taskTypeId: task.taskTypeId,
       accountabilityType: task.accountabilityType,
       roomType: task.roomType,
@@ -345,6 +390,7 @@ export function TaskDetailSheet({
       dueDate: form.dueDate || null,
       actualStartDate: form.actualStartDate || null,
       actualEndDate: form.actualEndDate || null,
+      expectedStartDate: form.expectedStartDate || null,
       taskTypeId: form.taskTypeId,
       accountabilityType: form.accountabilityType,
       roomType: form.roomType,
@@ -375,8 +421,7 @@ export function TaskDetailSheet({
   }
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
+    <FormModal visible onRequestClose={onClose}>
         {/* overflow:'hidden' + minHeight:0 down this whole chain — by
             explicit request ("save button is not there when I scroll"). On
             React Native Web, a flex child defaults to min-height:auto (its
@@ -391,7 +436,7 @@ export function TaskDetailSheet({
             instead of growing to fit all their content. */}
         <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 380, maxHeight: '85%', overflow: 'hidden' }}>
           <Card style={{ flexShrink: 1, minHeight: 0 }}>
-            <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
+            <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
 
               <View className="flex-row items-center gap-2 my-1.5">
                 <View className="px-2 py-0.5 rounded-full bg-yellow-100">
@@ -414,17 +459,19 @@ export function TaskDetailSheet({
                   where "Open" left this sheet entirely for a separate
                   full-page screen. */}
               <View className="flex-row bg-neutral-100 rounded-lg p-0.5 mb-3">
-                {(['subtasks', 'prerequisites', 'edit'] as DetailTab[]).map((tab) => {
+                {((showClientChecklist ? ['subtasks', 'checklist', 'pr', 'edit'] : ['subtasks', 'prerequisites', 'edit']) as DetailTab[]).map((tab) => {
                   const active = activeTab === tab;
                   return (
                     <Pressable
                       key={tab}
                       onPress={() => setActiveTab(tab)}
-                      className="flex-1 items-center py-1.5 rounded-md"
-                      style={{ backgroundColor: active ? '#0F1F33' : 'transparent' }}
+                      className="items-center py-1.5 px-1 rounded-md"
+                      // Width follows the label (not equal fifths), so "Prerequisites"
+                      // isn't squeezed edge to edge on a phone (2026-11-14).
+                      style={{ flexGrow: 1, flexShrink: 1, backgroundColor: active ? '#0F1F33' : 'transparent' }}
                     >
-                      <Text className="text-2xs font-bold" style={{ color: active ? '#fff' : '#525252' }}>
-                        {tab === 'edit' ? 'Edit' : tab === 'subtasks' ? 'Subtasks' : 'Prerequisites'}
+                      <Text numberOfLines={1} className="text-2xs font-bold" style={{ color: active ? '#fff' : '#525252' }}>
+                        {tab === 'edit' ? 'Edit' : tab === 'subtasks' ? 'Subtasks' : tab === 'checklist' ? 'Checklist' : tab === 'pr' ? 'PR' : 'Prerequisites'}
                       </Text>
                     </Pressable>
                   );
@@ -463,6 +510,61 @@ export function TaskDetailSheet({
                 editable={canEdit}
               />
 
+              {useDuration ? (
+                <View className="mb-3">
+                  {/* Planned Start / End pickers are back on every task (2026-11-15), next to
+                      the Duration box: picking Start keeps the days and moves End; picking End
+                      updates the days. Typing days still sets both from the linked task(s). */}
+                  <View className="flex-row gap-2 mb-2">
+                    <View className="flex-1">
+                      <DateField
+                        label="Planned Start"
+                        value={form.plannedStartDate || null}
+                        editable={canEdit}
+                        onChange={(iso) => {
+                          const days = Number(durationText);
+                          const plan = days > 0 ? planFromDuration(days, [], iso) : null;
+                          setForm((f) => (f ? { ...f, plannedStartDate: iso, dueDate: plan?.end ?? f.dueDate } : f));
+                        }}
+                      />
+                    </View>
+                    <View className="flex-1">
+                      <DateField
+                        label="Planned End"
+                        value={form.dueDate || null}
+                        minDate={form.plannedStartDate || null}
+                        editable={canEdit}
+                        onChange={(iso) => {
+                          setForm((f) => (f ? { ...f, dueDate: iso } : f));
+                          if (form.plannedStartDate) setDurationText(String(daysBetween(form.plannedStartDate, iso) + 1));
+                        }}
+                      />
+                    </View>
+                  </View>
+                  <Text className="text-xs text-neutral-400 mb-1">Duration (days)</Text>
+                  <TextInput
+                    value={durationText}
+                    onChangeText={(v) => {
+                      const clean = v.replace(/[^0-9]/g, '');
+                      setDurationText(clean);
+                      applyDuration(clean, form.plannedStartDate || null);
+                    }}
+                    editable={canEdit}
+                    keyboardType="number-pad"
+                    placeholder="e.g. 10"
+                    className="border border-neutral-200 rounded-lg px-3 py-2 text-sm text-neutral-900 mb-1"
+                  />
+                  <Text className="text-2xs text-neutral-500">
+                    {durationPlan && durationPlan.start === form.plannedStartDate && durationPlan.end === form.dueDate
+                      ? `Planned: ${formatCardDateRange(durationPlan.start, durationPlan.end)} · from ${durationPlan.from}`
+                      : form.plannedStartDate && form.dueDate
+                        ? `Planned: ${formatCardDateRange(form.plannedStartDate, form.dueDate)} · dates picked by hand`
+                      : hasDatedPred
+                        ? 'Enter the number of days — planned dates are set from the task(s) linked before this one.'
+                        : 'Nothing dated is linked before this task — pick its Planned Start, then enter the days.'}
+                  </Text>
+                </View>
+              ) : (
               <View className="flex-row gap-2 mb-3">
                 <View className="flex-1">
                   <DateField
@@ -470,18 +572,28 @@ export function TaskDetailSheet({
                     value={form.plannedStartDate || null}
                     editable={canEdit}
                     onChange={(iso) => setForm((f) => (f ? { ...f, plannedStartDate: iso } : f))}
+                    onClear={independentPlannedDates ? () => setForm((f) => (f ? { ...f, plannedStartDate: '' } : f)) : undefined}
                   />
                 </View>
                 <View className="flex-1">
                   <DateField
                     label="Planned End"
                     value={form.dueDate || null}
-                    minDate={form.plannedStartDate || null}
+                    minDate={independentPlannedDates ? null : form.plannedStartDate || null}
                     editable={canEdit}
                     onChange={(iso) => setForm((f) => (f ? { ...f, dueDate: iso } : f))}
+                    onClear={independentPlannedDates ? () => setForm((f) => (f ? { ...f, dueDate: '' } : f)) : undefined}
                   />
                 </View>
               </View>
+              )}
+              {independentPlannedDates && !useDuration ? (
+                <Text className="text-2xs mb-3 -mt-2" style={{ color: form.plannedStartDate && form.dueDate && form.dueDate < form.plannedStartDate ? '#B91C1C' : '#9CA3AF' }}>
+                  {form.plannedStartDate && form.dueDate && form.dueDate < form.plannedStartDate
+                    ? 'Planned End is before Planned Start — check the dates.'
+                    : 'Fill in Planned Start, Planned End, or both. Tap Clear to remove one.'}
+                </Text>
+              ) : null}
 
               <DropdownPicker
                 key={`${task.id}-procurement`}
@@ -562,6 +674,24 @@ export function TaskDetailSheet({
                   />
                 </View>
               </View>
+              {/* Expected Start (Flowchart 2) — when the site expects the task to
+                  really start; drives the blue projected-dates chip on this and
+                  every linked task after it. Ignored once Actual Start is set. */}
+              {showClientChecklist && (
+                <View className="mb-1 pt-2">
+                  <DateField
+                    label="Expected Start"
+                    value={form.expectedStartDate || null}
+                    editable={canEdit}
+                    onChange={(iso) => setForm((f) => (f ? { ...f, expectedStartDate: iso } : f))}
+                  />
+                  <Text className="text-2xs text-neutral-400 mt-1">
+                    Optional. Moves the blue projected dates on this task and every linked task after it.
+                  </Text>
+                </View>
+              )}
+              {/* Drawings linked from File Manager › Drawings (+ register sheets tagged to this task). */}
+              <TaskDrawingsSection projectId={projectId} taskId={task.id} workId={task.workId} canEdit={canEditChecklist} userId={userId} />
               </>
               )}
 
@@ -597,6 +727,14 @@ export function TaskDetailSheet({
                     </View>
                   )}
                 </View>
+              )}
+
+              {activeTab === 'pr' && showClientChecklist && (
+                <PrPanel taskId={task.id} userId={userId} editable={canEditChecklist} />
+              )}
+
+              {activeTab === 'checklist' && showClientChecklist && (
+                <ClientChecklistPanel taskId={task.id} editable={canEditChecklist} userId={userId} stages={checklistStages} preStage={copiedTask ? 'copyPreConstruction' : 'preConstruction'} />
               )}
 
               {activeTab === 'prerequisites' && (
@@ -680,7 +818,6 @@ export function TaskDetailSheet({
             </View>
           </Card>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }

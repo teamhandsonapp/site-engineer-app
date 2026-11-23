@@ -1,5 +1,6 @@
 import { supabase } from '../supabase';
-import { isPilotVisible } from '../pilot';
+import { fetchAllInBatches } from '../fetchAll';
+import { isPilotVisible, REPORT_FLOWCHART_SET } from '../pilot';
 import { isCategoryNotRequired, isItemDone, type AccountabilityType, type CompletionStatus, type DependencyCategory, type QuantityUnit } from '../taskDetail/constants';
 import { QUANTITY_LABELS } from './taskReport';
 import type { DateRange } from './dateRange';
@@ -103,6 +104,7 @@ export async function fetchRangeTaskReport(projectId: string, range: DateRange):
       .from('tasks')
       .select(RANGE_TASK_SELECT)
       .eq('work.project_id', projectId)
+      .eq('flowchart_set', REPORT_FLOWCHART_SET)
       .is('deleted_at', null)
       .gte('due_date', range.from)
       .lte('due_date', range.to)
@@ -129,21 +131,25 @@ export async function fetchRangeTaskReport(projectId: string, range: DateRange):
   // those dependency rows reference (which may fall outside the date range
   // itself — a blocker due next month is still a real blocker today).
   const allTaskIds = tasks.map(({ r }) => r.id);
-  const [{ data: blockedByRows, error: blockedByError }, { data: blockingRows, error: blockingError }] = await Promise.all([
-    supabase.from('task_dependencies').select('task_id, depends_on_task_id').in('task_id', allTaskIds),
-    supabase.from('task_dependencies').select('task_id, depends_on_task_id').in('depends_on_task_id', allTaskIds),
+  type DepRow = { task_id: string; depends_on_task_id: string };
+  const [blockedByRows, blockingRows] = await Promise.all([
+    fetchAllInBatches<DepRow>(allTaskIds, (batch) =>
+      supabase.from('task_dependencies').select('task_id, depends_on_task_id').in('task_id', batch).order('id')
+    ),
+    fetchAllInBatches<DepRow>(allTaskIds, (batch) =>
+      supabase.from('task_dependencies').select('task_id, depends_on_task_id').in('depends_on_task_id', batch).order('id')
+    ),
   ]);
-  if (blockedByError) throw new Error(blockedByError.message);
-  if (blockingError) throw new Error(blockingError.message);
 
   const referencedIds = new Set<string>();
   for (const d of blockedByRows ?? []) referencedIds.add(d.depends_on_task_id);
   for (const d of blockingRows ?? []) referencedIds.add(d.task_id);
   const refMap = new Map<string, RangeDependencyRef>();
   if (referencedIds.size > 0) {
-    const { data: refTasks, error: refError } = await supabase.from('tasks').select('id, task_id, task_name').in('id', [...referencedIds]);
-    if (refError) throw new Error(refError.message);
-    for (const t of refTasks ?? []) refMap.set(t.id, { taskCode: t.task_id, taskName: t.task_name });
+    const refTasks = await fetchAllInBatches<{ id: string; task_id: string; task_name: string }>([...referencedIds], (batch) =>
+      supabase.from('tasks').select('id, task_id, task_name').in('id', batch).order('id')
+    );
+    for (const t of refTasks) refMap.set(t.id, { taskCode: t.task_id, taskName: t.task_name });
   }
   const blockedByOf = new Map<string, RangeDependencyRef[]>();
   for (const d of blockedByRows ?? []) {

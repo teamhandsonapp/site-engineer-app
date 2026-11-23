@@ -5,6 +5,7 @@
 
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Platform, RefreshControl, ScrollView, View, type StyleProp, type ViewStyle } from 'react-native';
+import { KEYBOARD_BEHAVIOR } from './KeyboardAvoider';
 import { useHeaderHeight } from 'expo-router/react-navigation';
 import { colors, space } from '../../lib/theme';
 
@@ -42,7 +43,7 @@ export function Screen({
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: colors.bg }}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={KEYBOARD_BEHAVIOR}
       keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
     >
       {body}

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, AppState, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Modal, Pressable, ScrollView, View } from 'react-native';
+import { Text } from './ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {

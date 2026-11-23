@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { fetchAllRows } from './fetchAll';
 import { codeFromDepartmentName, DEPARTMENT_COLORS } from './projects';
 
 // Manage a project's Departments (works rows) from the mobile Settings
@@ -51,9 +52,9 @@ export async function fetchDepartments(projectId: string): Promise<Department[]>
 }
 
 export async function createDepartment(projectId: string, name: string): Promise<void> {
-  const { data: existingWorks, error: fetchError } = await supabase.from('works').select('code');
-  if (fetchError) throw new Error(fetchError.message);
-  const taken = new Set((existingWorks ?? []).map((w) => w.code as string));
+  // Every code (lib/fetchAll.ts) — a list cut off at 1000 could reuse a taken code.
+  const existingWorks = await fetchAllRows<{ code: string }>(() => supabase.from('works').select('code').order('code'));
+  const taken = new Set(existingWorks.map((w) => w.code));
   const code = codeFromDepartmentName(name, taken);
   const color = DEPARTMENT_COLORS[Math.floor(Math.random() * DEPARTMENT_COLORS.length)];
   const { error } = await supabase.from('works').insert({ project_id: projectId, name, code, color });

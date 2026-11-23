@@ -1,0 +1,22 @@
+# A future actual start can't be picked (calendar max = today) and, if typed,
+# is refused. Checks the calendar doesn't accept tomorrow.
+appId: com.pmcportal.mobile
+---
+- runFlow:
+    file: _open-add-task.yaml
+    env: { TASK: TEST Early task 2 }
+- tapOn: Select date
+# Next month's arrow, then the 1st: disabled days don't select anything.
+- tapOn:
+    id: calendar-next-month
+  optional: true
+- tapOn: "28"
+- tapOn: Done
+  optional: true
+- tapOn:
+    id: dpr-add-percent
+- inputText: "10"
+- hideKeyboard
+- tapOn:
+    id: dpr-add-next
+- assertVisible: Pick the actual start date|Actual start can't be in the future

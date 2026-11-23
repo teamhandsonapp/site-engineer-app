@@ -1,0 +1,14 @@
+# Shared steps: on the review step, mark every worker Present, then Submit.
+appId: com.pmcportal.mobile
+tags:
+  - subflow
+---
+- repeat:
+    while:
+      visible: "P"
+    commands:
+      - tapOn:
+          text: "P"
+          index: 0
+- tapOn:
+    id: dpr-add-submit

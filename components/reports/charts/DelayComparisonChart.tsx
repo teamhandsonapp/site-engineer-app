@@ -1,4 +1,5 @@
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
+import { Text } from '../../ui/AppText';
 import { STATUS_COLOR_PALETTE } from '../../../lib/statusColors';
 import { formatDateLabel } from '../../../lib/reports/dateRange';
 import type { TaskDelayInfo } from '../../../lib/reports/taskReport';

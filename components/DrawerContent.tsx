@@ -1,15 +1,14 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
+import { Text } from './ui/AppText';
 import { DrawerContentComponentProps } from 'expo-router/drawer';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { Logo } from './Logo';
 import { NewProjectModal } from './NewProjectModal';
 import { appRoleFor, isFieldRole, roleLabel, useAuth } from '../lib/AuthContext';
-import { useSiteGroupsEnabled } from '../lib/groupChats/access';
 import { useProject } from '../lib/ProjectContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useSafeBottomOffset } from '../lib/useSafeBottomOffset';
 import { openPrivacyPolicy } from '../lib/legal';
 import { LOCATION_FEATURES_ENABLED } from '../lib/featureFlags';
 
@@ -32,15 +31,15 @@ const STAFF_ONLY_ROUTES = new Set(['critical-alerts', 'documents', 'project-cont
 // admin editing it is the same record a site engineer filled in).
 const FIELD_ROLE_ONLY_ROUTES = new Set(['attendance', 'day-timeline', 'daily-updates', 'completed-tasks']);
 
-// Access & Roles and Invoices are admin/manager-only (Part 3.5's own words:
+// Access & Roles is admin/manager-only (Part 3.5's own words:
 // "only users with sufficient access... should be able to reach this
 // screen at all") — hidden here for everyone else, same defense-in-depth
 // reasoning as STAFF_ONLY_ROUTES above. The real enforcement is server-side
-// in the manage-user/send-invoice Edge Functions (which check the caller's
+// in the manage-user Edge Function (which check the caller's
 // role themselves), not this filter — this just keeps the menu itself from
 // offering a screen/action a lower-access account would get rejected from
 // anyway.
-const ADMIN_MANAGER_ONLY_ROUTES = new Set(['app-progress', 'mom', 'access-roles', 'invoices', 'settings', 'devices', 'team-attendance', 'engineer-attendance', 'leave-log', 'notifications']);
+const ADMIN_MANAGER_ONLY_ROUTES = new Set(['app-progress', 'mom', 'access-roles', 'settings', 'devices', 'team-attendance', 'engineer-attendance', 'leave-log', 'notifications']);
 
 // Stricter than ADMIN_MANAGER_ONLY_ROUTES above — Contact Book is
 // admin-only per its own requirement, explicitly excluding manager/site
@@ -61,12 +60,22 @@ const ADMIN_ONLY_ROUTES = new Set(['contacts', 'dpr-edit-requests']);
 // documents: removed from the menu on request (2026-11-06) — drawings now
 // live in Files › Drawings. The screen itself is kept, just not listed.
 const HIDDEN_ROUTES = new Set(['gantt', 'flowchart', 'task-list', 'critical-alerts', 'dpr-edit-requests', 'leave-log', 'engineer-attendance', 'devices', 'documents',
+  // Site engineer attendance removed for everyone (2026-11-11): the field
+  // role's own check-in/out screen and its Day Timeline are hidden too.
+  'attendance', 'day-timeline',
+  // Invoices and Site Groups: not in the plan yet (2026-11-23, client) — kept
+  // for later, just not listed.
+  'invoices', 'site-groups',
   // Day Timeline is a location map trail — hidden while location features are off.
   ...(LOCATION_FEATURES_ENABLED ? [] : ['day-timeline'])]);
 
 // Top-level rows that carry collapsible sub-items (parent route -> children).
 const SUBMENUS: Record<string, { route: string; label: string; params?: { tab: string }; adminOnly?: boolean }[]> = {
-  'daily-updates': [{ route: 'dpr-edit-requests', label: 'Edit Requests' }],
+  // PR (Progress Report) opens the DPR screen on its PR tab.
+  'daily-updates': [
+    { route: 'daily-updates', label: 'PR', params: { tab: 'pr' } },
+    { route: 'dpr-edit-requests', label: 'Edit Requests', adminOnly: true },
+  ],
   settings: [{ route: 'devices', label: 'Devices & Logins' }],
   // MoM's three tabs (one screen, opened on the matching tab).
   mom: [
@@ -75,9 +84,8 @@ const SUBMENUS: Record<string, { route: string; label: string; params?: { tab: s
     { route: 'mom', label: 'Custom Alerts', params: { tab: 'alerts' } },
     { route: 'mom', label: 'Email Reports', params: { tab: 'email' }, adminOnly: true },
   ],
-  // Attendance itself now opens Site Engineer Attendance (Workforce
-  // Attendance removed 2026-11-09), so it isn't repeated as a sub-item.
-  'team-attendance': [{ route: 'leave-log', label: 'Leave Log' }],
+  // Attendance opens Workers Attendance only (2026-11-11); the site
+  // engineer Leave Log sub-item was removed with the rest of engineer attendance.
 };
 
 // Reports submenu — restructured (by explicit request) into "Report by
@@ -108,15 +116,17 @@ const REPORT_SUBMENU: { label: string; href: string; params?: Record<string, str
   // data rather than a client-facing progress view, so it's filtered out
   // for a client the same way STAFF_ONLY_ROUTES filters top-level routes
   // below (the screen itself also redirects a client as defense-in-depth).
-  { label: 'Site Engineer Status', href: '/reports/site-engineer-report', staffOnly: true },
   { label: 'Task Based Status', href: '/reports/general-parameter-report' },
 ];
+
+// Sidebar (2026-11-18, "make it normal"): one plain navy panel, standard
+// footer with the signed-in user + Log out. No frame, no floating bar.
+const PANEL = '#0F1F33';
 
 const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   home: 'home-outline',
   notifications: 'notifications-outline',
   'app-progress': 'stats-chart-outline',
-  'site-groups': 'chatbubbles-outline',
   'critical-alerts': 'warning-outline',
   'daily-updates': 'document-text-outline',
   'completed-tasks': 'checkmark-done-outline',
@@ -126,7 +136,6 @@ const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   'team-attendance': 'finger-print-outline',
   'leave-log': 'airplane-outline',
   'access-roles': 'people-outline',
-  invoices: 'receipt-outline',
   settings: 'settings-outline',
   devices: 'phone-portrait-outline',
   contacts: 'call-outline',
@@ -144,8 +153,6 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
   const isAdminOrManager = profile != null && (profile.role === 'admin' || profile.role === 'manager');
   const isAdmin = profile != null && profile.role === 'admin';
   const isField = profile != null && isFieldRole(profile.role);
-  // Site Groups: whatsapp_access row + WHATSAPP_ENABLED; role is irrelevant.
-  const siteGroupsEnabled = useSiteGroupsEnabled();
   const { projects, selectedProjectId, setSelectedProjectId, reload: reloadProjects } = useProject();
   const [newProjectModalVisible, setNewProjectModalVisible] = useState(false);
 
@@ -177,11 +184,10 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
   // control here it's genuinely costly to mis-tap (signs the user out),
   // so it gets the largest margin of any bottom-anchored element in the
   // app rather than the generic default.
-  const bottomPadding = useSafeBottomOffset(20);
   // Real top inset instead of a fixed pt-14 — notch (iPhone 13, 47pt) and
   // Dynamic Island (iPhone 17 Pro Max, ~62pt) phones differ, and a fixed
   // value either crowds the island or leaves a gap on older phones.
-  const { top: topInset } = useSafeAreaInsets();
+  const { top: topInset, bottom: bottomInset } = useSafeAreaInsets();
 
   // App Progress is listed first in the menu (above Home) by request. Only
   // the menu order changes — Home stays the first screen of the drawer, so
@@ -192,84 +198,66 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
   const submenuRoutes = visibleRoutes.filter(({ route }) => routeHasSubmenu(route.name));
 
   return (
-    // overflow-hidden — same web-only flex-min-size fix as GestureHandlerRootView
-    // in app/_layout.tsx: without it, this panel could grow past the
-    // drawer's real height once the menu list got long, pushing Log Out
-    // below the fold instead of letting the Nav ScrollView below scroll
-    // internally.
-    <View className="flex-1 bg-brand-navy overflow-hidden">
-      {/* Brand bar */}
-      {/* Breathing room under the status bar/punch-hole: Android 15 draws
-          the app edge-to-edge (e.g. CMF Phone 2 Pro), so topInset is the
-          status bar itself — +24 keeps the brand clear of it like the
-          system's own apps do, instead of butting against the clock. */}
-      <View className="flex-row items-center gap-3 border-b border-white/10 px-5 pb-5" style={{ paddingTop: Math.max(topInset, 20) + 24 }}>
+    // Standard side menu (2026-11-18, "make it normal"): one navy panel filling
+    // the drawer (the drawer itself has softly rounded right corners, set in
+    // app/(authenticated)/_layout.tsx), brand at the top, the menu scrolling
+    // in the middle, and a plain footer row with the user + Log out.
+    <View style={{ flex: 1, backgroundColor: PANEL }}>
+      {/* Brand */}
+      <View
+        className="flex-row items-center gap-3 px-5 pb-4"
+        style={{ paddingTop: topInset + 30, paddingBottom: 20, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.08)' }}
+      >
         <Logo size={38} />
         <View>
-          <Text className="text-md font-bold tracking-tight text-white">PMC Portal</Text>
+          <Text className="font-bold tracking-tight text-white" style={{ fontSize: 19 }}>PMC Portal</Text>
           <Text className="text-2xs text-white/55 mt-0.5">Construction management</Text>
         </View>
       </View>
 
-      {/* Profile */}
-      <View className="flex-row items-center gap-3 border-b border-white/10 px-5 py-4">
-        {/* Plain solid-colour avatar with the user's initial — by explicit
-            request, replacing the old per-role emoji (looked odd). */}
-        <View className="h-9 w-9 items-center justify-center rounded-full bg-brand-amber">
-          <Text className="text-sm font-bold text-brand-navy">{initials}</Text>
-        </View>
-        <View className="flex-1">
-          <Text numberOfLines={1} className="text-base font-medium text-white">
-            {profile?.fullName || profile?.email || 'Unknown user'}
-          </Text>
-          {/* white/65 (~7.2:1 on the navy bg) — was white/40 (~3.8:1),
-              below the 4.5:1 AA minimum. Computed, not eyeballed. */}
-          {profile && <Text className="text-xs text-white/65 mt-0.5">{roleLabel(profile.role)}</Text>}
-        </View>
-      </View>
-
-      {/* Nav — a ScrollView, not a plain View: an admin/manager account
-          sees enough menu items (plus Reports' own 3 sub-items) that this
-          list can genuinely be taller than the screen on a shorter device
-          (confirmed live on a Redmi 13C 5G) — a fixed View just clips
-          whatever doesn't fit, with no way to reach it. Logout below is
-          deliberately OUTSIDE this ScrollView (its own fixed footer, not
-          just the last scrollable item) so it's always reachable
-          regardless of how tall the menu above it grows, rather than
-          requiring a scroll to find it — the more robust fix for an
-          action this important, not just "now it's technically reachable
-          if you scroll all the way down." */}
-      <ScrollView className="flex-1" contentContainerClassName="px-3 pt-5 pb-4">
-        {/* white/55 (~5.9:1) — was white/30 (~2.7:1), a clear AA failure. */}
-        <Text className="px-2 pb-2 text-2xs font-bold uppercase tracking-[1.4px] text-white/55">
-          Menu
-        </Text>
-        <View className="gap-1">
-          {/* Single (no-dropdown) menus first, then — after a divider —
-              every menu that has a dropdown, so the two kinds aren't
-              interleaved (by explicit request). */}
+      {/* Nav */}
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: 10, paddingTop: 18, paddingBottom: 24 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <View className="gap-0.5">
+          {/* Single (no-dropdown) menus first, then — after a gap — the ones with a dropdown. */}
           {singleRoutes.map(renderRoute)}
-
-          <View className="my-2 mx-3 border-t border-white/10" />
-
+          <View style={{ height: 1, marginVertical: 8, marginHorizontal: 12, backgroundColor: 'rgba(255,255,255,0.08)' }} />
           {submenuRoutes.map(renderRoute)}
           {renderProjectsSection()}
           {renderReportsSection()}
         </View>
+        <Pressable onPress={openPrivacyPolicy} hitSlop={6} className="px-3 pt-5" accessibilityRole="link">
+          <Text className="text-xs text-white/45 underline">Privacy Policy</Text>
+        </Pressable>
       </ScrollView>
 
-      {/* Logout — deliberately a sibling of the ScrollView above, not its
-          last item, so it stays visible without scrolling regardless of
-          menu length. paddingBottom uses the real safe-area inset (gesture
-          nav bar height varies by device) rather than a fixed guess, same
-          convention as FlowchartCanvas's own zoom controls. */}
-      <View className="border-t border-white/10 px-3 pt-3" style={{ paddingBottom: bottomPadding }}>
-        <Pressable onPress={handleLogOut} className="flex-row items-center gap-3 rounded-xl px-3" style={{ minHeight: 44 }}>
-          <Ionicons name="log-out-outline" size={18} color="rgba(255,255,255,0.65)" />
-          <Text className="text-base font-medium text-white/80">Log Out</Text>
-        </Pressable>
-        <Pressable onPress={openPrivacyPolicy} hitSlop={6} className="px-3 pt-1" accessibilityRole="link">
-          <Text className="text-xs text-white/55 underline">Privacy Policy</Text>
+      {/* Footer: who is signed in + Log out — always visible. */}
+      <View
+        className="flex-row items-center gap-3 px-4 pt-3"
+        style={{ paddingTop: 14, paddingBottom: bottomInset + 28, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' }}
+      >
+        <View className="items-center justify-center rounded-full bg-brand-amber" style={{ width: 38, height: 38 }}>
+          <Text className="text-sm font-bold text-brand-navy">{initials}</Text>
+        </View>
+        <View className="flex-1">
+          <Text numberOfLines={1} className="text-sm font-semibold text-white">
+            {profile?.fullName || profile?.email || 'Unknown user'}
+          </Text>
+          {profile && <Text className="text-xs text-white/55 mt-0.5">{roleLabel(profile.role)}</Text>}
+        </View>
+        <Pressable
+          onPress={handleLogOut}
+          accessibilityRole="button"
+          accessibilityLabel="Log out"
+          hitSlop={6}
+          className="flex-row items-center gap-1.5 rounded-lg px-2.5"
+          style={{ minHeight: 36 }}
+        >
+          <Ionicons name="log-out-outline" size={18} color="rgba(255,255,255,0.75)" />
+          <Text className="text-sm font-medium text-white/75">Log out</Text>
         </Pressable>
       </View>
 
@@ -285,7 +273,6 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
   );
 
   function isRouteVisible(name: string): boolean {
-    if (name === 'site-groups') return siteGroupsEnabled;
     if (isClient && STAFF_ONLY_ROUTES.has(name)) return false;
     if (!isField && !(isAdmin && name === 'daily-updates') && FIELD_ROLE_ONLY_ROUTES.has(name)) return false;
     if (!isAdminOrManager && ADMIN_MANAGER_ONLY_ROUTES.has(name)) return false;
@@ -300,10 +287,9 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
     return true;
   }
 
-  // Edit Requests under DPR is admin only, so DPR only counts as a dropdown
-  // menu for admin; for everyone else it's a plain single row.
+  // DPR always has the PR sub-item; Edit Requests under it stays admin only (adminOnly).
   function routeHasSubmenu(name: string): boolean {
-    return SUBMENUS[name] != null && (name !== 'daily-updates' || isAdmin);
+    return SUBMENUS[name] != null;
   }
 
   function renderRoute({ route, index }: { route: (typeof state.routes)[number]; index: number }) {
@@ -316,7 +302,9 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
             // special-casing. A client's Home (ClientHome) was already
             // unaffected either way.
             const label = (options.drawerLabel ?? options.title ?? route.name) as string;
-            const focused = state.index === index;
+            // On DPR's PR tab the PR sub-item is the highlighted row, not DPR itself.
+            const onPrTab = route.name === 'daily-updates' && (route.params as { tab?: string } | undefined)?.tab === 'pr';
+            const focused = state.index === index && !onPrTab;
             const icon = ICONS[route.name] ?? 'ellipse-outline';
             // Edit Requests under DPR (admin only); Leave Log under
             // Attendance (team-attendance is already admin/manager only).
@@ -331,9 +319,16 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
                 <Pressable
                   // Files from the menu always starts at its project picker
                   // (a project dashboard opens it with a projectId instead).
-                  onPress={() => (route.name === 'files' ? navigation.navigate('files', { projectId: undefined }) : navigation.navigate(route.name))}
+                  // DPR itself always opens on Today (its PR sub-item opens the PR tab).
+                  onPress={() =>
+                    route.name === 'files'
+                      ? navigation.navigate('files', { projectId: undefined })
+                      : route.name === 'daily-updates'
+                        ? navigation.navigate('daily-updates', { tab: 'today' })
+                        : navigation.navigate(route.name)
+                  }
                   className="flex-row items-center gap-3 rounded-xl px-3"
-                  style={{ minHeight: 44, backgroundColor: focused ? 'rgba(240,162,39,0.14)' : 'transparent' }}
+                  style={{ minHeight: 44, backgroundColor: focused ? 'rgba(255,255,255,0.09)' : 'transparent' }}
                 >
                   <Ionicons
                     name={icon}
@@ -359,7 +354,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
 
                 {submenuOpen &&
                   submenu?.filter((child) => !child.adminOnly || isAdmin).map((child) => {
-                    const focusedTab = (state.routes[state.index]?.params as { tab?: string } | undefined)?.tab ?? 'meeting';
+                    const focusedTab = (state.routes[state.index]?.params as { tab?: string } | undefined)?.tab ?? (child.route === 'mom' ? 'meeting' : '');
                     const active = focusedRouteName === child.route && (!child.params || child.params.tab === focusedTab);
                     return (
                       <Pressable
@@ -369,7 +364,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
                         style={{ minHeight: 36, paddingLeft: 30, backgroundColor: active ? 'rgba(240,162,39,0.14)' : 'transparent' }}
                       >
                         <Text style={{ color: 'rgba(255,255,255,0.35)' }}>—</Text>
-                        <Text className="text-sm font-medium" style={{ color: active ? '#F0A227' : 'rgba(255,255,255,0.65)' }}>
+                        <Text className="flex-1 text-sm font-medium" numberOfLines={1} style={{ color: active ? '#F0A227' : 'rgba(255,255,255,0.65)' }}>
                           {child.label}
                         </Text>
                       </Pressable>
@@ -390,7 +385,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
                     style={{ minHeight: 44, backgroundColor: 'transparent' }}
                   >
                     <Ionicons name="albums-outline" size={18} color="rgba(255,255,255,0.55)" />
-                    <Text className="text-base font-medium" style={{ color: 'rgba(255,255,255,0.8)' }}>
+                    <Text className="flex-1 text-base font-medium" numberOfLines={1} style={{ color: 'rgba(255,255,255,0.8)' }}>
                       Template Kit
                     </Text>
                   </Pressable>
@@ -510,7 +505,7 @@ export function AppDrawerContent(props: DrawerContentComponentProps) {
                   style={{ minHeight: 36, paddingLeft: 30 }}
                 >
                   <Text style={{ color: 'rgba(255,255,255,0.35)' }}>—</Text>
-                  <Text className="text-sm font-medium" style={{ color: 'rgba(255,255,255,0.65)' }}>
+                  <Text className="flex-1 text-sm font-medium" numberOfLines={1} style={{ color: 'rgba(255,255,255,0.65)' }}>
                     {item.label}
                   </Text>
                 </Pressable>

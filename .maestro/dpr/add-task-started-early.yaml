@@ -1,0 +1,29 @@
+# Started early (actual start = today, planned later): no reason needed, 40%.
+# Then it shows in the In Progress tab. Test task: "TEST Early task".
+appId: com.pmcportal.mobile
+---
+- runFlow:
+    file: _open-add-task.yaml
+    env: { TASK: TEST Early task }
+- tapOn: Select date
+- tapOn: Today|${maestro.today}
+  optional: true
+- tapOn: Done
+  optional: true
+- tapOn:
+    id: dpr-add-percent
+- inputText: "40"
+- hideKeyboard
+- assertVisible: Started early.*
+- assertNotVisible:
+    id: dpr-add-reason-why
+- tapOn:
+    id: dpr-add-next
+- assertVisible: 40%.*In Progress.*
+- runFlow: _mark-attendance-and-submit.yaml
+- extendedWaitUntil:
+    visible: .*added to today.*
+    timeout: 10000
+# Now listed under In Progress.
+- tapOn: In Progress.*
+- assertVisible: TEST Early task.*

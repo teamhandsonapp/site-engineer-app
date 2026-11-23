@@ -1,0 +1,21 @@
+# Try to save without an agenda: error shown under the field, meeting not saved.
+appId: com.pmcportal.mobile
+---
+- runFlow: _new-meeting-basics.yaml
+- tapOn:
+    id: discussion-add-topic
+- tapOn:
+    id: discussion-topic-input
+- inputText: Site safety
+- tapOn:
+    id: discussion-topic-add
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: meeting-save
+    direction: DOWN
+- tapOn:
+    id: meeting-save
+- assertVisible: Please add the meeting agenda
+- assertNotVisible: Meeting created.*
+- assertVisible: Create meeting

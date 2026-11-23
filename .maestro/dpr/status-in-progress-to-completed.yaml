@@ -1,0 +1,40 @@
+# Calculated status: a TEST task with every DPR day up to yesterday filled is
+# In Progress; submitting today's DPR at 100% makes it Completed.
+# TEST DATA ONLY: "TEST Status task" — started, all past DPR days submitted,
+# under 100%, its department's workers marked present today.
+appId: com.pmcportal.mobile
+env:
+  TASK: TEST Status task
+---
+- launchApp
+- openLink: mobileportal://daily-updates
+- extendedWaitUntil:
+    visible:
+      id: dpr-status-tab-in_progress
+    timeout: 20000
+- tapOn:
+    id: dpr-status-tab-in_progress
+- assertVisible: ${TASK}.*
+- tapOn: ${TASK}.*
+- assertVisible:
+    id: status-badge-in_progress
+# Open its DPR, set today's progress to finish the task, submit.
+- tapOn: Edit DPR|Open DPR
+- tapOn:
+    id: status-why
+- assertVisible: In Progress: all DPRs up to yesterday are filled.*
+- tapOn: .*% done today.*|Progress.*
+  optional: true
+- inputText: "100"
+- hideKeyboard
+- tapOn: Submit DPR|Submit.*
+- extendedWaitUntil:
+    visible: DPR submitted
+    timeout: 10000
+- assertVisible:
+    id: status-badge-completed
+# Back on the list it is under Completed.
+- back
+- tapOn:
+    id: dpr-status-tab-completed
+- assertVisible: ${TASK}.*

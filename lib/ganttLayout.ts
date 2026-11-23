@@ -3,7 +3,7 @@
 // heights, same px-per-day zoom values, same week-padded range computation.
 // Re-derived here without date-fns (not a dependency of this app) rather
 // than adding a library for a handful of calendar-week functions.
-export const ROW_HEIGHT = 52;
+export const ROW_HEIGHT = 64;
 export const WORK_HEADER_HEIGHT = 40;
 export const MONTH_HEADER_HEIGHT = 24;
 export const WEEK_HEADER_HEIGHT = 32;

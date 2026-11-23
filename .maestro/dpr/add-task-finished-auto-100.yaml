@@ -1,0 +1,30 @@
+# Finished task: entering an actual end date sets progress to 100% (Completed).
+# Test task: "TEST Finished task".
+appId: com.pmcportal.mobile
+---
+- runFlow:
+    file: _open-add-task.yaml
+    env: { TASK: TEST Finished task }
+- tapOn:
+    id: dpr-add-actual-start
+- tapOn: "1"
+- tapOn: Done
+  optional: true
+- tapOn:
+    id: dpr-add-actual-end
+- tapOn: "2"
+- tapOn: Done
+  optional: true
+- assertVisible: Set to 100% because the task is finished.
+- tapOn: Remarks.*|Reason for delay.*
+  optional: true
+- tapOn:
+    id: dpr-add-reason-other
+  optional: true
+- tapOn:
+    id: dpr-add-note
+- inputText: Finished on site (test)
+- hideKeyboard
+- tapOn:
+    id: dpr-add-next
+- assertVisible: 100%.*Completed.*

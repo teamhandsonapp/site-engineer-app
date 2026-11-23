@@ -3,7 +3,8 @@
 // per item.
 
 import { Children, Fragment, isValidElement, type ReactNode } from 'react';
-import { Pressable, View, type StyleProp, type ViewStyle } from 'react-native';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
+import { Pressable } from './Pressable';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, radius, shadow, space } from '../../lib/theme';
 import { haptic } from '../../lib/haptics';
@@ -91,7 +92,7 @@ export function ListRow({
         ) : null}
       </View>
       {value != null && (
-        <AppText variant="section" style={{ fontVariant: ['tabular-nums'] }}>
+        <AppText variant="section" numberOfLines={1} style={{ fontVariant: ['tabular-nums'], flexShrink: 1, maxWidth: '50%' }}>
           {value}
         </AppText>
       )}

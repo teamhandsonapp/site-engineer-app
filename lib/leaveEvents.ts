@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { fetchAllRows } from './fetchAll';
 
 // A manual "I'm about to leave the site, here's why" announcement —
 // deliberately NOT a checkout action (see attendance.ts's own single-
@@ -181,18 +182,19 @@ export async function fetchEngineersForFilter(): Promise<EngineerOption[]> {
 // silently truncating would misreport as "nothing else happened," which
 // this codebase has already been burned by once for real. FlatList
 // (leave-log.tsx) handles virtualizing however many rows this grows to.
+// Paged with fetchAllRows: without it Supabase itself still stopped at 1000.
 export async function fetchLeaveLog(filters: LeaveLogFilters = {}): Promise<LeaveLogEntry[]> {
-  let query = supabase.from('leave_events').select(LEAVE_LOG_SELECT).order('left_at', { ascending: false });
-
-  if (filters.userId) query = query.eq('user_id', filters.userId);
-  if (filters.projectId) query = query.eq('project_id', filters.projectId);
-  if (filters.reasonPreset) query = query.eq('reason_preset', filters.reasonPreset);
-  if (filters.fromISO) query = query.gte('left_at', filters.fromISO);
-  if (filters.toISO) query = query.lt('left_at', filters.toISO);
-
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
-  return ((data ?? []) as unknown as RawLeaveLogRow[]).map((r) => ({
+  const makeQuery = () => {
+    let query = supabase.from('leave_events').select(LEAVE_LOG_SELECT);
+    if (filters.userId) query = query.eq('user_id', filters.userId);
+    if (filters.projectId) query = query.eq('project_id', filters.projectId);
+    if (filters.reasonPreset) query = query.eq('reason_preset', filters.reasonPreset);
+    if (filters.fromISO) query = query.gte('left_at', filters.fromISO);
+    if (filters.toISO) query = query.lt('left_at', filters.toISO);
+    return query.order('left_at', { ascending: false }).order('id');
+  };
+  const data = await fetchAllRows<unknown>(makeQuery);
+  return (data as RawLeaveLogRow[]).map((r) => ({
     id: r.id,
     userId: r.user_id,
     userName: oneOrNull(r.user)?.full_name ?? null,

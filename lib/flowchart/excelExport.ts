@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx';
 import { countWorkingDaysBetween, workingDaysBetween } from '../workingDays';
 import { fetchBlockedDates } from '../reports/generalParameterReport';
 import type { FlowchartTask } from './types';
+import { fetchChecklistNotesForTasks, type ChecklistNoteKey, type ChecklistNotes } from './checklistNotes';
 
 // Flowchart "Excel" download (by client request, 2026-11-10): one row per
 // task with Task ID, Task Name, Planned Start/End, Actual Start/End, the
@@ -129,12 +130,74 @@ async function pickSaveDirectory(): Promise<string> {
   return permissions.directoryUri;
 }
 
+// Flowchart 2 "Checklist Excel" (client request, 2026-11-14): one row per
+// task — Task Name, Department (blank if none), Planned Start, Actual Start —
+// then the client's checklist points (Architect and Consultant as separate
+// columns, like the client's own sheet) as wide, tall cells, PRE-FILLED with
+// what's saved in the app (task_checklist_notes) so the client only updates
+// what changed.
+export const CHECKLIST_POINTS: { header: string; key: ChecklistNoteKey }[] = [
+  { header: 'Drawing Approval — Architect', key: 'architect' },
+  { header: 'Drawing Approval — Consultant', key: 'consultant' },
+  { header: 'Client Approval', key: 'client' },
+  { header: 'Contractor — Procurement Delay', key: 'procurementStatus' },
+  { header: 'Material Procurement Status', key: 'leadTime' },
+  { header: 'Roof Erection Process', key: 'other' },
+  { header: 'Contractor — Workers Delay', key: 'contractorDelay' },
+  { header: 'Contractor / Vendor Finalization', key: 'contractorClientFinalization' },
+];
+
+export function buildChecklistWorkbook(tasks: FlowchartTask[], notes: Map<string, ChecklistNotes>): XLSX.WorkBook {
+  // Planned / Actual End columns added 2026-11-18 (client request): each
+  // start date now has its end date beside it. Blank where a task has no date.
+  const headers = [
+    'S.No',
+    'Task Name',
+    'Department',
+    'Planned Start Date',
+    'Planned End Date',
+    'Actual Start Date',
+    'Actual End Date',
+    ...CHECKLIST_POINTS.map((p) => p.header),
+  ];
+  const rows: XLSX.CellObject[][] = [...tasks].sort(byActualStart).map((t, i) => [
+    { t: 'n', v: i + 1 },
+    { t: 's', v: t.taskName.trim() },
+    { t: 's', v: t.workName && t.workName !== 'Unassigned' ? t.workName : '' },
+    dateCell(t.plannedStartDate),
+    dateCell(t.dueDate),
+    dateCell(t.actualStartDate),
+    dateCell(t.actualEndDate),
+    ...CHECKLIST_POINTS.map((p): XLSX.CellObject => ({ t: 's', v: notes.get(t.id)?.[p.key] ?? '' })),
+  ]);
+  const sheet = XLSX.utils.aoa_to_sheet([headers, ...rows] as unknown as unknown[][], { cellDates: true });
+  // Big writing space: wide checklist columns and tall rows.
+  sheet['!cols'] = [{ wch: 6 }, { wch: 48 }, { wch: 18 }, { wch: 17 }, { wch: 17 }, { wch: 17 }, { wch: 17 }, ...CHECKLIST_POINTS.map(() => ({ wch: 30 }))];
+  sheet['!rows'] = [{ hpt: 30 }, ...rows.map(() => ({ hpt: 60 }))];
+  sheet['!freeze'] = { xSplit: 2, ySplit: 1 };
+  const book = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(book, sheet, 'Checklist');
+  return book;
+}
+
+export async function exportChecklistExcel(tasks: FlowchartTask[], projectName: string, boardLabel = 'Flowchart 2'): Promise<string> {
+  const notes = await fetchChecklistNotesForTasks(tasks.map((t) => t.id));
+  const book = buildChecklistWorkbook(tasks, notes);
+  const stamp = new Date().toISOString().slice(0, 10);
+  const baseName = `${(projectName || 'Project').replace(/[^\w@ -]+/g, '').trim()} - ${boardLabel} Checklist ${stamp}`;
+  return saveWorkbook(book, baseName, 'Checklist (Excel)');
+}
+
 // Returns a short "saved to …" note ('' when the browser / share sheet
 // already made the outcome obvious).
 export async function exportFlowchartExcel(tasks: FlowchartTask[], projectName: string): Promise<string> {
   const book = await buildFlowchartWorkbook(tasks, projectName);
   const stamp = new Date().toISOString().slice(0, 10);
   const baseName = `${(projectName || 'Project').replace(/[^\w@ -]+/g, '').trim()} - Tasks ${stamp}`;
+  return saveWorkbook(book, baseName, 'Tasks (Excel)');
+}
+
+export async function saveWorkbook(book: XLSX.WorkBook, baseName: string, dialogTitle: string): Promise<string> {
 
   if (Platform.OS === 'web') {
     XLSX.writeFile(book, `${baseName}.xlsx`, { bookType: 'xlsx', cellDates: true });
@@ -159,6 +222,6 @@ export async function exportFlowchartExcel(tasks: FlowchartTask[], projectName: 
   const uri = `${FileSystem.cacheDirectory}${baseName}.xlsx`;
   await FileSystem.writeAsStringAsync(uri, base64, { encoding: FileSystem.EncodingType.Base64 });
   if (!(await Sharing.isAvailableAsync())) throw new Error("Sharing isn't available on this device.");
-  await Sharing.shareAsync(uri, { mimeType: XLSX_MIME, dialogTitle: 'Tasks (Excel)', UTI: 'org.openxmlformats.spreadsheetml.sheet' });
+  await Sharing.shareAsync(uri, { mimeType: XLSX_MIME, dialogTitle, UTI: 'org.openxmlformats.spreadsheetml.sheet' });
   return '';
 }

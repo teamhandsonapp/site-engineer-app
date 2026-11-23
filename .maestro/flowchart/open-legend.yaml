@@ -1,0 +1,20 @@
+# Open and close the link types legend.
+appId: com.pmcportal.mobile
+---
+- launchApp
+- openLink: mobileportal://flowchart
+- extendedWaitUntil:
+    visible:
+      id: link-legend-toggle
+    timeout: 20000
+- tapOn:
+    id: link-legend-toggle
+- assertVisible:
+    id: link-legend
+- assertVisible: .*Next one starts after this finishes.*
+- assertVisible: .*Both start together.*
+- assertVisible: .*Both finish together.*
+- tapOn:
+    id: link-legend-toggle
+- assertNotVisible:
+    id: link-legend

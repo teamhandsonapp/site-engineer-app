@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import type { WorkOption } from '../../lib/flowchart/data';
 
 // A single day's Subtask can be tagged with its own Department, by explicit

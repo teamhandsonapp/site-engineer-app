@@ -1,0 +1,44 @@
+# Create a meeting with an agenda + 2 tasks from 2 departments.
+# Needs: one live task in Civil Works (CIVIL) and one in Plumbing (PLUM).
+appId: com.pmcportal.mobile
+---
+- runFlow: _new-meeting-basics.yaml
+- scrollUntilVisible:
+    element:
+      id: meeting-agenda-input
+    direction: UP
+- tapOn:
+    id: meeting-agenda-input
+- inputText: Review civil and plumbing progress
+- hideKeyboard
+# Civil Works task
+- tapOn:
+    id: discussion-department-picker
+- tapOn:
+    id: discussion-dept-CIVIL
+- tapOn:
+    id: discussion-task-CIVIL-.*
+    index: 0
+- tapOn: Add selected.*
+# Plumbing task
+- tapOn:
+    id: discussion-department-picker
+- tapOn:
+    id: discussion-dept-PLUM
+- tapOn:
+    id: discussion-task-PLUM-.*
+    index: 0
+- tapOn: Add selected.*
+- assertVisible: 2 items to discuss
+- scrollUntilVisible:
+    element:
+      id: meeting-save
+    direction: DOWN
+- tapOn:
+    id: meeting-save
+# Saved: the meeting page shows the agenda and both items.
+- extendedWaitUntil:
+    visible: Meeting created.*
+    timeout: 10000
+- assertVisible: Review civil and plumbing progress
+- assertVisible: What will be discussed \(2\)

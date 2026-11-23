@@ -5,18 +5,16 @@ import { AppDrawerContent } from '../../components/DrawerContent';
 import { ProjectGate } from '../../components/ProjectGate';
 import { BottomTabBar } from '../../components/BottomTabBar';
 import { colors } from '../../lib/theme';
-import { View } from 'react-native';
+import { useWindowDimensions, View } from 'react-native';
 import { NotificationBell } from '../../components/NotificationBell';
 import { CriticalAlertPopup } from '../../components/CriticalAlertPopup';
 import { useDeviceHeartbeat } from '../../lib/deviceActivity';
-import { useSiteGroupChatsSync } from '../../lib/groupChats/chatsStore';
 
 export default function AuthenticatedLayout() {
   const { state } = useAuth();
   useDeviceHeartbeat(state.status === 'signed-in' ? state.profile.id : null);
-  // Site Groups chat list + tab badge for the selected project (one realtime
-  // channel). Does nothing unless WHATSAPP_ENABLED and the user has access.
-  useSiteGroupChatsSync();
+  // Side menu width (2026-11-18): wide like Discord's, always leaving a strip of the app.
+  const screenWidth = useWindowDimensions().width;
 
   // Session-restore loading/error states are already handled by the root
   // AuthGate (app/_layout.tsx) before this layout can ever mount — by the
@@ -53,7 +51,18 @@ export default function AuthenticatedLayout() {
         headerTitleStyle: { fontFamily: 'IBMPlexSans_600SemiBold', fontSize: 17 },
         headerTitleContainerStyle: { maxWidth: '62%' },
         headerShadowVisible: false,
-        drawerStyle: { backgroundColor: '#0F1F33', width: 264 },
+        // Standard side menu (2026-11-18): plain navy panel with softly rounded
+        // right corners; always leaves a strip of the app showing to tap-close.
+        // Narrower (2026-11-21, client): about two-thirds of a phone screen,
+        // never wider than 260, so most of the app stays visible beside it.
+        drawerStyle: {
+          backgroundColor: '#0F1F33',
+          width: Math.min(260, Math.round(screenWidth * 0.66)),
+          // Straight edges (2026-11-21, client) — no rounded corners.
+          borderTopRightRadius: 0,
+          borderBottomRightRadius: 0,
+        },
+        overlayColor: 'rgba(0,0,0,0.55)',
         // Registered once here (not per-screen) so the bell — and its badge
         // count — stays visible and consistent across every drawer screen,
         // not just Home.
@@ -68,9 +77,6 @@ export default function AuthenticatedLayout() {
           isn't something a client account should see, same reasoning as
           critical-alerts being staff-only. */}
       <Drawer.Screen name="notifications" options={{ title: 'Notifications', drawerLabel: 'Notifications' }} />
-      {/* Site Groups (WhatsApp groups) — only for people in whatsapp_access and
-          only while WHATSAPP_ENABLED (DrawerContent.tsx / BottomTabBar.tsx). */}
-      <Drawer.Screen name="site-groups" options={{ title: 'Site Groups', drawerLabel: 'Site Groups' }} />
       <Drawer.Screen name="task-list" options={{ title: 'Task List', drawerLabel: 'Task List' }} />
       <Drawer.Screen name="critical-alerts" options={{ title: 'Critical Alerts', drawerLabel: 'Critical Alerts' }} />
       {/* Field-role only (site_engineer/senior_site_engineer, DrawerContent.
@@ -84,7 +90,7 @@ export default function AuthenticatedLayout() {
       <Drawer.Screen name="completed-tasks" options={{ title: 'Completed Tasks', drawerLabel: 'Completed Tasks' }} />
       {/* Project files organised into folders (Drawings, Transmittal, RA
           Bills, Quotes) — dummy data for now, see files.tsx. */}
-      <Drawer.Screen name="files" options={{ title: 'Files', drawerLabel: 'Files' }} />
+      <Drawer.Screen name="files" options={{ title: 'File Manager', drawerLabel: 'File Manager' }} />
       {/* MoM — Meeting / Reports / Custom Alerts tabs (one screen); the
           drawer shows the three as sub-items (DrawerContent.tsx SUBMENUS). */}
       <Drawer.Screen name="mom" options={{ title: 'MoM', drawerLabel: 'MoM' }} />
@@ -101,7 +107,7 @@ export default function AuthenticatedLayout() {
           exclusive per role (see DrawerContent.tsx's FIELD_ROLE_ONLY_ROUTES
           / ADMIN_MANAGER_ONLY_ROUTES split) and never shown to the same
           account at once. */}
-      <Drawer.Screen name="team-attendance" options={{ title: 'Site Engineer Attendance', drawerLabel: 'Attendance' }} />
+      <Drawer.Screen name="team-attendance" options={{ title: 'Attendance', drawerLabel: 'Attendance' }} />
       {/* Site engineers' own attendance scores — a sub-item under Site
           Attendance in the drawer (DrawerContent.tsx SUBMENUS), admin/
           manager only like team-attendance. */}
@@ -110,14 +116,13 @@ export default function AuthenticatedLayout() {
           every project/day, distinct from Critical Alerts (which is about
           system-detected boundary/red-zone/tracking events, not manually
           logged trips) — named to avoid that confusion. Admin/manager only,
-          same gate as team-attendance/access-roles/invoices. */}
+          same gate as team-attendance/access-roles. */}
       <Drawer.Screen name="leave-log" options={{ title: 'Leave Log', drawerLabel: 'Leave Log' }} />
       <Drawer.Screen name="access-roles" options={{ title: 'Access & Roles', drawerLabel: 'Access & Roles' }} />
       {/* "Contact Admin" edit requests from the DPR lock — admin only
           (DrawerContent.tsx's ADMIN_ONLY_ROUTES, same as contacts). Shown
           in the menu as a sub-item under DPR, not its own top-level row. */}
       <Drawer.Screen name="dpr-edit-requests" options={{ title: 'DPR Edit Requests', drawerLabel: 'DPR Edit Requests' }} />
-      <Drawer.Screen name="invoices" options={{ title: 'Invoices', drawerLabel: 'Invoices' }} />
       <Drawer.Screen name="settings" options={{ title: 'Settings', drawerLabel: 'Settings' }} />
       {/* Sub-item under Settings (DrawerContent.tsx SUBMENUS) — who is signed in on which phone. */}
       <Drawer.Screen name="devices" options={{ title: 'Devices & Logins', drawerLabel: 'Devices & Logins' }} />

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { fetchProjectEngineers, type ProjectEngineer } from '../../lib/criticalAlertMessages';
 

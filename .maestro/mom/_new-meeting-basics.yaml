@@ -1,0 +1,36 @@
+# Shared steps: open MoM › Meeting › Create meeting and fill the basic fields
+# (title, date, venue, one invitee). Assumes the app is already logged in.
+# Test data only: TEST_INVITEE must be a contact in the Contact Book that
+# exists just for testing (e.g. "Maestro Test").
+appId: com.pmcportal.mobile
+tags:
+  - subflow
+env:
+  MEETING_TITLE: Maestro test meeting
+  TEST_INVITEE: Maestro Test
+---
+- launchApp
+- openLink: mobileportal://mom?tab=meeting
+- extendedWaitUntil:
+    visible: Create meeting
+    timeout: 20000
+- tapOn: Create meeting
+- tapOn:
+    id: meeting-title-input
+- inputText: ${MEETING_TITLE}
+- hideKeyboard
+# Date: open the calendar and pick the 28th (a future day this month).
+- tapOn: Select date
+- tapOn: "28"
+- tapOn: Done
+- tapOn: Site office
+# One invitee from the Contact Book.
+- scrollUntilVisible:
+    element: Add from Contact Book
+    direction: DOWN
+- tapOn: Add from Contact Book
+- tapOn: Search name, company, phone
+- inputText: ${TEST_INVITEE}
+- tapOn: ${TEST_INVITEE}
+- tapOn:
+    text: Done.*

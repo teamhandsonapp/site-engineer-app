@@ -1,0 +1,27 @@
+# A -> B -> C exists; C -> A must be refused with a message.
+appId: com.pmcportal.mobile
+---
+- runFlow: _open-flowchart-editing.yaml
+- runFlow:
+    file: _link-two-tasks.yaml
+    env: { FROM: Maestro A, TO: Maestro B, TYPE: FS }
+- runFlow:
+    file: _link-two-tasks.yaml
+    env: { FROM: Maestro B, TO: Maestro C, TYPE: FS }
+- runFlow:
+    file: _link-two-tasks.yaml
+    env: { FROM: Maestro C, TO: Maestro A, TYPE: FS }
+- assertVisible: This would make a loop.*
+# Clean up the two links.
+- tapOn: .*tap to dismiss.*
+- tapOn:
+    id: link-label-FS
+    index: 0
+- tapOn:
+    id: link-info-delete
+- tapOn: Remove
+- tapOn:
+    id: link-label-FS
+- tapOn:
+    id: link-info-delete
+- tapOn: Remove

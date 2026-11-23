@@ -1,0 +1,23 @@
+# Change an existing link's type and see the sentence update.
+appId: com.pmcportal.mobile
+---
+- runFlow: _open-flowchart-editing.yaml
+- runFlow:
+    file: _link-two-tasks.yaml
+    env: { FROM: Maestro A, TO: Maestro B, TYPE: FS }
+- tapOn:
+    id: link-label-FS
+- assertVisible: Maestro B starts after Maestro A finishes.*
+- tapOn:
+    id: link-info-change-type
+- tapOn:
+    id: link-type-SS
+- tapOn:
+    id: link-type-confirm
+- tapOn:
+    id: link-label-SS
+- assertVisible: Maestro B starts when Maestro A starts.*
+# Clean up.
+- tapOn:
+    id: link-info-delete
+- tapOn: Remove

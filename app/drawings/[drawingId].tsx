@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
+import { Text } from '../../components/ui/AppText';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../../lib/AuthContext';
@@ -387,7 +388,7 @@ function Viewer({
 
       {/* Tag list (no-canvas access, also the native fallback) */}
       {tags.length > 0 && !selected ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="bg-white border-t border-neutral-100" style={{ maxHeight: 52 }} contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center' }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="bg-white border-t border-neutral-100" style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, alignItems: 'center' }}>
           {tags.map((t) => (
             <Pressable key={t.id} onPress={() => setSelectedTagId(t.id)} className="flex-row items-center rounded-full border px-2.5 py-1 mr-1.5" style={{ borderColor: TAG_STATUS_COLOR[t.statusKind] }}>
               <Ionicons name="pricetag-outline" size={11} color={TAG_STATUS_COLOR[t.statusKind]} />

@@ -107,6 +107,7 @@ export interface DprTask {
   taskCode: string;
   taskName: string;
   workName: string; // "Department"
+  workId: string | null;
   status: TaskStatus;
   // Effective (live) planned span — current_planned_start_date/
   // current_due_date if a cascade has touched them, else the original
@@ -147,7 +148,7 @@ interface RawTaskRow {
   actual_end_date: string | null;
   assigned_to: string | null;
   urgent_pushed_at: string | null;
-  work: { name: string; code: string | null; project_id: string } | { name: string; code: string | null; project_id: string }[] | null;
+  work: { id: string; name: string; code: string | null; project_id: string } | { id: string; name: string; code: string | null; project_id: string }[] | null;
   dependency_items: RawQuantityItem[] | null;
 }
 
@@ -159,7 +160,7 @@ const TASK_SELECT = `
   id, task_id, task_name, status,
   planned_start_date, due_date, current_planned_start_date, current_due_date,
   actual_start_date, actual_end_date, assigned_to, urgent_pushed_at,
-  work:works!inner(name, code, project_id),
+  work:works!inner(id, name, code, project_id),
   dependency_items(id, item_label, quantity_value, quantity_unit)
 `;
 
@@ -224,6 +225,7 @@ function toDprTask(row: RawTaskRow, todayKey: string): DprTask {
     taskCode: row.task_id,
     taskName: row.task_name,
     workName: work?.name ?? 'Unassigned',
+    workId: work?.id ?? null,
     status: row.status,
     plannedStartDate,
     plannedEndDate,
@@ -239,11 +241,17 @@ function toDprTask(row: RawTaskRow, todayKey: string): DprTask {
     // plan is stale. Only affects which tasks SHOW here — doesn't touch
     // plannedStartDate/plannedEndDate themselves, so "planned days"/target%
     // math everywhere else stays correct off the real dates.
-    // Every task on the flowchart that isn't completed shows in the DPR, by
-    // explicit request (2026-11-09): a task whose planned window is in the
-    // past or future can still have any of its days filled in from its own
-    // DPR 1..N pager, so hiding it by date only got in the way.
-    scheduledToday: row.status !== 'completed',
+    // 2026-11-13 (with DPR "+ Add task"): Today shows tasks that are already
+    // started (in progress / on hold / have an actual start) or whose planned
+    // start has arrived (incl. overdue). Tasks planned for later are added
+    // from site with "+ Add task" when they start early. Replaces the
+    // 2026-11-09 "every not-completed task" rule.
+    scheduledToday:
+      row.status !== 'completed' &&
+      (row.status === 'in_progress' ||
+        row.status === 'on_hold' ||
+        !!row.actual_start_date ||
+        (!!plannedStartDate && plannedStartDate <= todayKey)),
   };
 }
 
@@ -614,6 +622,110 @@ export async function markDprSubmitted(taskId: string, todayKey: string): Promis
 }
 
 export { EMPTY_ENTRY as EMPTY_DPR_ENTRY };
+
+// ─── Pre-construction gate (supabase/preconstruction-gate.sql) ────────────
+// A task enters the DPR / construction phase only once its whole checklist
+// is done — the database moves it draft/blocked -> ready at that point and
+// refuses DPR entries / Actual Start / manual status changes before then.
+export function inPreconstruction(status: TaskStatus): boolean {
+  return status === 'draft' || status === 'blocked';
+}
+
+export async function fetchChecklistProgress(taskId: string): Promise<{ done: number; total: number }> {
+  const { data, error } = await supabase
+    .from('dependency_items')
+    .select('id, is_mandatory, completion:dependency_completions(status)')
+    .eq('task_id', taskId);
+  if (error) throw new Error(error.message);
+  const rows = ((data ?? []) as unknown as { is_mandatory: boolean; completion: { status: string } | { status: string }[] | null }[]).filter(
+    (r) => r.is_mandatory !== false
+  );
+  // Cleared = Issued (YES / legacy PROCEED) or Not Required (NO) — same rule
+  // as the database's recalculate_task_status().
+  const done = rows.filter((r) => {
+    const c = Array.isArray(r.completion) ? r.completion[0] : r.completion;
+    return c?.status === 'YES' || c?.status === 'PROCEED' || c?.status === 'NO';
+  }).length;
+  return { done, total: rows.length };
+}
+
+// ─── Submission History (admin, DPR tab) ──────────────────────────────────
+// Real submitted DPRs (submitted_at set) for one project, newest first.
+// Soft-deleted tasks (incl. archived flowchart-only sets) are excluded.
+export interface DprSubmission {
+  key: string;
+  taskName: string;
+  workName: string;
+  status: TaskStatus;
+  reportDate: string;
+  submittedAtISO: string;
+  submittedByName: string | null;
+  isOverall: boolean;
+  percentComplete: number | null;
+  dependencies: DprDependencyCategory[];
+  commentPreset: DprCommentPreset | null;
+  // "+ Add task" rows (dpr_entries.source = 'added_from_site'); false before that column exists.
+  fromSite: boolean;
+  siteNote: string | null;
+}
+
+export async function fetchDprSubmissionHistory(projectId: string, limit = 50): Promise<DprSubmission[]> {
+  const base = 'task_id, report_date, submitted_at, submitted_by, is_overall, percent_complete, dependency_categories, comment_preset, task:tasks!inner(task_name, status, deleted_at, work:works!inner(name, project_id))';
+  const run = (cols: string) =>
+    supabase
+      .from('dpr_entries')
+      .select(cols)
+      .not('submitted_at', 'is', null)
+      .is('task.deleted_at', null)
+      .eq('task.work.project_id', projectId)
+      .order('submitted_at', { ascending: false })
+      .limit(limit);
+  // source/site_note come with the "+ Add task" migration — fall back if it isn't installed yet.
+  let { data, error } = await run(`${base}, source, site_note`);
+  if (error && /source|site_note/.test(error.message)) ({ data, error } = await run(base));
+  if (error) throw new Error(error.message);
+
+  type Row = {
+    task_id: string;
+    report_date: string;
+    submitted_at: string;
+    submitted_by: string | null;
+    is_overall: boolean;
+    percent_complete: number | null;
+    dependency_categories: DprDependencyCategory[] | null;
+    comment_preset: DprCommentPreset | null;
+    source?: string | null;
+    site_note?: string | null;
+    task: { task_name: string; status: TaskStatus; deleted_at: string | null; work: { name: string } | { name: string }[] | null } | null;
+  };
+  const rows = ((data ?? []) as unknown as Row[]).filter((r) => r.task && !r.task.deleted_at);
+
+  const ids = [...new Set(rows.map((r) => r.submitted_by).filter((id): id is string => !!id))];
+  const nameById = new Map<string, string>();
+  if (ids.length > 0) {
+    const { data: profiles } = await supabase.from('user_profiles').select('id, full_name').in('id', ids);
+    for (const p of (profiles ?? []) as { id: string; full_name: string }[]) nameById.set(p.id, p.full_name);
+  }
+
+  return rows.map((r) => {
+    const work = Array.isArray(r.task!.work) ? r.task!.work[0] : r.task!.work;
+    return {
+      key: `${r.task_id}|${r.report_date}`,
+      taskName: r.task!.task_name,
+      workName: work?.name ?? '',
+      status: r.task!.status,
+      reportDate: r.report_date,
+      submittedAtISO: r.submitted_at,
+      submittedByName: r.submitted_by ? (nameById.get(r.submitted_by) ?? 'Unknown user') : null,
+      isOverall: r.is_overall,
+      percentComplete: r.percent_complete,
+      dependencies: r.dependency_categories ?? [],
+      commentPreset: r.comment_preset,
+      fromSite: r.source === 'added_from_site',
+      siteNote: r.site_note ?? null,
+    };
+  });
+}
 
 // ─── Overall progress (2026-11-09) ─────────────────────────────────────────
 // One total % for the whole task (0-100) plus Reasons for Delay with a

@@ -42,6 +42,7 @@ function buildHtml(tasks: FlowchartTask[], summary: FilterSummary): string {
         .map(
           (t) => `
             <tr>
+              <td class="id">${esc(t.taskId ?? '—')}</td>
               <td>${esc(t.taskName)}</td>
               <td>${esc(t.workName)}</td>
               <td>${esc(t.floorLevel ?? '—')}</td>
@@ -51,7 +52,7 @@ function buildHtml(tasks: FlowchartTask[], summary: FilterSummary): string {
             </tr>`
         )
         .join('')
-    : `<tr><td colspan="6" class="empty">No tasks match this filter.</td></tr>`;
+    : `<tr><td colspan="7" class="empty">No tasks match this filter.</td></tr>`;
 
   return `
     <html>
@@ -65,6 +66,7 @@ function buildHtml(tasks: FlowchartTask[], summary: FilterSummary): string {
           th { text-align: left; padding: 6px 4px; border-bottom: 2px solid #E5E7EB; font-size: 10px; color: #9CA3AF; text-transform: uppercase; }
           td { padding: 7px 4px; border-bottom: 1px solid #F3F4F6; }
           td.num, th.num { text-align: right; }
+          td.id { font-weight: 700; white-space: nowrap; }
           td.empty { color: #9CA3AF; font-style: italic; text-align: center; }
         </style>
       </head>
@@ -72,7 +74,7 @@ function buildHtml(tasks: FlowchartTask[], summary: FilterSummary): string {
         <h1>Flowchart Filter — Task List</h1>
         <p class="sub">${esc(summaryLine(summary))} · ${tasks.length} task${tasks.length === 1 ? '' : 's'} · Generated ${formatDateLabel(new Date())}</p>
         <table>
-          <tr><th>Task</th><th>Department</th><th>Floor</th><th>Room</th><th class="num">Planned Start</th><th class="num">Planned End</th></tr>
+          <tr><th>ID</th><th>Task</th><th>Department</th><th>Floor</th><th>Room</th><th class="num">Planned Start</th><th class="num">Planned End</th></tr>
           ${rows}
         </table>
       </body>

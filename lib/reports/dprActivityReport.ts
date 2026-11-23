@@ -1,5 +1,5 @@
 import { supabase } from '../supabase';
-import { isPilotVisible } from '../pilot';
+import { isPilotVisible, REPORT_FLOWCHART_SET } from '../pilot';
 import type { DprCommentPreset, DprDependencyCategory } from '../dprEntries';
 import { addDaysUtc, daysBetweenInclusive, type DateRange } from './dateRange';
 import { countWorkingDaysBetween, workingDaysBetween } from '../workingDays';
@@ -176,6 +176,7 @@ export async function fetchDprActivityReport(
       .from('tasks')
       .select(ACTIVITY_SELECT)
       .eq('work.project_id', projectId)
+      .eq('flowchart_set', REPORT_FLOWCHART_SET)
       .gte('dpr_entries.report_date', range.from)
       .lte('dpr_entries.report_date', range.to)
       .is('deleted_at', null)
@@ -216,6 +217,7 @@ export async function fetchDprActivityReport(
       .from('tasks')
       .select(DATED_TASK_SELECT)
       .eq('work.project_id', projectId)
+      .eq('flowchart_set', REPORT_FLOWCHART_SET)
       .is('deleted_at', null)
       .not('actual_start_date', 'is', null)
       .lte('actual_start_date', range.to)
@@ -231,6 +233,7 @@ export async function fetchDprActivityReport(
       .from('tasks')
       .select(DATED_TASK_SELECT)
       .eq('work.project_id', projectId)
+      .eq('flowchart_set', REPORT_FLOWCHART_SET)
       .is('deleted_at', null)
       .is('actual_start_date', null)
       .not('due_date', 'is', null)

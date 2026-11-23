@@ -1,0 +1,13 @@
+# Shared steps: open the Flowchart in Editing mode. Assumes the app is logged in
+# as an admin and the selected project has at least 3 TEST tasks named
+# "Maestro A", "Maestro B" and "Maestro C" (test data only).
+appId: com.pmcportal.mobile
+tags:
+  - subflow
+---
+- launchApp
+- openLink: mobileportal://flowchart
+- extendedWaitUntil:
+    visible: Locked
+    timeout: 20000
+- tapOn: Locked

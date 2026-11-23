@@ -1,5 +1,7 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { Text, TextInput } from '../../components/ui/AppText';
+import { FormModal } from '../../components/ui/FormModal';
 import { Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { appRoleFor, useAuth } from '../../lib/AuthContext';
@@ -59,8 +61,7 @@ function LabelDialog({
   }
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onCancel}>
+    <FormModal visible onRequestClose={onCancel}>
         <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 360 }}>
           <Card>
             <Text className="text-sm font-bold text-neutral-900 mb-3">{title}</Text>
@@ -83,8 +84,7 @@ function LabelDialog({
             </View>
           </Card>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }
 

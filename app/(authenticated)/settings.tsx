@@ -4,35 +4,25 @@ import {
   Platform,
   Pressable,
   ScrollView,
-  Text,
-  TextInput,
   View,
 } from 'react-native';
+import { Text, TextInput } from '../../components/ui/AppText';
+import { KeyboardAvoider } from '../../components/ui/KeyboardAvoider';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router } from 'expo-router';
 import { useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
-import {
-  buildPrintoutHtml,
-  downloadPrintout,
-  previewPrintout,
-  PRINTOUT_TITLE,
-  sharePrintout,
-  type PrintoutKind,
-} from '../../lib/reports/projectPrintouts';
-import { fetchGeneralParameterReport } from '../../lib/reports/generalParameterReport';
-import { fetchTaskTypes } from '../../lib/flowchart/data';
-import { buildTaskReportPdfHtml } from '../../components/reports/GeneralParameterSection';
-import { supabase } from '../../lib/supabase';
 import { fetchProjectSettings, updateProjectSettings } from '../../lib/projectSettings';
 import { createDepartment, deleteDepartment, fetchDepartments, renameDepartment, type Department } from '../../lib/departments';
-import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
 import { Card } from '../../components/ui/Card';
 import { EmptyState } from '../../components/ui/EmptyState';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { SiteLocationMapPicker } from '../../components/SiteLocationMapPicker';
 import { RedZonesCard } from '../../components/RedZonesCard';
 import { LOCATION_FEATURES_ENABLED } from '../../lib/featureFlags';
+import { DevicesPanel } from '../../components/DevicesPanel';
+import { TesterReminderCard } from '../../components/TesterReminderCard';
+import { AppUpdateCard } from '../../components/AppUpdateCard';
+import { SendNotificationCard } from '../../components/SendNotificationCard';
 
 const INPUT_CLASS = 'border border-neutral-200 rounded-lg px-3 py-2.5 text-sm text-neutral-900';
 
@@ -48,7 +38,8 @@ const DEFAULT_LNG = 78.9629;
 // itself), distinct from the persistent red banner further down which is
 // reserved for load failures and pre-submit form validation.
 function Toast({ toast }: { toast: { type: 'success' | 'error'; message: string } | null }) {
-  const bottom = useSafeBottomOffset(12);
+  // Sits above BottomTabBar, which already clears the inset (batch 5).
+  const bottom = 36;
   if (!toast) return null;
   const isSuccess = toast.type === 'success';
   return (
@@ -209,23 +200,6 @@ function DepartmentRow({ department, onChanged }: { department: Department; onCh
 // mobile-only copy. Same draggable-pin + radius-circle map as admin-web
 // too (see components/SiteLocationMapPicker.tsx). The pin is placed by hand —
 // the app no longer reads the device's own location.
-function DevicesLink() {
-  return (
-    <Pressable onPress={() => router.push('/(authenticated)/devices')}>
-      <Card className="mb-4 flex-row items-center gap-3">
-        <View className="w-10 h-10 rounded-xl bg-brand-navy/10 items-center justify-center">
-          <Ionicons name="phone-portrait-outline" size={20} color="#0F1F33" />
-        </View>
-        <View className="flex-1">
-          <Text className="text-sm font-bold text-neutral-900">Devices & Logins</Text>
-          <Text className="text-2xs text-neutral-400 mt-0.5">Who is signed in on which phone, app version and last used</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
-      </Card>
-    </Pressable>
-  );
-}
-
 export default function SettingsScreen() {
   const { state } = useAuth();
   const profile = state.status === 'signed-in' ? state.profile : null;
@@ -234,37 +208,12 @@ export default function SettingsScreen() {
   const { selectedProjectId, projects } = useProject();
 
   const [loading, setLoading] = useState(true);
+  // Settings tabs (2026-11-21, client): project info, and who's logged in + sending notifications.
+  const [tab, setTab] = useState<'project' | 'devices'>('project');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Which printout action is running, e.g. 'prerequisites:share'.
-  const [printBusy, setPrintBusy] = useState<string | null>(null);
-  // Task Report (Pre / Construction / Post) printout — pick a task first.
-  const [reportTasks, setReportTasks] = useState<{ id: string; code: string; name: string }[]>([]);
-  const [reportTaskId, setReportTaskId] = useState<string | null>(null);
-  const [reportTaskPickerOpen, setReportTaskPickerOpen] = useState(false);
-
-  useEffect(() => {
-    if (!selectedProjectId) return;
-    let cancelled = false;
-    supabase
-      .from('tasks')
-      .select('id, task_id, task_name, work:works!inner(project_id)')
-      .eq('work.project_id', selectedProjectId)
-      .is('deleted_at', null)
-      .order('task_id', { ascending: true })
-      .then(({ data }) => {
-        if (cancelled) return;
-        const list = ((data ?? []) as unknown as { id: string; task_id: string; task_name: string }[]).map((t) => ({ id: t.id, code: t.task_id, name: t.task_name }));
-        setReportTasks(list);
-        setReportTaskId((prev) => (prev && list.some((t) => t.id === prev) ? prev : list[0]?.id ?? null));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedProjectId]);
-
   function showToast(type: 'success' | 'error', message: string) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast({ type, message });
@@ -405,50 +354,6 @@ export default function SettingsScreen() {
 
   const projectName = selectedProjectId ? projects.find((p) => p.id === selectedProjectId)?.name : null;
 
-  async function runTaskReport(action: 'preview' | 'download' | 'share') {
-    if (!selectedProjectId || !reportTaskId || printBusy) return;
-    setPrintBusy(`taskreport:${action}`);
-    try {
-      const [data, types] = await Promise.all([fetchGeneralParameterReport(reportTaskId, selectedProjectId), fetchTaskTypes()]);
-      if (!data) throw new Error('Could not load this task’s report.');
-      const html = buildTaskReportPdfHtml(data, projectName ?? 'Project', types);
-      const fileName = `${data.base.task.taskCode}-Task-Report`;
-      if (action === 'preview') {
-        await previewPrintout(html);
-      } else {
-        const note = action === 'download' ? await downloadPrintout(html, fileName) : await sharePrintout(html, `${data.base.task.taskCode} — Task Report`);
-        if (note) showToast('success', note);
-      }
-    } catch (err) {
-      showToast('error', err instanceof Error ? err.message : String(err));
-    } finally {
-      setPrintBusy(null);
-    }
-  }
-
-  async function runPrintout(kind: PrintoutKind, action: 'preview' | 'download' | 'share') {
-    if (!selectedProjectId || printBusy) return;
-    setPrintBusy(`${kind}:${action}`);
-    try {
-      const title = PRINTOUT_TITLE[kind];
-      const html = await buildPrintoutHtml(kind, selectedProjectId, projectName ?? 'Project');
-      const fileName = `${projectName ?? 'Project'}-${title}`;
-      if (action === 'preview') {
-        await previewPrintout(html);
-      } else if (action === 'download') {
-        const note = await downloadPrintout(html, fileName);
-        if (note) showToast('success', note);
-      } else {
-        const note = await sharePrintout(html, `${title} — ${projectName ?? ''}`);
-        if (note) showToast('success', note);
-      }
-    } catch (err) {
-      showToast('error', err instanceof Error ? err.message : String(err));
-    } finally {
-      setPrintBusy(null);
-    }
-  }
-
   // Fed to the map so it always has a valid position to show, even while
   // the fields are blank (a brand-new project) or mid-edit (a partial/
   // invalid number) — the map itself is just a live preview of whatever is
@@ -459,30 +364,56 @@ export default function SettingsScreen() {
   const mapRadius = Number.isFinite(Number(radiusInput)) && radiusInput.trim() !== '' ? Number(radiusInput) : null;
 
   return (
-    <View className="flex-1 bg-neutral-50">
+    <KeyboardAvoider style={{ backgroundColor: '#FAFAFA' }}>
       <View className="px-5 pt-4 pb-3 bg-white border-b border-neutral-100">
         <Text className="text-lg font-bold text-neutral-900">Settings</Text>
         {projectName && <Text className="text-xs text-neutral-400 mt-0.5">{projectName}</Text>}
       </View>
 
-      {!selectedProjectId ? (
-        // Broadcast push isn't project-scoped, so an admin still gets it
-        // here before picking a project.
-        isAdmin ? (
-          <ScrollView contentContainerClassName="px-4 pt-4 pb-10" keyboardShouldPersistTaps="handled">
-            <DevicesLink />
-            <Text className="text-xs text-neutral-400 text-center mt-2">
-              Pick a project from the Project Dashboard to edit its settings.
-            </Text>
-          </ScrollView>
-        ) : (
+      {/* Two tabs (2026-11-21, client). */}
+      <View className="flex-row gap-2 px-4 py-3 bg-white border-b border-neutral-100">
+        {([
+          ['project', 'Project Info', 'business-outline'],
+          ['devices', 'Login & Devices', 'phone-portrait-outline'],
+        ] as const).map(([key, label, icon]) => {
+          const on = tab === key;
+          return (
+            <Pressable
+              key={key}
+              onPress={() => setTab(key)}
+              className={`flex-1 flex-row items-center justify-center gap-1.5 py-2.5 rounded-xl border ${on ? 'bg-brand-navy border-brand-navy' : 'bg-white border-neutral-200'}`}
+            >
+              <Ionicons name={icon} size={15} color={on ? '#fff' : '#0F1F33'} />
+              <Text className={`text-sm font-semibold ${on ? 'text-white' : 'text-neutral-800'}`}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {tab === 'devices' ? (
+        // Who is logged in on a phone + closed-testing testers, then every
+        // way to send a notification — all in this one place.
+        <ScrollView contentContainerClassName="px-4 pt-4 pb-10" keyboardShouldPersistTaps="handled">
+          <DevicesPanel />
+          {isAdmin ? (
+            <>
+              <View className="flex-row items-center mt-2 mb-2">
+                <Ionicons name="notifications-outline" size={15} color="#6B7280" />
+                <Text className="text-xs font-bold uppercase tracking-wide text-neutral-500 ml-1.5">Send notifications</Text>
+              </View>
+              <TesterReminderCard onResult={showToast} />
+              <AppUpdateCard onResult={showToast} />
+              <SendNotificationCard onResult={showToast} />
+            </>
+          ) : null}
+        </ScrollView>
+      ) : !selectedProjectId ? (
         <EmptyState
           icon="folder-open-outline"
           iconColor="#9CA3AF"
           title="No project selected"
           subtitle="Pick a project from the Project Dashboard, then come back here to edit its settings."
         />
-        )
       ) : loading ? (
         <View className="flex-1 items-center justify-center">
           <ActivityIndicator color="#0F1F33" />
@@ -494,8 +425,6 @@ export default function SettingsScreen() {
               <Text className="text-xs text-red-600">{error}</Text>
             </View>
           )}
-
-          <DevicesLink />
 
           <Card className="mb-4">
             <Text className="text-sm font-bold text-neutral-900 mb-3">Project Info</Text>
@@ -534,131 +463,6 @@ export default function SettingsScreen() {
                   />
                 </Field>
               </View>
-            </View>
-          </Card>
-
-          {/* A4 printouts for the client — by explicit request. */}
-          <Card className="mb-4">
-            <Text className="text-sm font-bold text-neutral-900 mb-1">Printouts (A4)</Text>
-            <Text className="text-2xs text-neutral-400 mb-3">Preview, download as PDF, or send to the client.</Text>
-            {([
-              { kind: 'prerequisites', icon: 'list-outline', desc: 'Every prerequisite input by category, with Received / Remarks columns' },
-              { kind: 'procurement', icon: 'cart-outline', desc: 'Procurement types (Type A, B, C…) with lead times and this project’s tasks' },
-              { kind: 'quality', icon: 'shield-checkmark-outline', desc: 'DPR quality checklist — Pre, During and Post construction checks' },
-            ] as const).map((doc, idx, all) => (
-              <View key={doc.kind} className={idx < all.length - 1 ? 'pb-3 mb-3 border-b border-neutral-100' : ''}>
-                <View className="flex-row items-center gap-2.5 mb-2">
-                  <View className="h-9 w-9 items-center justify-center rounded-lg bg-neutral-100">
-                    <Ionicons name={doc.icon} size={18} color="#0F1F33" />
-                  </View>
-                  <View className="flex-1">
-                    <Text className="text-sm font-semibold text-neutral-900">{PRINTOUT_TITLE[doc.kind]}</Text>
-                    <Text className="text-2xs text-neutral-500">{doc.desc}</Text>
-                  </View>
-                </View>
-                <View className="flex-row gap-2">
-                  {([
-                    { action: 'preview', label: 'Preview', icon: 'eye-outline' },
-                    { action: 'download', label: 'Download PDF', icon: 'download-outline' },
-                    { action: 'share', label: 'Send to Client', icon: 'send-outline' },
-                  ] as const).map((b) => {
-                    const busy = printBusy === `${doc.kind}:${b.action}`;
-                    const primary = b.action === 'share';
-                    return (
-                      <Pressable
-                        key={b.action}
-                        onPress={() => void runPrintout(doc.kind, b.action)}
-                        disabled={printBusy != null}
-                        className={`flex-1 flex-row items-center justify-center gap-1 py-2 rounded-lg ${primary ? 'bg-brand-navy' : 'bg-neutral-50 border border-neutral-200'}`}
-                        style={{ opacity: printBusy != null && !busy ? 0.5 : 1 }}
-                      >
-                        {busy ? (
-                          <ActivityIndicator size="small" color={primary ? '#fff' : '#0F1F33'} />
-                        ) : (
-                          <Ionicons name={b.icon} size={13} color={primary ? '#fff' : '#0F1F33'} />
-                        )}
-                        <Text className={`text-2xs font-bold ${primary ? 'text-white' : 'text-brand-navy'}`} numberOfLines={1}>
-                          {b.label}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-            ))}
-          </Card>
-
-          {/* Task Report — Pre Construction / Construction / Post Construction in one A4 PDF. */}
-          <Card className="mb-4">
-            <View className="flex-row items-center gap-2.5 mb-2">
-              <View className="h-9 w-9 items-center justify-center rounded-lg bg-neutral-100">
-                <Ionicons name="document-text-outline" size={18} color="#0F1F33" />
-              </View>
-              <View className="flex-1">
-                <Text className="text-sm font-semibold text-neutral-900">Task Report (A4)</Text>
-                <Text className="text-2xs text-neutral-500">Pre Construction · Construction · Post Construction — one PDF per task</Text>
-              </View>
-            </View>
-            <Pressable
-              onPress={() => setReportTaskPickerOpen((v) => !v)}
-              className="flex-row items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5 mb-2"
-            >
-              <Text className="text-sm text-neutral-900 flex-1" numberOfLines={1}>
-                {reportTasks.find((t) => t.id === reportTaskId) ? `${reportTasks.find((t) => t.id === reportTaskId)!.code} — ${reportTasks.find((t) => t.id === reportTaskId)!.name}` : reportTasks.length ? 'Select a task' : 'No tasks in this project'}
-              </Text>
-              <Ionicons name={reportTaskPickerOpen ? 'chevron-up' : 'chevron-down'} size={14} color="#9CA3AF" />
-            </Pressable>
-            {reportTaskPickerOpen && (
-              <View className="mb-2 border border-neutral-100 rounded-lg overflow-hidden" style={{ maxHeight: 260 }}>
-                <ScrollView nestedScrollEnabled>
-                  {reportTasks.map((t) => {
-                    const active = t.id === reportTaskId;
-                    return (
-                      <Pressable
-                        key={t.id}
-                        onPress={() => {
-                          setReportTaskId(t.id);
-                          setReportTaskPickerOpen(false);
-                        }}
-                        className="px-3 py-2.5 border-b border-neutral-50"
-                        style={{ backgroundColor: active ? '#0F1F33' : undefined }}
-                      >
-                        <Text className={`text-xs font-semibold ${active ? 'text-white' : 'text-neutral-800'}`} numberOfLines={2}>
-                          {t.code} — {t.name}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            )}
-            <View className="flex-row gap-2">
-              {([
-                { action: 'preview', label: 'Preview', icon: 'eye-outline' },
-                { action: 'download', label: 'Download PDF', icon: 'download-outline' },
-                { action: 'share', label: 'Send to Client', icon: 'send-outline' },
-              ] as const).map((b) => {
-                const busy = printBusy === `taskreport:${b.action}`;
-                const primary = b.action === 'share';
-                return (
-                  <Pressable
-                    key={b.action}
-                    onPress={() => void runTaskReport(b.action)}
-                    disabled={printBusy != null || !reportTaskId}
-                    className={`flex-1 flex-row items-center justify-center gap-1 py-2 rounded-lg ${primary ? 'bg-brand-navy' : 'bg-neutral-50 border border-neutral-200'}`}
-                    style={{ opacity: (printBusy != null && !busy) || !reportTaskId ? 0.5 : 1 }}
-                  >
-                    {busy ? (
-                      <ActivityIndicator size="small" color={primary ? '#fff' : '#0F1F33'} />
-                    ) : (
-                      <Ionicons name={b.icon} size={13} color={primary ? '#fff' : '#0F1F33'} />
-                    )}
-                    <Text className={`text-2xs font-bold ${primary ? 'text-white' : 'text-brand-navy'}`} numberOfLines={1}>
-                      {b.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
             </View>
           </Card>
 
@@ -780,7 +584,7 @@ export default function SettingsScreen() {
         </ScrollView>
       )}
       <Toast toast={toast} />
-    </View>
+    </KeyboardAvoider>
   );
 }
 

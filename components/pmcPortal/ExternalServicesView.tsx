@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 import { EXTERNAL_SERVICES, type ExternalService } from '../../lib/externalServices';
@@ -85,7 +86,7 @@ export function ExternalServicesView() {
       {EXTERNAL_SERVICES.map((s) => (
         <ServiceCard key={s.name} s={s} open={!!open[s.name]} onToggle={() => setOpen((o) => ({ ...o, [s.name]: !o[s.name] }))} />
       ))}
-      <Text className="text-2xs text-neutral-400 mt-1">Passwords and API keys are not shown here. "List price" is the provider's starting price, not the confirmed plan.</Text>
+      <Text className="text-2xs text-neutral-400 mt-1">Passwords and API keys are not shown here. &ldquo;List price&rdquo; is the provider&apos;s starting price, not the confirmed plan.</Text>
     </ScrollView>
   );
 }

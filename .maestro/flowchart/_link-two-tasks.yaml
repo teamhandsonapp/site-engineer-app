@@ -1,0 +1,13 @@
+# Shared steps: link task FROM -> TO with link TYPE (FS / SS / FF / SF).
+# Tapping a task opens its menu; "Link to Task" starts linking from it.
+appId: com.pmcportal.mobile
+tags:
+  - subflow
+---
+- tapOn: ${FROM}
+- tapOn: Link to Task
+- tapOn: ${TO}
+- tapOn:
+    id: link-type-${TYPE}
+- tapOn:
+    id: link-type-confirm

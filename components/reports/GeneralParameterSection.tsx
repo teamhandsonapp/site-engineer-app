@@ -1,10 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import { router } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useProject } from '../../lib/ProjectContext';
-import { useAuth } from '../../lib/AuthContext';
-import { supabase } from '../../lib/supabase';
 import { EmptyState } from '../ui/EmptyState';
 import { ReportSection } from './ReportSection';
 import { PieChart } from './charts/PieChart';
@@ -441,8 +440,8 @@ function DelayByCategorySection({
   return (
     <View>
       <View className="flex-row items-center justify-between mt-1 mb-0.5">
-        <Text className="text-xs font-extrabold uppercase tracking-wide text-neutral-700">{title}</Text>
-        <Pressable onPress={onToggleSort} className="flex-row items-center gap-1 rounded-lg bg-neutral-100 px-2 py-1">
+        <Text className="flex-1 mr-2 text-xs font-extrabold uppercase tracking-wide text-neutral-700" numberOfLines={2}>{title}</Text>
+        <Pressable onPress={onToggleSort} className="flex-row items-center gap-1 rounded-lg bg-neutral-100 px-2 py-1 shrink-0">
           <Ionicons name={sortAsc ? 'arrow-up' : 'arrow-down'} size={11} color="#6B7280" />
           <Text className="text-2xs font-semibold text-neutral-500">{sortAsc ? 'Low to high' : 'High to low'}</Text>
         </Pressable>
@@ -461,14 +460,14 @@ function DelayByCategorySection({
           showLegend={false}
           sliceLabels
         />
-        <View className="gap-2">
+        <View className="flex-1 gap-2">
           {items.map((d) => {
             const color = DEPARTMENT_COLOR[d.category] ?? DEPARTMENT_COLOR_FALLBACK;
             return (
-              <View key={d.category} className="flex-row items-center gap-2">
-                <View className="flex-row items-center gap-1.5">
-                  <View className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />
-                  <Text className="text-xs text-neutral-500">{d.label}</Text>
+              <View key={d.category} className="flex-row flex-wrap items-center gap-x-2">
+                <View className="flex-row items-center gap-1.5 shrink">
+                  <View className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                  <Text className="shrink text-xs text-neutral-500" numberOfLines={1}>{d.label}</Text>
                 </View>
                 <Text className="text-xs font-bold" style={{ color }}>{pendingLabel(d)} pending</Text>
               </View>
@@ -1041,39 +1040,11 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
     fetchTaskTypes().then(setTaskTypes).catch(() => {}); // letter falls back to the raw name below if this fails
   }, []);
 
-  // Report layout for this project (projects.report_format). Admin/manager
-  // can switch it; everyone else just sees the project's choice.
-  const { state: authState } = useAuth();
-  const canChooseFormat = authState.status === 'signed-in' && (authState.profile.role === 'admin' || authState.profile.role === 'manager');
-  const [format, setFormat] = useState<ReportFormat>('type1');
-  const [formatError, setFormatError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!selectedProjectId) return;
-    let cancelled = false;
-    supabase
-      .from('projects')
-      .select('report_format')
-      .eq('id', selectedProjectId)
-      .maybeSingle()
-      .then(({ data: row }) => {
-        const f = (row as { report_format?: string } | null)?.report_format;
-        if (!cancelled && (f === 'type1' || f === 'type2')) setFormat(f);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedProjectId]);
-  async function chooseFormat(next: ReportFormat) {
-    if (next === format || !selectedProjectId) return;
-    const prev = format;
-    setFormat(next);
-    setFormatError(null);
-    const { error } = await supabase.from('projects').update({ report_format: next }).eq('id', selectedProjectId);
-    if (error) {
-      setFormat(prev);
-      setFormatError(`Couldn't save the report format — ${error.message}`);
-    }
-  }
+  // Always Type 1 — the DPR report (2026-11-11). Type 2 (one-page, the PR /
+  // cumulative-% layout) is switched off and its switch removed until PR gets
+  // its own place; Type2Report + the type2 PDF page stay in this file for
+  // then. projects.report_format is no longer read or written here.
+  const format = 'type1' as ReportFormat;
   // 3 tabs for Status of the Work, by explicit request, Pre Construction
   // first — Construction shows the task's own quantity donut; Pre
   // Construction shows Planned Start/End/Actual Start/Task delayed by plus
@@ -1167,38 +1138,6 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
   return (
     <>
       <ReportSection>
-        {canChooseFormat && (
-          // One slim row: label left, small Type 1 / Type 2 switch right.
-          <View className="mb-2">
-            <View className="flex-row items-center justify-between">
-              <Text className="text-2xs font-semibold text-neutral-400">Report format</Text>
-              <View className="flex-row rounded-md bg-neutral-100 p-0.5">
-                {(
-                  [
-                    { key: 'type1', label: 'Type 1' },
-                    { key: 'type2', label: 'Type 2' },
-                  ] as const
-                ).map((opt) => {
-                  const active = format === opt.key;
-                  return (
-                    <Pressable
-                      key={opt.key}
-                      onPress={() => void chooseFormat(opt.key)}
-                      accessibilityRole="button"
-                      accessibilityLabel={opt.key === 'type1' ? 'Type 1, three tabs' : 'Type 2, one page'}
-                      accessibilityState={{ selected: active }}
-                      className="rounded px-2.5 py-1"
-                      style={{ backgroundColor: active ? '#0F1F33' : 'transparent' }}
-                    >
-                      <Text className={`text-2xs font-bold ${active ? 'text-white' : 'text-neutral-500'}`}>{opt.label}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </View>
-            {formatError && <Text className="text-2xs text-red-600 mt-1">{formatError}</Text>}
-          </View>
-        )}
         {/* Per-DPR selector, by explicit request — defaults to "All
             (Cumulative)" (the existing tabbed report, unchanged); picking a
             specific real DPR swaps the whole tabbed view below for a
@@ -1296,7 +1235,9 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
           />
         ) : (
         <>
-        <View className="flex-row self-start rounded-lg bg-neutral-100 p-0.5 mb-3">
+        {/* Scrolls sideways when the three tabs don't fit (small phones). */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} className="self-start mb-3" style={{ maxWidth: '100%', flexGrow: 0 }}>
+        <View className="flex-row rounded-lg bg-neutral-100 p-0.5">
           {(['pre-construction', 'construction', 'post-construction'] as const).map((type) => {
             const active = reportType === type;
             const label = type === 'construction' ? 'Construction' : type === 'pre-construction' ? 'Pre Construction' : 'Post Construction';
@@ -1312,6 +1253,7 @@ export function GeneralParameterSection({ data }: { data: GeneralParameterReport
             );
           })}
         </View>
+        </ScrollView>
         {/* 2 columns, by explicit request — was one label-per-row list.
             Task Type/Procurement Lead Time stay here (moved up out from
             under "Status of the Work" a few requests ago) — that heading

@@ -4,6 +4,7 @@ import {
   updateTaskWork,
   updateTaskPlannedDates,
   updateTaskActualDate,
+  updateTaskExpectedStart,
   updateTaskType,
   updateTaskAccountabilityType,
   updateTaskRoomType,
@@ -20,6 +21,8 @@ export interface EditableTaskFields {
   dueDate: string | null;
   actualStartDate: string | null;
   actualEndDate: string | null;
+  // Optional so older undo entries / callers without it keep working.
+  expectedStartDate?: string | null;
   taskTypeId: string | null;
   accountabilityType: AccountabilityType | null;
   roomType: string | null;
@@ -47,6 +50,9 @@ export async function applyTaskFieldChanges(
   if (to.actualEndDate !== from.actualEndDate) {
     await updateTaskActualDate(taskId, 'actual_end_date', to.actualEndDate);
   }
+  if ((to.expectedStartDate ?? null) !== (from.expectedStartDate ?? null)) {
+    await updateTaskExpectedStart(taskId, to.expectedStartDate ?? null);
+  }
   if (to.taskTypeId !== from.taskTypeId) await updateTaskType(taskId, to.taskTypeId);
   if (to.accountabilityType !== from.accountabilityType) await updateTaskAccountabilityType(taskId, to.accountabilityType);
   if (to.roomType !== from.roomType) await updateTaskRoomType(taskId, to.roomType);
@@ -61,6 +67,7 @@ export function editableFieldsEqual(a: EditableTaskFields, b: EditableTaskFields
     a.dueDate === b.dueDate &&
     a.actualStartDate === b.actualStartDate &&
     a.actualEndDate === b.actualEndDate &&
+    (a.expectedStartDate ?? null) === (b.expectedStartDate ?? null) &&
     a.taskTypeId === b.taskTypeId &&
     a.accountabilityType === b.accountabilityType &&
     a.roomType === b.roomType &&
@@ -228,4 +235,13 @@ export type UndoableAction =
   | { type: 'createSeriesLink'; taskId: string; dependsOnTaskId: string; linkType: DependencyType }
   | { type: 'createParallelLink'; taskAId: string; taskBId: string }
   | { type: 'deleteSeriesLink'; taskId: string; dependsOnTaskId: string; linkType: DependencyType }
+  | {
+      type: 'changeSeriesLinkType';
+      taskId: string;
+      dependsOnTaskId: string;
+      before: DependencyType;
+      after: DependencyType;
+      // Flowchart 2: planned dates that moved with the new link type (undone together).
+      dates?: { id: string; before: [string | null, string | null]; after: [string | null, string | null] }[];
+    }
   | { type: 'deleteParallelLink'; taskAId: string; taskBId: string };

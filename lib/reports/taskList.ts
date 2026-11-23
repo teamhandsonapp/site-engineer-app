@@ -1,5 +1,5 @@
 import { supabase } from '../supabase';
-import { isPilotVisible } from '../pilot';
+import { isPilotVisible, REPORT_FLOWCHART_SET } from '../pilot';
 
 // Task Report's task picker — unlike admin-web's own listTaskReportOptions()
 // (a global, unscoped list across every project), this is scoped to the
@@ -60,10 +60,13 @@ export async function fetchProjectTaskOptions(projectId: string, flowchartOnly =
   const all: RawRow[] = [];
   let from = 0;
   for (;;) {
-    const { data, error } = await supabase
+    let query = supabase
       .from('tasks')
       .select(`id, task_id, task_name, hidden_from_flowchart, milestone_id, work:works!inner(name, code, project_id)`)
-      .eq('work.project_id', projectId)
+      .eq('work.project_id', projectId);
+    // Task Based Report: Flowchart 2's tasks only (2026-11-15). Documents keeps every task.
+    if (flowchartOnly) query = query.eq('flowchart_set', REPORT_FLOWCHART_SET);
+    const { data, error } = await query
       .is('deleted_at', null)
       .order('task_id', { ascending: true })
       .range(from, from + PAGE_SIZE - 1);

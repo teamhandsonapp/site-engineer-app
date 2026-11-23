@@ -1,0 +1,31 @@
+# Delayed (planned to finish in the past, under 100%): reason required, can't go
+# on without it. Test task: "TEST Late task" (planned dates already passed).
+appId: com.pmcportal.mobile
+---
+- runFlow:
+    file: _open-add-task.yaml
+    env: { TASK: TEST Late task }
+- tapOn: Select date
+- tapOn: "1"
+- tapOn: Done
+  optional: true
+- tapOn:
+    id: dpr-add-percent
+- inputText: "30"
+- hideKeyboard
+- assertVisible:
+    id: dpr-add-reason-why
+- tapOn:
+    id: dpr-add-next
+- assertVisible: Pick at least one reason for the delay
+# Add a reason; now it moves on.
+- tapOn:
+    id: dpr-add-reason-contractor
+- tapOn:
+    id: dpr-add-next
+- assertVisible:
+    id: dpr-add-summary
+- runFlow: _mark-attendance-and-submit.yaml
+- extendedWaitUntil:
+    visible: .*added to today.*
+    timeout: 10000

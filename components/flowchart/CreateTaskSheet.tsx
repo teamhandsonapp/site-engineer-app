@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { Text, TextInput } from '../ui/AppText';
+import { FormModal } from '../ui/FormModal';
 import { Card } from '../ui/Card';
 import { DateField } from '../ui/DateField';
 import { SubtaskDepartmentPicker } from '../dpr/SubtaskDepartmentPicker';
@@ -54,7 +56,10 @@ export function CreateTaskSheet({
   taskTypes,
   onClose,
   onCreated,
+  flowchartSet = null,
 }: {
+  // 'flowchart-2' on the Flowchart 2 tab — the new task stays on that board.
+  flowchartSet?: string | null;
   projectId: string;
   existingTasks: { id: string; taskId: string; taskName: string }[];
   taskTypes: TaskTypeOption[];
@@ -134,6 +139,7 @@ export function CreateTaskSheet({
         taskTypeId,
         plannedStartDate,
         dueDate,
+        flowchartSet: flowchartSet ?? null,
       });
 
       // Auto-seed the checklist so this behaves identically to a task
@@ -178,12 +184,11 @@ export function CreateTaskSheet({
   }
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onClose}>
+    <FormModal visible onRequestClose={onClose}>
         <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 400, maxHeight: '88%', overflow: 'hidden' }}>
           {/* Card + list may shrink (minHeight 0) so the buttons stay inside the box on small phones / large text. */}
           <Card style={{ flexShrink: 1, minHeight: 0 }}>
-            <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
+            <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false} style={{ flexShrink: 1, minHeight: 0 }}>
               <Text className="text-sm font-bold text-neutral-900 mb-3">New Task</Text>
 
               {error && (
@@ -239,12 +244,12 @@ export function CreateTaskSheet({
                 onPress={() => setTaskTypeOpen((v) => !v)}
                 className="flex-row items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5 mb-1"
               >
-                <Text className="text-sm text-neutral-900">
+                <Text className="flex-1 mr-2 text-sm text-neutral-900" numberOfLines={1}>
                   {selectedTaskType
                     ? `Type ${typeLetter(taskTypes.indexOf(selectedTaskType))} — ${selectedTaskType.defaultDurationDays} working days`
                     : 'Select a type'}
                 </Text>
-                <Text className="text-neutral-400">{taskTypeOpen ? '▲' : '▼'}</Text>
+                <Text className="shrink-0 text-neutral-400">{taskTypeOpen ? '▲' : '▼'}</Text>
               </Pressable>
               {taskTypeOpen && (
                 <View className="mb-3 border border-neutral-100 rounded-lg overflow-hidden">
@@ -322,7 +327,7 @@ export function CreateTaskSheet({
                 <Text className="text-neutral-400">{linkTaskOpen ? '▲' : '▼'}</Text>
               </Pressable>
               {linkTaskOpen && (
-                <ScrollView style={{ maxHeight: 160 }} className="mb-2 border border-neutral-100 rounded-lg">
+                <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ maxHeight: 160 }} className="mb-2 border border-neutral-100 rounded-lg">
                   {existingTasks.map((t) => {
                     const active = linkTaskId === t.id;
                     return (
@@ -342,8 +347,8 @@ export function CreateTaskSheet({
                 onPress={() => setLinkTypeOpen((v) => !v)}
                 className="flex-row items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5 mb-1"
               >
-                <Text className="text-sm text-neutral-900">{linkType ? LINK_TYPE_LABEL[linkType] : 'Select relationship type'}</Text>
-                <Text className="text-neutral-400">{linkTypeOpen ? '▲' : '▼'}</Text>
+                <Text className="flex-1 mr-2 text-sm text-neutral-900" numberOfLines={1}>{linkType ? LINK_TYPE_LABEL[linkType] : 'Select relationship type'}</Text>
+                <Text className="shrink-0 text-neutral-400">{linkTypeOpen ? '▲' : '▼'}</Text>
               </Pressable>
               {linkTypeOpen && (
                 <View className="mb-3">
@@ -374,7 +379,6 @@ export function CreateTaskSheet({
             </View>
           </Card>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }

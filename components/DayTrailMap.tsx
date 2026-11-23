@@ -1,5 +1,6 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
-import { Platform, Pressable, Text, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
+import { Text } from './ui/AppText';
 import MapView, { Circle, Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { TIMELINE_EVENT_COLORS, type DayTimeline, type TimelineEvent } from '../lib/dayTimeline';
 import { MapTypeToggle } from './ui/MapTypeToggle';

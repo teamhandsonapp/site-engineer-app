@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
+import { Text, TextInput } from '../ui/AppText';
+import { FormModal } from '../ui/FormModal';
 import { DPR_COMMENT_LABEL, DPR_COMMENT_PRESETS, type DprComment, type DprCommentPreset } from '../../lib/dprEntries';
 
 // Same tap-chip-opens-modal shape as StatusPicker — 'other' switches the
@@ -63,8 +65,7 @@ export function CommentPicker({
       </Pressable>
 
       {open && (
-        <Modal visible transparent animationType="fade" onRequestClose={closeAll}>
-          <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={closeAll}>
+        <FormModal visible onRequestClose={closeAll}>
             <Pressable onPress={() => {}} className="bg-white rounded-2xl p-3" style={{ width: '100%', maxWidth: 340, maxHeight: '80%' }}>
               {showCustomInput ? (
                 <View className="p-1">
@@ -97,7 +98,7 @@ export function CommentPicker({
                   <Text className="text-2xs font-bold uppercase tracking-wide text-neutral-400 mb-2 px-1">Comment</Text>
                   {/* 13 options are taller than a small phone's 80% box —
                       the list scrolls so "Other" is always reachable. */}
-                  <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ gap: 4 }}>
+                  <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={{ gap: 4 }}>
                     {DPR_COMMENT_PRESETS.map((preset) => {
                       const active = comment?.preset === preset;
                       return (
@@ -116,8 +117,7 @@ export function CommentPicker({
                 </>
               )}
             </Pressable>
-          </Pressable>
-        </Modal>
+        </FormModal>
       )}
     </>
   );

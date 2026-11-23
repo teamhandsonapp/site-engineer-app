@@ -186,5 +186,6 @@ export type ChatPalette = typeof chatLight;
 export type ChatSchemeKey = 'light' | 'lightBlue' | 'dark';
 export const chatPalettes: Record<ChatSchemeKey, ChatPalette> = { light: chatLight, lightBlue: chatLightBlue, dark: chatDark };
 
+
 export const theme = { colors, type, space, radius, shadow, HIT, chat, chatPalettes };
 export type Theme = typeof theme;

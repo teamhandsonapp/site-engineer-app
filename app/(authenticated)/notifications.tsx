@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
+import { Text } from '../../components/ui/AppText';
+import { KeyboardAvoider } from '../../components/ui/KeyboardAvoider';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../../lib/AuthContext';
 import { useProject } from '../../lib/ProjectContext';
 import { useToast } from '../../components/ui/Toast';
-import { SendNotificationCard } from '../../components/SendNotificationCard';
 import { SendCriticalAlertCard } from '../../components/SendCriticalAlertCard';
 import {
   CATEGORIES,
@@ -126,7 +127,7 @@ export default function NotificationsScreen() {
   }
 
   return (
-    <View className="flex-1 bg-neutral-50">
+    <KeyboardAvoider style={{ backgroundColor: '#FAFAFA' }}>
       <ScrollView contentContainerClassName="px-4 pt-4 pb-8" keyboardShouldPersistTaps="handled">
         <Text className="text-2xs text-neutral-400 mb-3">{DUMMY_NOTIFICATIONS.length} across all categories</Text>
         {CATEGORIES.map((category) => (
@@ -145,14 +146,14 @@ export default function NotificationsScreen() {
           <Ionicons name="flask-outline" size={15} color="#6B7280" />
           <Text className="text-xs font-bold uppercase tracking-wide text-neutral-500 ml-1.5">Testing</Text>
         </View>
-        {state.profile.role === 'admin' ? <SendNotificationCard onResult={onResult} /> : null}
+        {/* Sending notifications moved to Settings → Login & Devices (2026-11-21). */}
         {selectedProjectId ? (
           <SendCriticalAlertCard projectId={selectedProjectId} senderId={state.profile.id} onResult={onResult} />
         ) : (
           <Text className="text-xs text-neutral-400 mb-3">Pick a project to send a critical alert.</Text>
         )}
       </ScrollView>
-    </View>
+    </KeyboardAvoider>
   );
 }
 

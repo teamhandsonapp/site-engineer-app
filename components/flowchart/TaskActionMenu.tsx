@@ -1,4 +1,5 @@
-import { Modal, Pressable, Text, View } from 'react-native';
+import { Modal, Pressable, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 
@@ -22,7 +23,9 @@ export function TaskActionMenu({
   // screen for a template task to open (unlike a real Task's checklist), so
   // it omits this row entirely rather than passing a no-op.
   onOpen?: () => void;
-  onEdit: () => void;
+  // Optional — omitted where editing isn't possible (view-only cards), so the
+  // menu never shows a button that does nothing.
+  onEdit?: () => void;
   // The templates LIST screen repurposes this middle slot for "Apply to
   // Project" (Open now goes to that template's own canvas there — see its
   // own fix comment — so Edit and Open would otherwise both point at the
@@ -64,10 +67,15 @@ export function TaskActionMenu({
                   <Text className="text-sm font-semibold text-neutral-800">Open</Text>
                 </Pressable>
               )}
-              <Pressable onPress={onEdit} className="flex-row items-center gap-3 px-3 py-3 rounded-lg bg-neutral-50">
-                <Ionicons name={editIcon} size={18} color="#0F1F33" />
-                <Text className="text-sm font-semibold text-neutral-800">{editLabel}</Text>
-              </Pressable>
+              {onEdit && (
+                <Pressable onPress={onEdit} className="flex-row items-center gap-3 px-3 py-3 rounded-lg bg-neutral-50">
+                  <Ionicons name={editIcon} size={18} color="#0F1F33" />
+                  <Text className="text-sm font-semibold text-neutral-800">{editLabel}</Text>
+                </Pressable>
+              )}
+              {!onOpen && !onEdit && !onLink && !onCopy && !onDelete && (
+                <Text className="text-xs text-neutral-500 px-1 py-2">View only here. Open this task from its own board to edit it.</Text>
+              )}
               {onLink && (
                 <Pressable onPress={onLink} className="flex-row items-center gap-3 px-3 py-3 rounded-lg bg-neutral-50">
                   <Ionicons name="git-network-outline" size={18} color="#0F1F33" />

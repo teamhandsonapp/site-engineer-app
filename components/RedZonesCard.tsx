@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, View } from 'react-native';
+import { Text, TextInput } from './ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import {
   createRestrictedZone,

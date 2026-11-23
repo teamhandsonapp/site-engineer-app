@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, LayoutChangeEvent, Modal, PixelRatio, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Alert, LayoutChangeEvent, PixelRatio, Platform, Pressable, ScrollView, useWindowDimensions, View } from 'react-native';
+import { Text, TextInput } from '../ui/AppText';
+import { FormModal } from '../ui/FormModal';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useFocusEffect } from 'expo-router';
-import { appRoleFor, useAuth } from '../../lib/AuthContext';
+import { appRoleFor, isFieldRole, useAuth } from '../../lib/AuthContext';
 import { useSafeBottomOffset } from '../../lib/useSafeBottomOffset';
 import { EdgeLayer } from './EdgeLayer';
+import { FLOWCHART_2_GROUPS, groupOutlines } from '../../lib/flowchart/boardGroups';
 import { TaskNode } from './TaskNode';
 import { TaskDetailSheet } from './TaskDetailSheet';
 import { TaskActionMenu } from './TaskActionMenu';
@@ -28,8 +31,27 @@ import {
   fetchTaskById,
   pushTasksUrgent,
   seedDependencyItems,
+  updateDependencyType,
+  updateTaskPlannedDates,
   updateTaskPosition,
+  isFlowchart2Set,
+  FLOWCHART_2_SET,
+  isPastTasksSet,
+  PAST_TASKS_COPY_SET,
+  PAST_TASKS_SET,
 } from '../../lib/flowchart/data';
+import { linkProblem } from '../../lib/flowchart/linkTypes';
+import { isSavedLinkId, placeDrop } from '../../lib/flowchart/boardLayout';
+import { ripplePlannedDates } from '../../lib/flowchart/plannedRipple';
+import { computeProjectedDates, runningDelayDays, shouldShowProjected } from '../../lib/flowchart/projected';
+import { CHECKLIST_NOTE_FIELDS, EMPTY_CHECKLIST_NOTES, fetchChecklistNotesForTasks, saveDelayGrid, STAGED_NOTE_FIELDS, type ChecklistNotes } from '../../lib/flowchart/checklistNotes';
+import { cellDays, DELAY_GRID_CELLS, gridTotal, type DelayGrid, type DelayGridNotes } from '../../lib/flowchart/delayGrid';
+import { DelayGridSheet } from './DelayGridSheet';
+import { delayCheck, expectedDelay, type AboveTask, type DelayCheck } from '../../lib/flowchart/delayMatch';
+import { ChecklistPeek } from './ChecklistPeek';
+import { DprPrChooser } from './DprPrChooser';
+import { LinkInfoSheet } from './LinkInfoSheet';
+import { LinkLegend } from './LinkLegend';
 import { getTaskTypeColors } from '../../lib/flowchart/taskTypeColor';
 import {
   assignTasksToMilestone,
@@ -50,6 +72,7 @@ import {
   type UndoableAction,
 } from '../../lib/flowchart/undo';
 import type {
+  DependencyType,
   FlowchartParallelEdge,
   FlowchartSeriesEdge,
   FlowchartTask,
@@ -62,6 +85,18 @@ import type {
 // Second toolbar row (New Task / Select / Create Milestone) sits under
 // the Locked/Editing row at top-3.
 const TOOLBAR_ROW2_TOP = 60;
+// Link labels (FS/SS/FF/SF chips) hide below this zoom; the line styles stay.
+const LABEL_MIN_ZOOM = 0.45;
+
+// Remembers where the user was looking (zoom + pan) so the screen's refresh
+// button can redraw the board and put them back on the same spot instead of
+// jumping to the top. The canvas saves its view here when it unmounts; the
+// next canvas to mount uses it once when 'pending' is true.
+export interface CanvasViewMemory {
+  pending: boolean;
+  view: { scale: number; translateX: number; translateY: number } | null;
+}
+
 export function FlowchartCanvas({
   projectId,
   initialTasks,
@@ -72,7 +107,50 @@ export function FlowchartCanvas({
   canvasTheme,
   onCanvasThemeChange,
   onTaskCountChange,
+  viewOnly = false,
+  flowchartSet = null,
+  viewMemory,
+  uniqueTaskCount,
+  detailTaskIds,
+  detailEditAllowed = false,
+  copiedTaskIds,
+  boardLayout,
+  onMilestonesChange,
+  delayCheckPanel = false,
 }: {
+  // L (−4'6") tab (2026-11-23, client): a pop-up panel over the board saying
+  // whether each card's delay days match its delay (not inside the cards).
+  delayCheckPanel?: boolean;
+  // Milestones made / removed on the board (2026-11-23): the screen updates its
+  // Filter list and its own copy of the tasks, so the new milestone filters at once.
+  onMilestonesChange?: (milestones: Milestone[], taskIds: string[], milestoneId: string | null) => void;
+  // Worked-out boards (Past Tasks / Past Tasks Copy, 2026-11-22): moves and
+  // link changes are kept per board by the screen instead of on the task —
+  // see lib/flowchart/boardLayout.ts. A dropped card lines up with the
+  // nearest column / row.
+  boardLayout?: {
+    savePosition: (taskId: string, x: number, y: number) => Promise<void>;
+    /** A link removed here (the screen deletes it or hides it on this board). */
+    removeLink: (edge: FlowchartSeriesEdge) => Promise<void>;
+    /** A saved link made here, so it is always drawn on this board. */
+    linkCreated: (edge: FlowchartSeriesEdge) => Promise<void>;
+  };
+  // Past Works Date Order: the Current Status tasks copied below the stacks.
+  // Their Pre-construction delays here are their own (copyPreConstruction),
+  // not the Current Status checklist.
+  copiedTaskIds?: ReadonlySet<string>;
+  // View-only boards: these cards can still be opened (and edited when
+  // detailEditAllowed) like on a normal board — details only, the layout
+  // stays locked. Past Tasks Date Order passes its own Past Tasks here.
+  detailTaskIds?: ReadonlySet<string>;
+  detailEditAllowed?: boolean;
+  // Boards that draw some tasks twice (Past Tasks date order): the real task
+  // count for the corner chip; the "Task N of M" chip is hidden.
+  uniqueTaskCount?: number;
+  // See CanvasViewMemory — lets a refresh keep the current zoom/position.
+  viewMemory?: { current: CanvasViewMemory };
+  // Board new tasks are created on ('flowchart-2' for the Flowchart 2 tab).
+  flowchartSet?: string | null;
   projectId: string;
   initialTasks: FlowchartTask[];
   seriesEdges: FlowchartSeriesEdge[];
@@ -90,6 +168,9 @@ export function FlowchartCanvas({
   // Optional: told the live task count whenever it changes (the screen uses
   // it to drop the "add your first task" hint once a task exists).
   onTaskCountChange?: (count: number) => void;
+  // Archived flowchart-only sets (tasks.flowchart_set): picture only — no
+  // task detail sheet, so no checklist/subtask/DPR surface is ever opened.
+  viewOnly?: boolean;
 }) {
   // PixelRatio.get() never changes for a mounted app (not a ref/state — a
   // plain device constant), so this is safe to read directly on every
@@ -174,9 +255,12 @@ export function FlowchartCanvas({
   // sheet instead of Open navigating away to a separate full-page screen;
   // they just default to a different starting tab, matching each entry's
   // old purpose (Open = view the checklist, Edit = edit task fields).
-  const [detailInitialTab, setDetailInitialTab] = useState<'edit' | 'subtasks' | 'prerequisites'>('edit');
+  const [detailInitialTab, setDetailInitialTab] = useState<'edit' | 'subtasks' | 'prerequisites' | 'checklist'>('edit');
   const [actionMenuTaskId, setActionMenuTaskId] = useState<string | null>(null);
   const [edgeDeleteConfirmId, setEdgeDeleteConfirmId] = useState<string | null>(null);
+  // Series link whose info sheet is open / whose type is being changed.
+  const [linkInfoId, setLinkInfoId] = useState<string | null>(null);
+  const [changeTypeEdgeId, setChangeTypeEdgeId] = useState<string | null>(null);
   const [deleteTaskConfirmId, setDeleteTaskConfirmId] = useState<string | null>(null);
   const [deletingTask, setDeletingTask] = useState(false);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
@@ -196,7 +280,13 @@ export function FlowchartCanvas({
   // (see TaskDetailSheet's own canEditChecklist comment).
   const canEditChecklist = authState.status === 'signed-in' && appRoleFor(authState.profile.role) === 'staff';
   const [selectMode, setSelectMode] = useState(false);
-  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  // Selection keeps the ORDER tasks were tapped (shown as 1, 2, 3… badges;
+  // with 2 tasks, #1 is the link's predecessor). selectedTaskIds is the set view.
+  const [selectedOrder, setSelectedOrder] = useState<string[]>([]);
+  const selectedTaskIds = useMemo(() => new Set(selectedOrder), [selectedOrder]);
+  const setSelectedTaskIds = (s: Set<string>) => setSelectedOrder(Array.from(s));
+  // "Link" from a 2-task selection: the pair (swappable) waiting for a type.
+  const [selectionLink, setSelectionLink] = useState<{ source: string; target: string } | null>(null);
   const [pushModalOpen, setPushModalOpen] = useState(false);
   const [pushing, setPushing] = useState(false);
 
@@ -210,12 +300,26 @@ export function FlowchartCanvas({
   }
 
   function toggleTaskSelected(taskId: string) {
-    setSelectedTaskIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(taskId)) next.delete(taskId);
-      else next.add(taskId);
-      return next;
-    });
+    setSelectedOrder((prev) => (prev.includes(taskId) ? prev.filter((id) => id !== taskId) : [...prev, taskId]));
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedOrder([]);
+  }
+
+  // Selection bar actions.
+  function selectionLinkTo() {
+    // 1 task: it becomes the link's start; tap the other task on the canvas next.
+    const id = selectedOrder[0];
+    exitSelectMode();
+    setLinkError(null);
+    setPendingSourceId(id);
+  }
+  function selectionMilestone() {
+    if (selectedOrder.length === 0) return;
+    setMilestoneNameError(null);
+    setPendingChainTaskIds([...selectedOrder]);
   }
 
   async function handlePushToEngineer(engineerId: string) {
@@ -253,6 +357,25 @@ export function FlowchartCanvas({
   const [milestoneNameError, setMilestoneNameError] = useState<string | null>(null);
   const [savingMilestone, setSavingMilestone] = useState(false);
   const milestoneById = new Map(milestones.map((m) => [m.id, m]));
+
+  // ─── Milestone line (Past Tasks Copy, 2026-11-23, client): draw a
+  // horizontal line across the board and name it — every card above it that
+  // isn't in a milestone yet becomes that milestone (tasks.milestone_id, so
+  // it is in the Filter and the Reports). Lines go top-down: the next line
+  // takes the cards between it and the line above. A saved milestone's line
+  // is drawn under its lowest card.
+  // Past Tasks and Past Tasks Copy (2026-11-23, client): every card gets the
+  // delay table, the "not matching" check and the milestone line.
+  const isPastCopyBoard = flowchartSet === PAST_TASKS_COPY_SET || flowchartSet === PAST_TASKS_SET;
+  // Reasons-for-delay table cards (lib/flowchart/delayGrid.ts).
+  const isGridTask = (_t: { taskId: string }) => isPastCopyBoard;
+  // On Past Tasks the cards below are the live Current Status tasks: a
+  // milestone line never takes them (that would change Current Status too).
+  const isLiveCopy = (id: string) => flowchartSet === PAST_TASKS_SET && !!copiedTaskIds?.has(id);
+  const [gridTaskId, setGridTaskId] = useState<string | null>(null);
+  const [lineMode, setLineMode] = useState(false);
+  const [lineY, setLineY] = useState(0);
+  const [lineHandleX, setLineHandleX] = useState(0);
 
   useEffect(() => {
     fetchMilestones(projectId).then(setMilestones).catch(() => {}); // the legend/badges are a courtesy, not load-bearing
@@ -312,9 +435,12 @@ export function FlowchartCanvas({
       await assignTasksToMilestone(pendingChainTaskIds, milestone.id);
       setMilestones((prev) => [...prev, milestone]);
       setTasks((prev) => prev.map((t) => (pendingChainTaskIds.includes(t.id) ? { ...t, milestoneId: milestone.id } : t)));
+      onMilestonesChange?.([...milestones, milestone], pendingChainTaskIds, milestone.id);
       setPendingChainTaskIds(null);
       setMilestonePickedIds(new Set());
       setMilestoneMode(false);
+      setLineMode(false);
+      exitSelectMode();
     } catch (err) {
       setMilestoneNameError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -322,21 +448,31 @@ export function FlowchartCanvas({
     }
   }
 
+  // A dialog, not Alert.alert: Alert's buttons do nothing in the browser (2026-11-23).
+  const [milestoneToRemove, setMilestoneToRemove] = useState<Milestone | null>(null);
+  const [removingMilestone, setRemovingMilestone] = useState(false);
   function confirmDeleteMilestone(m: Milestone) {
-    Alert.alert(`Remove ${m.name}?`, 'Its tasks stay on the flowchart — they just stop being grouped under this milestone.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Remove', style: 'destructive', onPress: () => handleDeleteMilestone(m.id) },
-    ]);
+    setMilestoneToRemove(m);
+  }
+  function confirmDeleteMilestoneById(id: string) {
+    const m = milestones.find((x) => x.id === id);
+    if (m) setMilestoneToRemove(m);
   }
 
   async function handleDeleteMilestone(milestoneId: string) {
+    setRemovingMilestone(true);
     try {
       await deleteMilestone(milestoneId);
+      const members = tasks.filter((t) => t.milestoneId === milestoneId).map((t) => t.id);
       setMilestones((prev) => prev.filter((m) => m.id !== milestoneId));
       if (focusedMilestoneId === milestoneId) setFocusedMilestoneId(null);
       setTasks((prev) => prev.map((t) => (t.milestoneId === milestoneId ? { ...t, milestoneId: null } : t)));
+      onMilestonesChange?.(milestones.filter((m) => m.id !== milestoneId), members, null);
     } catch (err) {
-      Alert.alert('Could not delete', err instanceof Error ? err.message : String(err));
+      setLinkError(`Could not remove the milestone — ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setMilestoneToRemove(null);
+      setRemovingMilestone(false);
     }
   }
 
@@ -380,7 +516,7 @@ export function FlowchartCanvas({
         // layoutTasks() rather than set directly, so it goes through the
         // exact same compression every other task on screen uses.
         const pos = isUndo ? action.before : action.after;
-        await updateTaskPosition(action.taskId, pos.x, pos.y);
+        await (boardLayout ? boardLayout.savePosition(action.taskId, pos.x, pos.y) : updateTaskPosition(action.taskId, pos.x, pos.y));
         setTasks((prev) => {
           const result = safeLayout(prev.map((t) => (
             t.id === action.taskId ? { ...t, manualPositionX: pos.x, manualPositionY: pos.y } : t
@@ -460,6 +596,20 @@ export function FlowchartCanvas({
         }
         return;
       }
+      case 'changeSeriesLinkType': {
+        const edge = seriesEdges.find((e) => e.taskId === action.taskId && e.dependsOnTaskId === action.dependsOnTaskId);
+        if (edge) {
+          const type = isUndo ? action.before : action.after;
+          await updateDependencyType(edge.id, type);
+          setSeriesEdges((prev) => prev.map((e) => (e.id === edge.id ? { ...e, type } : e)));
+        }
+        for (const d of action.dates ?? []) {
+          const [s, e] = isUndo ? d.before : d.after;
+          await updateTaskPlannedDates(d.id, s, e);
+          setTasks((prev) => prev.map((t) => (t.id === d.id ? { ...t, plannedStartDate: s, dueDate: e } : t)));
+        }
+        return;
+      }
       case 'deleteParallelLink': {
         if (isUndo) {
           const edge = await createParallelLink(action.taskAId, action.taskBId);
@@ -509,6 +659,130 @@ export function FlowchartCanvas({
   }
 
   const typeColors = useMemo(() => getTaskTypeColors(taskTypes), [taskTypes]);
+  // Blue "projected dates" chip — Flowchart 2 only (2026-11-14). Worked out
+  // fresh from the current dates + links, so editing a date or a link moves
+  // every downstream chip straight away.
+  // Completed Tasks is static (2026-11-23, client): each card shows only its own
+  // planned and actual dates — no Estimated dates pushed down from the tasks before it.
+  const projectedById = useMemo(
+    () => (isFlowchart2Set(flowchartSet) && flowchartSet !== PAST_TASKS_COPY_SET ? computeProjectedDates(tasks, seriesEdges) : new Map()),
+    [flowchartSet, tasks, seriesEdges]
+  );
+  const linkedTaskIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const e of seriesEdges) { ids.add(e.taskId); ids.add(e.dependsOnTaskId); }
+    return ids;
+  }, [seriesEdges]);
+
+  // Client-checklist wheel (Flowchart 2): shown only on cards whose checklist
+  // has something written; tapping it opens a read-only pop-up (ChecklistPeek).
+  // Re-read whenever the task sheet closes, so a checklist just saved there
+  // shows straight away.
+  const [checklistNotesById, setChecklistNotesById] = useState<Map<string, ChecklistNotes>>(new Map());
+  // Past Tasks (2026-11-21): Construction-stage delays + Equipment delays on the wheel / pop-up.
+  const isPastBoard = isPastTasksSet(flowchartSet);
+  const [constructionNotesById, setConstructionNotesById] = useState<Map<string, ChecklistNotes>>(new Map());
+  const [peekTaskId, setPeekTaskId] = useState<string | null>(null);
+  // DPR / PR note icon on every card — Flowchart 2 only (the ~80 tasks, not
+  // the Test copy), and only for the accounts the DPR tab itself allows
+  // (admin + site engineers), 2026-11-18.
+  const showDprIcon =
+    flowchartSet === FLOWCHART_2_SET &&
+    authState.status === 'signed-in' &&
+    (authState.profile.role === 'admin' || isFieldRole(authState.profile.role));
+  const [dprTaskId, setDprTaskId] = useState<string | null>(null);
+  // Last tap on a card's icon (DPR / checklist wheel / link dot) — the card's
+  // own tap for that same press is ignored (see handleTap).
+  const innerTapRef = useRef<{ taskId: string; at: number } | null>(null);
+  // Link dots on every box while Editing (unlocked), 2026-11-18. Every board
+  // since 2026-11-22 (client: "move and link on all the flowcharts"), not
+  // just the main Flowchart.
+  const showConnectors = editable && !viewOnly && !selectMode && !milestoneMode && !lineMode;
+  const taskIdsKey = useMemo(() => tasks.map((t) => t.id).join(','), [tasks]);
+  useEffect(() => {
+    if (!isFlowchart2Set(flowchartSet) || detailTaskId !== null || !taskIdsKey) return;
+    let cancelled = false;
+    const ids = taskIdsKey.split(',');
+    // Copied Current Status tasks (Past Works): their own Pre-construction,
+    // not the Current Status checklist. Loaded together so one can't overwrite the other.
+    const copied = isPastTasksSet(flowchartSet) ? ids.filter((id) => copiedTaskIds?.has(id)) : [];
+    Promise.all([
+      fetchChecklistNotesForTasks(ids.filter((id) => !copiedTaskIds?.has(id) || !isPastTasksSet(flowchartSet))),
+      copied.length ? fetchChecklistNotesForTasks(copied, 'copyPreConstruction').catch(() => new Map<string, ChecklistNotes>()) : Promise.resolve(new Map<string, ChecklistNotes>()),
+    ])
+      .then(([notes, own]) => {
+        if (cancelled) return;
+        for (const [id, n] of own) notes.set(id, n);
+        setChecklistNotesById(notes);
+      })
+      .catch(() => {});
+    if (isPastTasksSet(flowchartSet)) {
+      fetchChecklistNotesForTasks(ids, 'construction')
+        .then((notes) => !cancelled && setConstructionNotesById(notes))
+        .catch(() => {});
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [flowchartSet, detailTaskId, taskIdsKey]);
+  const wheelFields = isPastBoard ? STAGED_NOTE_FIELDS : CHECKLIST_NOTE_FIELDS;
+  const checklistDotsById = useMemo(() => {
+    const out = new Map<string, boolean[]>();
+    const ids = new Set([...checklistNotesById.keys(), ...(isPastBoard ? constructionNotesById.keys() : [])]);
+    for (const id of ids) {
+      const pre = checklistNotesById.get(id);
+      const con = isPastBoard ? constructionNotesById.get(id) : undefined;
+      // A point counts as written if it is written in either stage.
+      // Delay table cells count for the point they are (2026-11-23).
+      const inGrid = (n: ChecklistNotes | undefined, key: string) => DELAY_GRID_CELLS.some((c) => c.column.field === key && cellDays(n?.delayGrid, c.id) > 0);
+      const dots = wheelFields.map((f) => !!pre?.[f.key]?.trim() || !!con?.[f.key]?.trim() || inGrid(pre, f.key) || inGrid(con, f.key));
+      if (dots.some(Boolean) || gridTotal(pre?.delayGrid) > 0 || gridTotal(con?.delayGrid) > 0) out.set(id, dots);
+    }
+    return out;
+  }, [checklistNotesById, constructionNotesById, isPastBoard, wheelFields]);
+
+  const emptyDots = useMemo(() => wheelFields.map(() => false), [wheelFields]);
+  // Same dates as the card's red "Pre-con · Const · Total" line.
+  const taskDates = (t: FlowchartTask) => ({
+    plannedStart: t.currentPlannedStartDate ?? t.plannedStartDate,
+    plannedEnd: t.currentDueDate ?? t.dueDate,
+    actualStart: t.actualStartDate,
+    actualEnd: t.actualEndDate,
+  });
+  // The tasks linked into this one (FS / SS arrows): a late start can come from them.
+  const aboveFor = (t: FlowchartTask): AboveTask[] =>
+    seriesEdges.flatMap((e) => {
+      if (e.taskId !== t.id) return [];
+      const p = tasks.find((x) => x.id === e.dependsOnTaskId);
+      return p ? [{ code: p.taskId, type: e.type, actualStart: p.actualStartDate, actualEnd: p.actualEndDate }] : [];
+    });
+  // Delay table cards: do the days given match the delay? (2026-11-23, client)
+  const delayChecks = useMemo(() => {
+    const out: { id: string; code: string; check: DelayCheck }[] = [];
+    for (const t of tasks) {
+      if (!isGridTask(t) || out.some((o) => o.id === t.id)) continue;
+      const c = delayCheck(taskDates(t), checklistNotesById.get(t.id), constructionNotesById.get(t.id), aboveFor(t));
+      if (c) out.push({ id: t.id, code: t.taskId, check: c });
+    }
+    // Not matching first, then by code.
+    return out.sort((a, b) => Number(a.check.matched) - Number(b.check.matched) || a.code.localeCompare(b.code, undefined, { numeric: true }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, seriesEdges, checklistNotesById, constructionNotesById, isPastCopyBoard]);
+  const notMatching = delayChecks.filter((c) => !c.check.matched).length;
+  const [checkPanelOpen, setCheckPanelOpen] = useState(true);
+
+  // Delay table saved: only the stage(s) that changed are written; the wheel
+  // and the green border follow at once.
+  async function handleSaveGrid(taskId: string, pre: DelayGrid, con: DelayGrid, preNotes: DelayGridNotes, conNotes: DelayGridNotes) {
+    const same = (a: Record<string, unknown> | undefined, b: Record<string, unknown>) => JSON.stringify(Object.entries(a ?? {}).sort()) === JSON.stringify(Object.entries(b).sort());
+    const preStage = copiedTaskIds?.has(taskId) ? 'copyPreConstruction' : 'preConstruction';
+    const p = checklistNotesById.get(taskId);
+    const c = constructionNotesById.get(taskId);
+    if (!same(p?.delayGrid, pre) || !same(p?.delayGridNotes, preNotes)) await saveDelayGrid(taskId, pre, pushedByUserId, preStage, preNotes);
+    if (!same(c?.delayGrid, con) || !same(c?.delayGridNotes, conNotes)) await saveDelayGrid(taskId, con, pushedByUserId, 'construction', conNotes);
+    setChecklistNotesById((prev) => new Map(prev).set(taskId, { ...(prev.get(taskId) ?? EMPTY_CHECKLIST_NOTES), delayGrid: pre, delayGridNotes: preNotes }));
+    setConstructionNotesById((prev) => new Map(prev).set(taskId, { ...(prev.get(taskId) ?? EMPTY_CHECKLIST_NOTES), delayGrid: con, delayGridNotes: conNotes }));
+  }
 
   const bounds = useMemo(() => computeBounds(tasks), [tasks]);
   // "Task N of M" position indicator + jump-to-task search — by explicit
@@ -547,9 +821,12 @@ export function FlowchartCanvas({
   // Plain React state (not a shared value) since it only needs to update
   // once per gesture SETTLE, not every frame.
   const [gridArea, setGridArea] = useState<GridArea | null>(null);
+  // Zoom level as of the last settled gesture — link labels hide when zoomed far out.
+  const [labelZoom, setLabelZoom] = useState(1);
   function recomputeGridArea() {
     if (!containerSize) return;
     setGridArea(computeGridArea(scale.value, translateX.value, translateY.value, containerSize.width, containerSize.height));
+    setLabelZoom(scale.value);
   }
 
   // Viewport culling — a real project's flowchart (311 tasks, confirmed
@@ -654,7 +931,10 @@ export function FlowchartCanvas({
   // replaced a whole-graph fit-to-view.
   useEffect(() => {
     if (!containerSize) return;
-    const fit = fitInitialViewTransform(tasksRef.current, containerSize.width, containerSize.height);
+    // After a refresh: go back to the exact spot the user was on (once).
+    const remembered = viewMemory?.current.pending ? viewMemory.current.view : null;
+    if (viewMemory) viewMemory.current.pending = false;
+    const fit = remembered ?? fitInitialViewTransform(tasksRef.current, containerSize.width, containerSize.height);
     scale.value = fit.scale;
     savedScale.value = fit.scale;
     translateX.value = fit.translateX;
@@ -667,7 +947,19 @@ export function FlowchartCanvas({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [containerSize]);
 
+  // Save the current view when this canvas goes away (refresh / board switch).
+  useEffect(() => {
+    const memory = viewMemory;
+    return () => {
+      if (memory) memory.current.view = { scale: scale.value, translateX: translateX.value, translateY: translateY.value };
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const draggingNodeId = useSharedValue<string | null>(null);
+  // Milestone line handle drag: the board doesn't pan meanwhile.
+  const lineDragY = useSharedValue(0);
+  const lineDragging = useSharedValue(false);
   const dragDeltaX = useSharedValue(0);
   const dragDeltaY = useSharedValue(0);
 
@@ -711,23 +1003,47 @@ export function FlowchartCanvas({
       afterReal = { x: inverseAxisMap(xMap, finalX), y: inverseAxisMap(yMap, finalY) };
     }
 
-    const previous = task;
-    setTasks((prev) => prev.map((t) => (
-      t.id === taskId ? { ...t, x: finalX, y: finalY, manualPositionX: afterReal.x, manualPositionY: afterReal.y } : t
-    )));
-    // Stored as REAL coordinates — applyHistoryAction's own 'move' case
-    // re-derives the compressed render position via layoutTasks(), same as
-    // every other position-affecting action in this file. Only recorded once
-    // the move is really saved; a failed save snaps the task back and says so.
-    updateTaskPosition(taskId, afterReal.x, afterReal.y)
-      .then(() => pushHistory({ type: 'move', taskId, before: beforeReal, after: afterReal }))
+    // Every board (2026-11-22): the drop lines up with the nearest column /
+    // row and never lands on another card (placeDrop), and the board is laid
+    // out again — so what shows now is exactly what shows after a reload.
+    const others = tasks
+      .filter((t) => t.id !== taskId && t.manualPositionX != null && t.manualPositionY != null)
+      .map((t) => ({ x: t.manualPositionX!, y: t.manualPositionY! }));
+    const placed = placeDrop(afterReal, others, NODE_WIDTH * 0.55, NODE_HEIGHT * 0.9, beforeReal);
+    const relayout = (pos: { x: number; y: number }) =>
+      setTasks((prev) => {
+        const result = safeLayout(prev.map((t) => (t.id === taskId ? { ...t, manualPositionX: pos.x, manualPositionY: pos.y } : t)));
+        setNodeScale(result.nodeScale);
+        return result.tasks;
+      });
+    relayout(placed);
+    // Worked-out boards (2026-11-23, client): a moved card leaves its column,
+    // so the board's automatic "next in the column" lines (order:…) stop
+    // following it — same rule applyBoardLayout uses after a reload.
+    if (boardLayout) setSeriesEdges((prev) => prev.filter((e) => !(e.id.startsWith('order:') && (e.taskId === taskId || e.dependsOnTaskId === taskId))));
+    // Worked-out boards keep the move on that board only; others save it on the task.
+    // Stored as REAL coordinates (see above). Only recorded once really saved;
+    // a failed save puts the card back and says so.
+    (boardLayout ? boardLayout.savePosition(taskId, placed.x, placed.y) : updateTaskPosition(taskId, placed.x, placed.y))
+      .then(() => pushHistory({ type: 'move', taskId, before: beforeReal, after: placed }))
       .catch((err) => {
-        setTasks((prev) => prev.map((t) => (t.id === taskId ? previous : t)));
+        relayout(beforeReal);
         setLinkError(`Couldn't move the task — ${err instanceof Error ? err.message : 'check your connection'}. It was put back.`);
       });
   }
 
   function handleTap(taskId: string) {
+    // The card's own tap can fire for the same press as one of its icons
+    // (DPR, checklist wheel, link dot) — that tap is ignored, so the icon's
+    // pop-up isn't pushed aside by the card's menu (2026-11-18).
+    const inner = innerTapRef.current;
+    if (inner && inner.taskId === taskId && Date.now() - inner.at < 500) return;
+    // Milestone line: a tap puts the line just under that card.
+    if (lineMode) {
+      const t = tasks.find((x) => x.id === taskId);
+      if (t) setLineY(stopBelow(t.y + NODE_HEIGHT * nodeScale));
+      return;
+    }
     if (milestoneMode) {
       handleMilestoneTap(taskId);
       return;
@@ -753,12 +1069,32 @@ export function FlowchartCanvas({
     if (pendingSourceId) {
       if (pendingSourceId === taskId) {
         setPendingSourceId(null); // tapping the same node again cancels
+        setLinkError("A task can't be linked to itself — linking cancelled.");
         return;
       }
       setLinkPromptTargetId(taskId);
       return;
     }
     setActionMenuTaskId(taskId);
+  }
+
+  // Link dots ("Flowchart" board, 2026-11-18): the first dot tapped picks the
+  // task the link starts from; a dot on another box picks the second task and
+  // opens the usual link-type picker (same createLink as the menu's Link to Task).
+  function handleConnectorPress(taskId: string) {
+    innerTapRef.current = { taskId, at: Date.now() };
+    if (!editable) return;
+    setActionMenuTaskId(null);
+    setLinkError(null);
+    if (!pendingSourceId) {
+      setPendingSourceId(taskId);
+      return;
+    }
+    if (pendingSourceId === taskId) {
+      setPendingSourceId(null); // same box again = cancel
+      return;
+    }
+    setLinkPromptTargetId(taskId);
   }
 
   function handleLinkTypeSelected(type: RelationshipType) {
@@ -786,9 +1122,21 @@ export function FlowchartCanvas({
         return;
       }
     } else {
-      const exists = seriesEdges.some((e) => e.taskId === target && e.dependsOnTaskId === source);
-      if (exists) {
-        setLinkError('This dependency already exists.');
+      // Already linked the same way round → just change that link's type
+      // (2026-11-15: picking SS for an FS pair used to be refused).
+      // Whichever order the two were tapped in, the link keeps its direction.
+      const existing = seriesEdges.find(
+        (e) => (e.dependsOnTaskId === source && e.taskId === target) || (e.dependsOnTaskId === target && e.taskId === source)
+      );
+      if (existing) {
+        await changeLinkType(existing.id, type);
+        return;
+      }
+      // Self, duplicate (either direction) and circular links are refused
+      // with a plain message (the database refuses them too).
+      const problem = linkProblem(seriesEdges, source, target);
+      if (problem) {
+        setLinkError(problem);
         return;
       }
     }
@@ -805,6 +1153,7 @@ export function FlowchartCanvas({
         const edge = await createDependency(target, source, type);
         setSeriesEdges((prev) => [...prev, edge]);
         pushHistory({ type: 'createSeriesLink', taskId: target, dependsOnTaskId: source, linkType: type });
+        await boardLayout?.linkCreated(edge);
       }
     } catch (err) {
       setLinkError(err instanceof Error ? err.message : 'Could not create the link — try again.');
@@ -834,8 +1183,54 @@ export function FlowchartCanvas({
           setLinkError(`Couldn't delete the link — ${err instanceof Error ? err.message : 'check your connection'}. It was restored.`);
         });
     } else {
-      setEdgeDeleteConfirmId(edgeId);
+      setLinkInfoId(edgeId);
     }
+  }
+
+  // Change an existing series link's type (from its info sheet).
+  async function changeLinkType(edgeId: string, type: DependencyType) {
+    const edge = seriesEdges.find((e) => e.id === edgeId);
+    setChangeTypeEdgeId(null);
+    if (!edge || edge.type === type) return;
+    if (boardLayout && !isSavedLinkId(edge.id)) {
+      // A drawn-in column arrow (not saved): changing its type saves a real
+      // link of that type in its place, shown on this board from now on.
+      try {
+        const saved = await createDependency(edge.taskId, edge.dependsOnTaskId, type);
+        setSeriesEdges((prev) => prev.map((e) => (e.id === edgeId ? saved : e)));
+        await boardLayout.linkCreated(saved);
+      } catch (err) {
+        setLinkError(`Couldn't change the link type — ${err instanceof Error ? err.message : 'check your connection'}.`);
+      }
+      return;
+    }
+    setSeriesEdges((prev) => prev.map((e) => (e.id === edgeId ? { ...e, type } : e)));
+    try {
+      await updateDependencyType(edgeId, type);
+    } catch (err) {
+      setSeriesEdges((prev) => prev.map((e) => (e.id === edgeId ? { ...e, type: edge.type } : e)));
+      setLinkError(`Couldn't change the link type — ${err instanceof Error ? err.message : 'check your connection'}.`);
+      return;
+    }
+    // Flowchart 2: the planned dates follow the new link type, down the chain.
+    // Not on Completed Tasks (static, 2026-11-23): a link never moves dates there.
+    const dates: { id: string; before: [string | null, string | null]; after: [string | null, string | null] }[] = [];
+    if (isFlowchart2Set(flowchartSet) && flowchartSet !== PAST_TASKS_COPY_SET) {
+      const newEdges = seriesEdges.map((e) => (e.id === edgeId ? { ...e, type } : e));
+      const moved = ripplePlannedDates(tasks, newEdges, edge.taskId);
+      try {
+        for (const [id, d] of moved) {
+          const t = tasks.find((x) => x.id === id);
+          await updateTaskPlannedDates(id, d.start, d.end);
+          dates.push({ id, before: [t?.plannedStartDate ?? null, t?.dueDate ?? null], after: [d.start, d.end] });
+        }
+      } catch (err) {
+        setLinkError(`Link changed, but some planned dates couldn't be saved — ${err instanceof Error ? err.message : 'check your connection'}. Refresh to see the saved state.`);
+      }
+      const byId = new Map(dates.map((d) => [d.id, d.after]));
+      setTasks((prev) => prev.map((t) => (byId.has(t.id) ? { ...t, plannedStartDate: byId.get(t.id)![0], dueDate: byId.get(t.id)![1] } : t)));
+    }
+    pushHistory({ type: 'changeSeriesLinkType', taskId: edge.taskId, dependsOnTaskId: edge.dependsOnTaskId, before: edge.type, after: type, ...(dates.length ? { dates } : {}) });
   }
 
   function confirmSeriesEdgeDelete() {
@@ -844,6 +1239,15 @@ export function FlowchartCanvas({
     const edge = seriesEdges.find((e) => e.id === id);
     setEdgeDeleteConfirmId(null);
     setSeriesEdges((prev) => prev.filter((e) => e.id !== id));
+    if (boardLayout) {
+      // Worked-out board: the screen deletes it or hides it on this board only.
+      if (!edge) return;
+      boardLayout.removeLink(edge).catch((err) => {
+        setSeriesEdges((prev) => (prev.some((e) => e.id === edge.id) ? prev : [...prev, edge]));
+        setLinkError(`Couldn't remove the link — ${err instanceof Error ? err.message : 'check your connection'}. It was restored.`);
+      });
+      return;
+    }
     deleteDependency(id)
       .then(() => {
         if (edge) pushHistory({ type: 'deleteSeriesLink', taskId: edge.taskId, dependsOnTaskId: edge.dependsOnTaskId, linkType: edge.type });
@@ -856,13 +1260,32 @@ export function FlowchartCanvas({
 
   function handleOpenTask(taskId: string) {
     setActionMenuTaskId(null);
+    if (viewOnly && !detailTaskIds?.has(taskId)) return;
     setDetailTaskId(taskId);
     setDetailEditable(false);
     setDetailInitialTab('prerequisites');
   }
 
+  // Tapping a card's checklist wheel opens the read-only checklist pop-up.
+  function handleOpenChecklist(taskId: string) {
+    innerTapRef.current = { taskId, at: Date.now() };
+    setActionMenuTaskId(null);
+    const t = tasks.find((x) => x.id === taskId);
+    // Past Tasks Copy L (−4'6") cards: the delay table, straight in edit mode (2026-11-23).
+    if (t && isGridTask(t)) setGridTaskId(taskId);
+    else setPeekTaskId(taskId);
+  }
+
+  // Tapping a card's note icon opens the DPR / PR chooser.
+  function handleOpenDpr(taskId: string) {
+    innerTapRef.current = { taskId, at: Date.now() };
+    setActionMenuTaskId(null);
+    setDprTaskId(taskId);
+  }
+
   function handleEditTask(taskId: string) {
     setActionMenuTaskId(null);
+    if (viewOnly && !(detailTaskIds?.has(taskId) && detailEditAllowed)) return;
     setDetailTaskId(taskId);
     setDetailEditable(true);
     setDetailInitialTab('edit');
@@ -952,9 +1375,16 @@ export function FlowchartCanvas({
       runOnJS(recomputePositionIndicator)();
     });
 
+  // Editing mode: boxes drag themselves (TaskNode's own Pan, no
+  // press-and-hold), so the board's pan never moves a box there and never
+  // pans while a box is being dragged (2026-11-18: the board used to move along).
+  // Every board since 2026-11-22, not just the main Flowchart.
+  const directDrag = editable && !viewOnly;
   const pan = Gesture.Pan()
     .onUpdate((e) => {
+      if (lineDragging.value) return;
       if (draggingNodeId.value != null) {
+        if (directDrag) return;
         dragDeltaX.value = e.translationX / scale.value;
         dragDeltaY.value = e.translationY / scale.value;
         return;
@@ -963,7 +1393,7 @@ export function FlowchartCanvas({
       translateY.value = savedTranslateY.value + e.translationY;
     })
     .onEnd((e) => {
-      if (draggingNodeId.value != null) {
+      if (draggingNodeId.value != null && !directDrag) {
         const id = draggingNodeId.value;
         const dx = e.translationX / scale.value;
         const dy = e.translationY / scale.value;
@@ -978,10 +1408,31 @@ export function FlowchartCanvas({
     });
 
   const composedGesture = Gesture.Simultaneous(pinch, pan);
+  const lineHandlePan = Gesture.Pan()
+    .onBegin(() => {
+      lineDragging.value = true;
+    })
+    .onUpdate((e) => {
+      lineDragY.value = e.translationY / scale.value;
+    })
+    .onEnd(() => {
+      // Not e.translationY: the browser reports 0 there at the end.
+      runOnJS(commitLineDrag)(lineDragY.value);
+    })
+    .onFinalize(() => {
+      lineDragging.value = false;
+    });
+  const lineDragStyle = useAnimatedStyle(() => ({ transform: [{ translateY: lineDragY.value }] }));
   // No more RelationshipToolbar eating bottom space to reserve room above —
   // the zoom controls always just clear the safe-area/gesture-bar offset
   // now, editable or not.
   const zoomBottomOffset = useSafeBottomOffset(4);
+  // A bottom action bar (focused milestone / milestone picks / multi-select)
+  // spans the full width at the bottom; while one is showing, the left
+  // search stack and right zoom stack move up above it instead of being
+  // covered by it (2026-11-12, responsiveness batch 4).
+  const BOTTOM_BAR_LIFT = 60;
+  const { width: screenWidth } = useWindowDimensions();
 
   // Explicit +/- controls alongside pinch-to-zoom — pinch alone isn't
   // discoverable (a user has no visual cue it's even possible), and a real
@@ -989,10 +1440,12 @@ export function FlowchartCanvas({
   // toward the current viewport's center, keeping whatever content is
   // already centered under your thumb roughly where it was rather than
   // jumping the view around.
-  function zoomBy(factor: number) {
+  // `at` (2026-11-23): zoom toward this point of the board's frame (the mouse
+  // pointer) instead of its centre; `settle` false while the wheel is still turning.
+  function zoomBy(factor: number, at?: { x: number; y: number }, settle = true) {
     if (!containerSize) return;
-    const cx = containerSize.width / 2;
-    const cy = containerSize.height / 2;
+    const cx = at?.x ?? containerSize.width / 2;
+    const cy = at?.y ?? containerSize.height / 2;
     const oldScale = scale.value;
     const newScale = Math.min(Math.max(oldScale * factor, 0.2), 3);
     const actualFactor = newScale / oldScale;
@@ -1002,10 +1455,50 @@ export function FlowchartCanvas({
     savedScale.value = newScale;
     savedTranslateX.value = translateX.value;
     savedTranslateY.value = translateY.value;
+    if (!settle) return;
     recomputeGridArea();
     recomputeVisibleTasks();
     recomputePositionIndicator();
   }
+
+  // Mouse wheel zoom in the browser (2026-11-23, client): scroll up = zoom in,
+  // down = zoom out, toward the mouse pointer (a laptop touchpad pinch works
+  // the same way). Scrolling inside a panel over the board (e.g. a list)
+  // still scrolls that panel. The grid / visible cards catch up once the
+  // wheel stops.
+  const containerRef = useRef<View>(null);
+  const wheelZoomRef = useRef<(e: WheelEvent) => void>(() => {});
+  const wheelSettleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  wheelZoomRef.current = (e: WheelEvent) => {
+    const node = containerRef.current as unknown as HTMLElement | null;
+    if (!node || !containerSize) return;
+    for (let el = e.target as HTMLElement | null; el && el !== node; el = el.parentElement) {
+      const oy = window.getComputedStyle(el).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > el.clientHeight) return;
+    }
+    e.preventDefault();
+    const rect = node.getBoundingClientRect();
+    const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    const factor = Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015));
+    zoomBy(factor, { x: e.clientX - rect.left, y: e.clientY - rect.top }, false);
+    if (wheelSettleRef.current) clearTimeout(wheelSettleRef.current);
+    wheelSettleRef.current = setTimeout(() => {
+      recomputeGridArea();
+      recomputeVisibleTasks();
+      recomputePositionIndicator();
+    }, 150);
+  };
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const node = containerRef.current as unknown as HTMLElement | null;
+    if (!node?.addEventListener) return;
+    const onWheel = (e: WheelEvent) => wheelZoomRef.current(e);
+    node.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      node.removeEventListener('wheel', onWheel);
+      if (wheelSettleRef.current) clearTimeout(wheelSettleRef.current);
+    };
+  }, []);
 
   // Jumps straight to the topmost/bottommost row instead of the manual
   // pan a 300+ task project would otherwise need — by explicit request.
@@ -1101,16 +1594,117 @@ export function FlowchartCanvas({
   }));
 
   const focusedMilestone = focusedMilestoneId ? milestoneById.get(focusedMilestoneId) ?? null : null;
+  const bottomBarShowing = !!focusedMilestone || (milestoneMode && milestonePickedIds.size > 0) || selectMode || lineMode;
+  // How far the floating controls move up so nothing covers a bottom bar (the selection bar is taller).
+  const bottomLift = selectMode ? (selectedOrder.length > 0 ? 116 : 64) : bottomBarShowing ? BOTTOM_BAR_LIFT : 0;
   const focusedMilestoneTaskCount = focusedMilestoneId ? tasks.filter((t) => t.milestoneId === focusedMilestoneId).length : 0;
   // EdgeLayer already drops any edge whose endpoint isn't in the list it's
   // given, so filtering the task list alone also hides every edge leading
   // out of the focused milestone.
   const renderedTasks = focusedMilestoneId ? visibleTasks.filter((t) => t.milestoneId === focusedMilestoneId) : visibleTasks;
+  // Milestone line: the clear gaps between card rows a line can sit in.
+  const boxH = NODE_HEIGHT * nodeScale;
+  const lineStops = (() => {
+    if (!isPastCopyBoard) return [] as number[];
+    const rows = [...new Set(tasks.map((t) => t.y))].sort((a, b) => a - b);
+    const stops: number[] = [];
+    for (const y of rows) {
+      const bottom = y + boxH;
+      const next = rows.find((r) => r >= bottom);
+      const stop = next !== undefined ? (bottom + next) / 2 : bottom + 21 * nodeScale;
+      if (!tasks.some((t) => t.y < stop && t.y + boxH > stop) && !stops.some((x) => Math.abs(x - stop) < 1)) stops.push(stop);
+    }
+    return stops.sort((a, b) => a - b);
+  })();
+  const stopBelow = (y: number) => lineStops.find((x) => x >= y) ?? y + 21 * nodeScale;
+  const nearestStop = (y: number) => lineStops.reduce((best, x) => (Math.abs(x - y) < Math.abs(best - y) ? x : best), lineStops[0] ?? y);
+  const unassigned = (t: PositionedTask) => !t.milestoneId || !milestoneById.has(t.milestoneId);
+  // Board milestones only (not the project's milestones from other boards).
+  const boardMilestones = isPastCopyBoard ? milestones.filter((m) => tasks.some((t) => !isLiveCopy(t.id) && t.milestoneId === m.id)) : milestones;
+  const milestoneLines = isPastCopyBoard
+    ? boardMilestones.map((m) => {
+        const members = tasks.filter((t) => !isLiveCopy(t.id) && t.milestoneId === m.id);
+        return { m, y: stopBelow(Math.max(...members.map((t) => t.y + boxH))), count: new Set(members.map((t) => t.id)).size };
+      })
+    : [];
+  // A new line takes every card between the line above it and itself — also
+  // inside an existing milestone's gap (2026-11-23, client): those cards move
+  // to the new milestone and the old one keeps the rest (it is split). Cards
+  // in no milestone higher up join too. Not on top of an existing line.
+  const lineTaken = lineMode && milestoneLines.some((l) => Math.abs(l.y - lineY) < 1);
+  const upperLineY = Math.max(Number.NEGATIVE_INFINITY, ...milestoneLines.map((l) => l.y).filter((y) => y < lineY - 1));
+  const tasksAboveLine =
+    lineMode && !lineTaken
+      ? [
+          ...new Map(
+            tasks
+              .filter((t) => {
+                const c = t.y + boxH / 2;
+                return !isLiveCopy(t.id) && c < lineY && (c > upperLineY || unassigned(t));
+              })
+              .map((t) => [t.id, t] as const)
+          ).values(),
+        ]
+      : [];
+  // Cards that leave another milestone for the new one.
+  const movedFromIds = new Set(tasksAboveLine.filter((t) => !unassigned(t)).map((t) => t.milestoneId!));
+  const movedCount = tasksAboveLine.filter((t) => !unassigned(t)).length;
+
+  useEffect(() => {
+    if (!editable) setLineMode(false);
+  }, [editable]);
+  const aboveLineIds = new Set(tasksAboveLine.map((t) => t.id));
+  // Board-space size of the line's handle: stays readable when zoomed far out.
+  const handleScale = Math.min(3, Math.max(1, 1 / (labelZoom || 1)));
+  const lineLeft = bounds.minX - 60;
+  const lineWidth = bounds.maxX - bounds.minX + NODE_WIDTH * nodeScale + 120;
+
+  function startLineMode() {
+    if (lineMode) {
+      setLineMode(false);
+      return;
+    }
+    exitSelectMode();
+    setMilestoneMode(false);
+    setFocusedMilestoneId(null);
+    setPendingSourceId(null);
+    const sc = scale.value;
+    const centerY = ((containerSize?.height ?? 600) / 2 - translateY.value) / sc;
+    setLineY(nearestStop(centerY));
+    setLineHandleX(Math.max(bounds.minX - 40, -translateX.value / sc + 16 / sc));
+    lineDragY.value = 0;
+    setLineMode(true);
+  }
+  // Up / Down buttons: one row gap at a time.
+  function stepLine(dir: 1 | -1) {
+    const next = dir > 0 ? lineStops.find((x) => x > lineY + 1) : [...lineStops].reverse().find((x) => x < lineY - 1);
+    if (next !== undefined) setLineY(next);
+  }
+  // A drag ends in the nearest gap between rows.
+  function commitLineDrag(dy: number) {
+    setLineY((y) => nearestStop(y + dy));
+    lineDragY.value = 0;
+  }
+
+  // Flowchart 2 group outlines ("Structural Civil Works" …): drawn behind the
+  // cards, and handed to the link router so links keep clear of them.
+  const groupZones = flowchartSet === FLOWCHART_2_SET
+    ? groupOutlines(FLOWCHART_2_GROUPS, renderedTasks, NODE_WIDTH * nodeScale, NODE_HEIGHT * nodeScale, nodeScale).flatMap((r) => {
+        if (!r) return [];
+        const g = r.group;
+        const members = new Set(renderedTasks.filter((t) => g.taskCodes.includes(t.taskId)).map((t) => t.id));
+        return [{ label: g.label, box: { id: `group:${g.label}`, x: r.left, y: r.top, w: r.width, h: r.height }, members }];
+      })
+    : [];
 
   // Where the first floating overlay (milestone chips / hint bars) starts —
   // just below however many toolbar rows are showing.
   const overlayTop = editable ? TOOLBAR_ROW2_TOP + 48 : canEdit ? 60 : 12;
 
+  const linkInfoEdge = linkInfoId ? seriesEdges.find((e) => e.id === linkInfoId) ?? null : null;
+  const linkInfoFrom = linkInfoEdge ? tasks.find((t) => t.id === linkInfoEdge.dependsOnTaskId) ?? null : null;
+  const linkInfoTo = linkInfoEdge ? tasks.find((t) => t.id === linkInfoEdge.taskId) ?? null : null;
+  const changeTypeEdge = changeTypeEdgeId ? seriesEdges.find((e) => e.id === changeTypeEdgeId) ?? null : null;
   const detailTask = tasks.find((t) => t.id === detailTaskId) ?? null;
   const actionMenuTask = tasks.find((t) => t.id === actionMenuTaskId) ?? null;
   const deleteTaskTarget = tasks.find((t) => t.id === deleteTaskConfirmId) ?? null;
@@ -1118,7 +1712,7 @@ export function FlowchartCanvas({
   const containerHeight = bounds.maxY + 400;
 
   return (
-    <View style={{ flex: 1, overflow: 'hidden', backgroundColor: CANVAS_THEMES[canvasTheme].bg }} onLayout={handleContainerLayout}>
+    <View ref={containerRef} style={{ flex: 1, overflow: 'hidden', backgroundColor: CANVAS_THEMES[canvasTheme].bg }} onLayout={handleContainerLayout}>
       {/* Nothing real to show until the container's actual size is known —
           rendering the canvas against the placeholder scale=1 identity
           transform first would flash the graph at the wrong position/size
@@ -1129,12 +1723,60 @@ export function FlowchartCanvas({
             {gridArea && (
               <GridBackground offsetX={gridArea.x} offsetY={gridArea.y} width={gridArea.width} height={gridArea.height} theme={canvasTheme} scale={gridArea.scale} />
             )}
+            {/* Outlined groups (2026-11-16), e.g. "Structural Civil Works" around five
+                stacks — only on the full Flowchart 2 board (not a filtered column view). */}
+            {groupZones.map(({ label, box: b }) => {
+                return (
+                  <View
+                    key={`group-${label}`}
+                    pointerEvents="none"
+                    style={{
+                      position: 'absolute',
+                      left: b.x,
+                      top: b.y,
+                      width: b.w,
+                      height: b.h,
+                      borderWidth: 2.5,
+                      borderColor: canvasTheme === 'black' ? '#E5E7EB' : '#0F1F33',
+                      borderStyle: 'dashed',
+                      borderRadius: 18,
+                    }}
+                  >
+                    <View
+                      style={{
+                        position: 'absolute',
+                        top: -14 * nodeScale,
+                        left: 18 * nodeScale,
+                        paddingHorizontal: 10 * nodeScale,
+                        paddingVertical: 3 * nodeScale,
+                        borderRadius: 8,
+                        backgroundColor: '#F0A227',
+                      }}
+                    >
+                      <Text numberOfLines={1} style={{ fontSize: 15 * nodeScale, fontWeight: '800', color: '#0F1F33' }}>
+                        {label}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
+            {/* Milestone lines (Past Tasks Copy), behind the cards. */}
+            {milestoneLines.map(({ m, y }) => (
+              <View
+                key={`ms-line-${m.id}`}
+                pointerEvents="none"
+                style={{ position: 'absolute', left: lineLeft, top: y - 2, width: lineWidth, height: 4, borderRadius: 2, backgroundColor: m.color }}
+              />
+            ))}
             <EdgeLayer
+              avoidZones={groupZones}
               tasks={renderedTasks}
               seriesEdges={seriesEdges}
               parallelEdges={parallelEdges}
               onEdgePress={editable ? handleEdgePress : undefined}
+              onSeriesLabelPress={setLinkInfoId}
               nodeScale={nodeScale}
+              showLabels={labelZoom >= LABEL_MIN_ZOOM}
             />
             {renderedTasks.map((task) => (
               <TaskNode
@@ -1146,13 +1788,144 @@ export function FlowchartCanvas({
                 dragDeltaY={dragDeltaY}
                 onDragStart={handleDragStart}
                 onTap={handleTap}
-                editable={editable}
+                editable={editable && !lineMode}
                 nodeScale={nodeScale}
                 isPendingLinkSource={pendingSourceId === task.id}
-                isSelected={selectedTaskIds.has(task.id) || milestoneStartId === task.id || milestonePickedIds.has(task.id)}
+                isSelected={selectedTaskIds.has(task.id) || milestoneStartId === task.id || milestonePickedIds.has(task.id) || aboveLineIds.has(task.id)}
+                selectionNumber={selectMode && selectedTaskIds.has(task.id) ? selectedOrder.indexOf(task.id) + 1 : undefined}
                 milestone={task.milestoneId ? milestoneById.get(task.milestoneId) : null}
+                projected={shouldShowProjected(task, projectedById.get(task.id), linkedTaskIds.has(task.id)) ? projectedById.get(task.id) : null}
+                runningDelayDays={runningDelayDays(projectedById.get(task.id))}
+                // The delay-table cards always show the icon, even with nothing written yet.
+                checklistDots={checklistDotsById.get(task.id) ?? (isGridTask(task) ? emptyDots : undefined)}
+                reasonGiven={isPastBoard && checklistDotsById.has(task.id)}
+                onChecklistPress={handleOpenChecklist}
+                onDprPress={showDprIcon && !selectMode ? handleOpenDpr : undefined}
+                onConnectorPress={showConnectors ? handleConnectorPress : undefined}
+                directDrag={directDrag}
+                canvasScale={scale}
+                onDragEnd={commitDrag}
               />
             ))}
+            {/* Divider lines (tasks.flowchart_divider_below): a horizontal line
+                across the whole board, halfway between this card and the next
+                row down — e.g. below "Roof beam casting (east side)" on Flowchart 2. */}
+            {tasks
+              .filter((t) => t.dividerBelow)
+              .map((t) => {
+                const bottom = t.y + NODE_HEIGHT;
+                const nextY = tasks.reduce((m, o) => (o.y > bottom && o.y < m ? o.y : m), Number.POSITIVE_INFINITY);
+                const lineY = Number.isFinite(nextY) ? (bottom + nextY) / 2 : bottom + 20;
+                return (
+                  <View
+                    key={`divider-${t.id}`}
+                    pointerEvents="none"
+                    style={{
+                      position: 'absolute',
+                      left: bounds.minX - 40,
+                      top: lineY - 1.5,
+                      width: bounds.maxX - bounds.minX + 80,
+                      height: 3,
+                      borderRadius: 2,
+                      backgroundColor: canvasTheme === 'black' ? '#E5E7EB' : '#0F1F33',
+                    }}
+                  />
+                );
+              })}
+            {/* Section titles (e.g. "West side") — a small navy pill just
+                above the card that starts the section (tasks.flowchart_section_title).
+                Drawn here, not inside TaskNode, because the card clips its overflow. */}
+            {renderedTasks
+              .filter((t) => t.sectionTitle)
+              .map((t) => (
+                <View
+                  key={`section-${t.id}`}
+                  pointerEvents="none"
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    transform: [{ translateX: t.x }, { translateY: t.y - 34 * nodeScale }],
+                    paddingHorizontal: 9 * nodeScale,
+                    paddingVertical: 4 * nodeScale,
+                    borderRadius: 6,
+                    backgroundColor: '#0F1F33',
+                  }}
+                >
+                  <Text numberOfLines={1} style={{ fontSize: 13 * nodeScale, fontWeight: '800', color: '#fff' }}>
+                    {t.sectionTitle}
+                  </Text>
+                </View>
+              ))}
+            {milestoneLines.map(({ m, y, count }) => (
+              <View
+                key={`ms-label-${m.id}`}
+                pointerEvents="box-none"
+                style={{
+                  position: 'absolute',
+                  left: lineLeft,
+                  top: y - 14 * nodeScale,
+                  height: 28 * nodeScale,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 5 * nodeScale,
+                  paddingHorizontal: 11 * nodeScale,
+                  borderRadius: 14 * nodeScale,
+                  backgroundColor: m.color,
+                }}
+              >
+                <Ionicons name="flag" size={13 * nodeScale} color="#fff" />
+                <Text numberOfLines={1} style={{ fontSize: 13 * nodeScale, fontWeight: '800', color: '#fff' }}>
+                  {m.name} · {count} task{count === 1 ? '' : 's'}
+                </Text>
+                {canEdit && !viewOnly && !lineMode ? (
+                  <GestureDetector gesture={Gesture.Tap().onEnd(() => runOnJS(confirmDeleteMilestoneById)(m.id))}>
+                    <View
+                      testID={`milestone-line-remove-${m.id}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove ${m.name}`}
+                      style={{ marginLeft: 4 * nodeScale, width: 22 * nodeScale, height: 22 * nodeScale, borderRadius: 11 * nodeScale, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.25)' }}
+                    >
+                      <Ionicons name="close" size={14 * nodeScale} color="#fff" />
+                    </View>
+                  </GestureDetector>
+                ) : null}
+              </View>
+            ))}
+            {lineMode && (
+              <Animated.View
+                pointerEvents="box-none"
+                style={[{ position: 'absolute', left: lineLeft, top: lineY - 24 * handleScale, width: lineWidth, height: 48 * handleScale }, lineDragStyle]}
+              >
+                <View
+                  pointerEvents="none"
+                  style={{ position: 'absolute', left: 0, right: 0, top: 24 * handleScale - 3, height: 6, borderRadius: 3, backgroundColor: '#7C3AED' }}
+                />
+                <GestureDetector gesture={lineHandlePan}>
+                  <View
+                    testID="milestone-line-handle"
+                    accessibilityLabel="Drag the milestone line"
+                    style={{
+                      position: 'absolute',
+                      left: lineHandleX - lineLeft,
+                      top: 4 * handleScale,
+                      height: 40 * handleScale,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 6 * handleScale,
+                      paddingHorizontal: 14 * handleScale,
+                      borderRadius: 20 * handleScale,
+                      backgroundColor: '#7C3AED',
+                    }}
+                  >
+                    <Ionicons name="swap-vertical" size={18 * handleScale} color="#fff" />
+                    <Text numberOfLines={1} style={{ fontSize: 13 * handleScale, fontWeight: '800', color: '#fff' }}>
+                      Drag · {tasksAboveLine.length} task{tasksAboveLine.length === 1 ? '' : 's'} above
+                    </Text>
+                  </View>
+                </GestureDetector>
+              </Animated.View>
+            )}
           </Animated.View>
         </GestureDetector>
       )}
@@ -1172,13 +1945,17 @@ export function FlowchartCanvas({
               setPendingSourceId(null);
               setLinkPromptTargetId(null);
             }}
+            accessibilityRole="button"
+            accessibilityLabel={isUnlocked ? 'Editing — tap to lock' : 'Locked — tap to edit'}
             className="flex-row items-center gap-1.5 bg-white rounded-xl border border-neutral-200 px-3 py-2.5"
             style={{ elevation: 3 }}
           >
             <Ionicons name={isUnlocked ? 'lock-open-outline' : 'lock-closed-outline'} size={16} color={isUnlocked ? '#F0A227' : '#0F1F33'} />
-            <Text className={`text-2xs font-bold ${isUnlocked ? 'text-brand-amber' : 'text-brand-navy'}`}>
-              {isUnlocked ? 'Editing' : 'Locked'}
-            </Text>
+            {screenWidth >= 360 ? (
+              <Text className={`text-2xs font-bold ${isUnlocked ? 'text-brand-amber' : 'text-brand-navy'}`}>
+                {isUnlocked ? 'Editing' : 'Locked'}
+              </Text>
+            ) : null}
           </Pressable>
 
           {editable && (
@@ -1218,25 +1995,33 @@ export function FlowchartCanvas({
               <Text className="text-2xs font-bold text-white">New Task</Text>
             </Pressable>
             <Pressable
-              onPress={toggleSelectMode}
+              testID="flowchart-select"
+              onPress={() => {
+                setLineMode(false);
+                toggleSelectMode();
+              }}
               className="flex-row items-center gap-1.5 rounded-xl px-3 py-2.5"
               style={{ elevation: 3, backgroundColor: selectMode ? '#F0A227' : '#fff', borderWidth: selectMode ? 0 : 1, borderColor: '#E5E5E5' }}
             >
               <Ionicons name="checkmark-circle-outline" size={16} color={selectMode ? '#fff' : '#0F1F33'} />
               <Text className="text-2xs font-bold" style={{ color: selectMode ? '#fff' : '#0F1F33' }}>
-                {selectMode ? `Select (${selectedTaskIds.size})` : 'Select'}
+                {selectMode ? `Selecting (${selectedTaskIds.size})` : 'Select'}
               </Text>
             </Pressable>
-            <Pressable
-              onPress={toggleMilestoneMode}
-              className="flex-row items-center gap-1.5 rounded-xl px-3 py-2.5"
-              style={{ elevation: 3, backgroundColor: milestoneMode ? '#7C3AED' : '#fff', borderWidth: milestoneMode ? 0 : 1, borderColor: '#E5E5E5' }}
-            >
-              <Ionicons name="flag-outline" size={16} color={milestoneMode ? '#fff' : '#0F1F33'} />
-              <Text className="text-2xs font-bold" style={{ color: milestoneMode ? '#fff' : '#0F1F33' }}>
-                {milestoneMode ? 'Cancel Milestone' : 'Create Milestone'}
-              </Text>
-            </Pressable>
+            {/* Create Milestone now lives in the selection bar (select tasks -> Milestone). */}
+            {isPastCopyBoard && (
+              <Pressable
+                testID="flowchart-milestone-line"
+                onPress={startLineMode}
+                className="flex-row items-center gap-1.5 rounded-xl px-3 py-2.5"
+                style={{ elevation: 3, backgroundColor: lineMode ? '#7C3AED' : '#fff', borderWidth: lineMode ? 0 : 1, borderColor: '#E5E5E5' }}
+              >
+                <Ionicons name="flag-outline" size={16} color={lineMode ? '#fff' : '#7C3AED'} />
+                <Text className="text-2xs font-bold" style={{ color: lineMode ? '#fff' : '#0F1F33' }}>
+                  {lineMode ? 'Drawing line…' : 'Milestone line'}
+                </Text>
+              </Pressable>
+            )}
           </ScrollView>
         </View>
       )}
@@ -1279,10 +2064,83 @@ export function FlowchartCanvas({
           its hint bar takes this same spot. Delete (un-tags every member
           task, doesn't touch the tasks themselves) asks first — the ✕ sits
           right next to the chip's own tap target. */}
-      {milestones.length > 0 && !milestoneMode && (
+      {/* Delays given vs delay (L (−4'6") tab): a small pop-up over the board, not in
+          the cards. Only the tasks that don't match, as +days (too many given) /
+          −days (missing) per stage; the details are in the task's delay table. */}
+      {delayCheckPanel && delayChecks.length > 0 && !lineMode && (
+        <View
+          testID="delay-check-panel"
+          className="absolute bg-white rounded-2xl border"
+          style={{
+            top: overlayTop + 44,
+            right: 12,
+            width: Math.min(260, screenWidth - 24),
+            elevation: 6,
+            borderColor: notMatching ? '#FCA5A5' : '#86EFAC',
+            shadowColor: '#000',
+            shadowOpacity: 0.12,
+            shadowRadius: 8,
+            shadowOffset: { width: 0, height: 3 },
+          }}
+        >
+          <Pressable onPress={() => setCheckPanelOpen((v) => !v)} className="flex-row items-center gap-2 px-3 py-2.5">
+            <Ionicons name={notMatching ? 'alert-circle' : 'checkmark-circle'} size={17} color={notMatching ? '#B91C1C' : '#15803D'} />
+            <Text className="flex-1 text-xs font-bold" style={{ color: notMatching ? '#B91C1C' : '#15803D' }}>
+              {notMatching ? `${notMatching} not matching` : 'All delays match'}
+            </Text>
+            {notMatching ? <Ionicons name={checkPanelOpen ? 'chevron-up' : 'chevron-down'} size={16} color="#6B7280" /> : null}
+          </Pressable>
+          {checkPanelOpen && notMatching ? (
+            <View className="px-3 pb-2.5">
+              <View className="flex-row pb-1" style={{ borderBottomWidth: 1, borderColor: '#EEE' }}>
+                <Text className="text-2xs font-bold text-neutral-400" style={{ flex: 1.2 }}>Task</Text>
+                <Text className="text-2xs font-bold text-neutral-400 text-center" style={{ flex: 1 }}>Pre-con</Text>
+                <Text className="text-2xs font-bold text-neutral-400 text-center" style={{ flex: 1 }}>Const</Text>
+              </View>
+              <ScrollView style={{ maxHeight: 260 }} nestedScrollEnabled>
+              {delayChecks
+                .filter((c) => !c.check.matched)
+                .map(({ id, code, check: c }) => {
+                  const cell = (given: number, need: number) => {
+                    const d = given - need;
+                    return (
+                      <Text className="text-xs font-bold text-center" style={{ flex: 1, color: d ? '#B91C1C' : '#15803D' }}>
+                        {d === 0 ? '✓' : d > 0 ? `+${d}d` : `−${-d}d`}
+                      </Text>
+                    );
+                  };
+                  return (
+                    <Pressable key={id} testID={`delay-check-row-${code}`} onPress={() => setGridTaskId(id)} className="flex-row items-center py-1.5">
+                      <Text className="text-xs font-bold text-neutral-900" style={{ flex: 1.2 }}>{code}</Text>
+                      {cell(c.entered.pre, c.expected.pre)}
+                      {cell(c.entered.con, c.expected.con)}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+              <Text className="text-2xs text-neutral-400 mt-1">+ too many days · − days missing · tap a task to fix</Text>
+              {delayChecks.length > notMatching ? (
+                <Text className="text-2xs font-semibold mt-0.5" style={{ color: '#15803D' }}>
+                  ✓ {delayChecks.length - notMatching} matched
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
+        </View>
+      )}
+
+      {lineMode && (
+        <View className="absolute left-3 right-3 bg-white rounded-xl border px-3 py-2" style={{ top: overlayTop, elevation: 3, borderColor: '#DDD6FE' }}>
+          <Text className="text-2xs text-neutral-600">
+            Drag the purple line, or tap a card to put the line just under it. The tasks between this line and the milestone line above it become the new milestone — also inside an existing milestone, which is then split.
+          </Text>
+        </View>
+      )}
+
+      {boardMilestones.length > 0 && !milestoneMode && !lineMode && (
         <View className="absolute left-3 right-3" style={{ top: overlayTop }}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerClassName="flex-row items-center gap-1.5">
-          {milestones.map((m) => (
+          {boardMilestones.map((m) => (
             <Pressable
               key={m.id}
               onPress={() => toggleMilestoneFocus(m.id)}
@@ -1296,8 +2154,8 @@ export function FlowchartCanvas({
               }}
             >
               <Text className="text-2xs font-bold text-white" numberOfLines={1} style={{ maxWidth: 220 }}>{m.name}</Text>
-              {editable && (
-                <Pressable onPress={() => confirmDeleteMilestone(m)} hitSlop={6}>
+              {canEdit && !viewOnly && (
+                <Pressable onPress={() => confirmDeleteMilestone(m)} hitSlop={6} accessibilityLabel={`Remove ${m.name}`}>
                   <Ionicons name="close" size={12} color="#fff" />
                 </Pressable>
               )}
@@ -1312,13 +2170,62 @@ export function FlowchartCanvas({
       {focusedMilestone && (
         <View
           className="absolute left-3 right-3 flex-row items-center justify-between rounded-xl px-3.5 py-3"
-          style={{ bottom: zoomBottomOffset, elevation: 4, backgroundColor: focusedMilestone.color, marginRight: 56 }}
+          style={{ bottom: zoomBottomOffset, elevation: 4, backgroundColor: focusedMilestone.color }}
         >
           <Text className="text-xs font-bold text-white flex-1" numberOfLines={1}>
             {focusedMilestone.name.toUpperCase()} · {focusedMilestoneTaskCount} task{focusedMilestoneTaskCount === 1 ? '' : 's'}
           </Text>
-          <Pressable onPress={() => setFocusedMilestoneId(null)} className="px-3 py-1.5 rounded-lg bg-white">
-            <Text className="text-2xs font-bold" style={{ color: focusedMilestone.color }}>Show all</Text>
+          <View className="flex-row gap-2">
+            {canEdit && !viewOnly ? (
+              <Pressable onPress={() => confirmDeleteMilestone(focusedMilestone)} className="flex-row items-center gap-1 px-3 py-1.5 rounded-lg" style={{ backgroundColor: 'rgba(255,255,255,0.22)' }}>
+                <Ionicons name="trash-outline" size={13} color="#fff" />
+                <Text className="text-2xs font-bold text-white">Remove</Text>
+              </Pressable>
+            ) : null}
+            <Pressable onPress={() => setFocusedMilestoneId(null)} className="px-3 py-1.5 rounded-lg bg-white">
+              <Text className="text-2xs font-bold" style={{ color: focusedMilestone.color }}>Show all</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
+      {lineMode && (
+        <View
+          testID="milestone-line-bar"
+          className="absolute left-3 right-3 flex-row items-center bg-white rounded-xl border border-neutral-200 px-3 py-2.5 gap-2"
+          style={{ bottom: zoomBottomOffset, elevation: 4 }}
+        >
+          <Pressable onPress={() => stepLine(-1)} accessibilityLabel="Move the line up one row" className="w-9 h-9 rounded-lg bg-neutral-100 items-center justify-center">
+            <Ionicons name="chevron-up" size={18} color="#0F1F33" />
+          </Pressable>
+          <Pressable onPress={() => stepLine(1)} accessibilityLabel="Move the line down one row" className="w-9 h-9 rounded-lg bg-neutral-100 items-center justify-center">
+            <Ionicons name="chevron-down" size={18} color="#0F1F33" />
+          </Pressable>
+          <Text className="flex-1 text-xs font-semibold" numberOfLines={2} style={{ color: lineTaken ? '#B91C1C' : '#404040' }}>
+            {lineTaken
+              ? 'A milestone line is already here — move the line up or down'
+              : `${tasksAboveLine.length} task${tasksAboveLine.length === 1 ? '' : 's'} for the new milestone${
+                  movedCount
+                    ? ` (${movedCount} moved from ${[...movedFromIds].map((id) => milestoneById.get(id)?.name ?? 'another milestone').join(', ')})`
+                    : ''
+                }`}
+          </Text>
+          <Pressable onPress={() => setLineMode(false)} className="px-3 py-2 rounded-lg bg-neutral-100">
+            <Text className="text-2xs font-semibold text-neutral-600">Cancel</Text>
+          </Pressable>
+          <Pressable
+            testID="milestone-line-name"
+            onPress={() => {
+              if (tasksAboveLine.length === 0) return;
+              setMilestoneNameError(null);
+              setPendingChainTaskIds(tasksAboveLine.map((t) => t.id));
+            }}
+            disabled={tasksAboveLine.length === 0}
+            className="flex-row items-center gap-1.5 px-3 py-2 rounded-lg"
+            style={{ backgroundColor: '#7C3AED', opacity: tasksAboveLine.length ? 1 : 0.4 }}
+          >
+            <Ionicons name="flag" size={14} color="#fff" />
+            <Text className="text-2xs font-bold text-white">Name it</Text>
           </Pressable>
         </View>
       )}
@@ -1326,10 +2233,10 @@ export function FlowchartCanvas({
       {milestoneMode && milestonePickedIds.size > 0 && (
         <View
           className="absolute left-3 right-3 flex-row items-center justify-between bg-white rounded-xl border border-neutral-200 px-3.5 py-3"
-          style={{ bottom: zoomBottomOffset, elevation: 4, marginRight: 56 }}
+          style={{ bottom: zoomBottomOffset, elevation: 4 }}
         >
-          <Text className="text-xs font-semibold text-neutral-700">{milestonePickedIds.size} task{milestonePickedIds.size === 1 ? '' : 's'} picked</Text>
-          <View className="flex-row gap-2">
+          <Text className="flex-1 mr-2 text-xs font-semibold text-neutral-700" numberOfLines={1}>{milestonePickedIds.size} task{milestonePickedIds.size === 1 ? '' : 's'} picked</Text>
+          <View className="flex-row gap-2 shrink-0">
             <Pressable onPress={() => setMilestonePickedIds(new Set())} className="px-3 py-2 rounded-lg bg-neutral-100">
               <Text className="text-2xs font-semibold text-neutral-600">Clear</Text>
             </Pressable>
@@ -1344,22 +2251,79 @@ export function FlowchartCanvas({
       {/* Bottom action bar for the multi-select above — only while
           selectMode is on and at least one task is picked, so it doesn't
           sit empty/disabled the whole time select mode is active. */}
-      {selectMode && selectedTaskIds.size > 0 && (
+      {/* Selection bar — actions depend on how many tasks are picked:
+          1: Link to… / Edit / Delete · 2: Link / Milestone / Push · 3+: Milestone / Push. */}
+      {selectMode && (
         <View
-          className="absolute left-3 right-3 flex-row items-center justify-between bg-white rounded-xl border border-neutral-200 px-3.5 py-3"
-          style={{ bottom: zoomBottomOffset, elevation: 4 }}
+          testID="flowchart-selection-bar"
+          className="absolute left-3 right-3 bg-white rounded-2xl border border-neutral-200 px-3 pt-2.5 pb-3"
+          style={{ bottom: zoomBottomOffset, elevation: 6 }}
         >
-          <Text className="text-xs font-semibold text-neutral-700">{selectedTaskIds.size} task{selectedTaskIds.size === 1 ? '' : 's'} selected</Text>
-          <View className="flex-row gap-2">
-            <Pressable onPress={toggleSelectMode} className="px-3 py-2 rounded-lg bg-neutral-100">
-              <Text className="text-2xs font-semibold text-neutral-600">Cancel</Text>
-            </Pressable>
-            <Pressable onPress={() => setPushModalOpen(true)} className="flex-row items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-navy">
-              <Ionicons name="send-outline" size={14} color="#fff" />
-              <Text className="text-2xs font-bold text-white">Push to Site Engineer</Text>
+          <View className="flex-row items-center mb-2">
+            <Text className="flex-1 text-xs font-bold text-neutral-800" numberOfLines={1}>
+              {selectedOrder.length === 0
+                ? 'Tap tasks to select them'
+                : `${selectedOrder.length} task${selectedOrder.length === 1 ? '' : 's'} selected`}
+            </Text>
+            <Pressable testID="flowchart-selection-done" onPress={exitSelectMode} hitSlop={10} accessibilityRole="button">
+              <Text className="text-xs font-bold" style={{ color: '#1D4ED8' }}>Done</Text>
             </Pressable>
           </View>
+          {selectedOrder.length > 0 ? (
+            <View className="flex-row gap-2">
+              {(() => {
+                const n = selectedOrder.length;
+                const actions: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; onPress: () => void; primary?: boolean; danger?: boolean }[] = [];
+                if (n === 1) {
+                  actions.push({ key: 'link-to', label: 'Link to…', icon: 'git-network-outline', primary: true, onPress: selectionLinkTo });
+                  actions.push({ key: 'edit', label: 'Edit', icon: 'create-outline', onPress: () => { const id = selectedOrder[0]; exitSelectMode(); handleEditTask(id); } });
+                  actions.push({ key: 'delete', label: 'Delete', icon: 'trash-outline', danger: true, onPress: () => { const id = selectedOrder[0]; exitSelectMode(); handleDeleteTaskRequest(id); } });
+                } else {
+                  if (n === 2) actions.push({ key: 'link', label: 'Link', icon: 'git-network-outline', primary: true, onPress: () => setSelectionLink({ source: selectedOrder[0], target: selectedOrder[1] }) });
+                  actions.push({ key: 'milestone', label: 'Milestone', icon: 'flag-outline', primary: n > 2, onPress: selectionMilestone });
+                  actions.push({ key: 'push', label: 'Push', icon: 'send-outline', onPress: () => setPushModalOpen(true) });
+                }
+                return actions.map((a) => (
+                  <Pressable
+                    key={a.key}
+                    testID={`flowchart-sel-${a.key}`}
+                    onPress={a.onPress}
+                    accessibilityRole="button"
+                    className="flex-1 flex-row items-center justify-center gap-1.5 rounded-xl"
+                    style={{
+                      minHeight: 44,
+                      backgroundColor: a.primary ? '#0F1F33' : a.danger ? '#FEF2F2' : '#F3F4F6',
+                    }}
+                  >
+                    <Ionicons name={a.icon} size={16} color={a.primary ? '#fff' : a.danger ? '#DC2626' : '#0F1F33'} />
+                    <Text className="text-xs font-bold" style={{ color: a.primary ? '#fff' : a.danger ? '#DC2626' : '#0F1F33' }} numberOfLines={1}>
+                      {a.label}
+                    </Text>
+                  </Pressable>
+                ));
+              })()}
+            </View>
+          ) : null}
         </View>
+      )}
+
+      {/* Link from a 2-task selection: #1 -> #2 (swappable), pick the type. */}
+      {selectionLink && (
+        <LinkTypeModal
+          title="Link these tasks"
+          confirmLabel="Create link"
+          allowParallel
+          fromName={tasks.find((t) => t.id === selectionLink.source)?.taskName}
+          toName={tasks.find((t) => t.id === selectionLink.target)?.taskName}
+          onSwap={() => setSelectionLink((p) => (p ? { source: p.target, target: p.source } : p))}
+          onCancel={() => setSelectionLink(null)}
+          onSelect={(type) => {
+            const { source, target } = selectionLink;
+            setSelectionLink(null);
+            exitSelectMode();
+            void createLink(type, source, target);
+          }}
+        />
       )}
 
       {/* Canvas background theme — light vs. black, each circle IS the
@@ -1379,7 +2343,9 @@ export function FlowchartCanvas({
             manually counting boxes. */}
         <View className="bg-white rounded-full border border-neutral-200 px-2.5 py-1.5" style={{ elevation: 3 }}>
           <Text className="text-2xs font-bold text-neutral-700">
-            {focusedMilestone ? `${focusedMilestoneTaskCount} of ${tasks.length}` : `${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
+            {focusedMilestone
+              ? `${focusedMilestoneTaskCount} of ${tasks.length}`
+              : `${uniqueTaskCount ?? tasks.length} task${(uniqueTaskCount ?? tasks.length) === 1 ? '' : 's'}`}
           </Text>
         </View>
         <View className="flex-row gap-1.5 bg-white rounded-full border border-neutral-200 px-2 py-1.5" style={{ elevation: 3 }}>
@@ -1399,13 +2365,30 @@ export function FlowchartCanvas({
         </View>
       </View>
 
+      {/* Date chip colours (2026-11-16): what yellow / red / blue mean on the cards. */}
+      <View
+        pointerEvents="none"
+        className="absolute right-3 flex-row items-center bg-white rounded-full border border-neutral-200 px-2.5 py-1.5"
+        style={{ top: 48, gap: 8, elevation: 3 }}
+      >
+        {[
+          ['Planned', '#FEF08A', '#713F12'],
+          ['Actual', '#FCA5A5', '#7F1D1D'],
+          ['Estimated', '#BFDBFE', '#1E3A8A'],
+        ].map(([label, bg, fg]) => (
+          <View key={label} className="rounded-full" style={{ backgroundColor: bg, paddingHorizontal: 8, paddingVertical: 2 }}>
+            <Text style={{ fontSize: 10, fontWeight: '700', color: fg }}>{label}</Text>
+          </View>
+        ))}
+      </View>
+
       {editable && pendingSourceId && (
         <Pressable
           onPress={() => setPendingSourceId(null)}
           className="absolute right-3 bg-white rounded-xl border border-neutral-200 px-3 py-2"
           style={{ top: overlayTop, elevation: 3 }}
         >
-          <Text className="text-2xs text-neutral-500">Tap another task to link with (tap here to cancel)</Text>
+          <Text className="text-2xs text-neutral-500">Tap a dot (or the box) of another task to link with (tap here to cancel)</Text>
         </Pressable>
       )}
 
@@ -1425,7 +2408,7 @@ export function FlowchartCanvas({
           Scroll-to-top/bottom join the same stack, above zoom — a 300+
           task project has no quick way to reach either end of the graph
           without a marathon manual pan, by explicit request. */}
-      <View className="absolute right-3 items-center gap-1.5" style={{ bottom: zoomBottomOffset }}>
+      <View className="absolute right-3 items-center gap-1.5" style={{ bottom: zoomBottomOffset + bottomLift }}>
         <Pressable
           onPress={() => scrollToEdge('top')}
           className="w-10 h-10 rounded-full bg-white border border-neutral-200 items-center justify-center"
@@ -1460,7 +2443,9 @@ export function FlowchartCanvas({
           side counterpart to the right-side zoom/scroll stack, by explicit
           request. Left side was empty before this; nothing existing to
           crowd. */}
-      <View className="absolute left-3 items-start gap-1.5" style={{ bottom: zoomBottomOffset }}>
+      <View className="absolute left-3 items-start gap-1.5" style={{ bottom: zoomBottomOffset + bottomLift, right: 64 }} pointerEvents="box-none">
+        {/* Link types legend (toggle) — opens upwards above this stack. */}
+        <LinkLegend />
         <Pressable
           onPress={() => setSearchOpen(true)}
           className="w-10 h-10 rounded-full bg-white border border-neutral-200 items-center justify-center"
@@ -1468,16 +2453,20 @@ export function FlowchartCanvas({
         >
           <Ionicons name="search-outline" size={18} color="#0F1F33" />
         </Pressable>
-        <View className="bg-white rounded-full border border-neutral-200 px-2.5 py-1.5" style={{ elevation: 3 }}>
-          <Text className="text-2xs font-bold text-neutral-700">Task {currentRow} of {tasks.length}</Text>
-        </View>
+        {uniqueTaskCount == null && (
+          <View className="bg-white rounded-full border border-neutral-200 px-2.5 py-1.5" style={{ elevation: 3 }}>
+            <Text className="text-2xs font-bold text-neutral-700">Task {currentRow} of {tasks.length}</Text>
+          </View>
+        )}
       </View>
 
       {searchOpen && (
-        <Modal visible transparent animationType="fade" onRequestClose={() => setSearchOpen(false)}>
-          <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={() => setSearchOpen(false)}>
+        <FormModal visible onRequestClose={() => setSearchOpen(false)}>
             <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 360 }}>
-              <View className="bg-white rounded-2xl p-4" style={{ maxHeight: '70%' }}>
+              {/* No maxHeight '70%' here: it resolved against the short wrapper
+                  (~180px) and squashed the result list below to 0px, so search
+                  showed nothing. The list's own maxHeight 320 caps the card. */}
+              <View className="bg-white rounded-2xl p-4">
                 <Text className="text-sm font-bold text-neutral-900 mb-3">Jump to task</Text>
                 <View className="flex-row items-center gap-2 bg-neutral-50 rounded-xl border border-neutral-200 px-3 py-2.5 mb-3">
                   <Ionicons name="search-outline" size={16} color="#a3a3a3" />
@@ -1495,7 +2484,7 @@ export function FlowchartCanvas({
                     </Pressable>
                   )}
                 </View>
-                <ScrollView style={{ maxHeight: 320 }} keyboardShouldPersistTaps="handled">
+                <ScrollView nestedScrollEnabled style={{ maxHeight: 320 }} keyboardShouldPersistTaps="handled">
                   {searchResults.length === 0 ? (
                     <Text className="text-xs text-neutral-400 text-center py-4">No matching tasks</Text>
                   ) : (
@@ -1515,15 +2504,14 @@ export function FlowchartCanvas({
                 </Pressable>
               </View>
             </Pressable>
-          </Pressable>
-        </Modal>
+        </FormModal>
       )}
 
       {actionMenuTask && (
         <TaskActionMenu
           taskCode={actionMenuTask.taskId}
-          onOpen={() => handleOpenTask(actionMenuTask.id)}
-          onEdit={() => handleEditTask(actionMenuTask.id)}
+          onOpen={!viewOnly || detailTaskIds?.has(actionMenuTask.id) ? () => handleOpenTask(actionMenuTask.id) : undefined}
+          onEdit={!viewOnly || (detailTaskIds?.has(actionMenuTask.id) && detailEditAllowed) ? () => handleEditTask(actionMenuTask.id) : undefined}
           onLink={
             editable
               ? () => {
@@ -1542,6 +2530,40 @@ export function FlowchartCanvas({
         <LinkTypeModal
           onSelect={handleLinkTypeSelected}
           onCancel={() => setLinkPromptTargetId(null)}
+          fromName={tasks.find((t) => t.id === pendingSourceId)?.taskName}
+          toName={tasks.find((t) => t.id === linkPromptTargetId)?.taskName}
+        />
+      )}
+
+      {/* Link info: plain-English meaning, date warning, Change type / Delete. */}
+      {linkInfoEdge && linkInfoFrom && linkInfoTo && (
+        <LinkInfoSheet
+          edge={linkInfoEdge}
+          from={linkInfoFrom}
+          to={linkInfoTo}
+          editable={editable}
+          onClose={() => setLinkInfoId(null)}
+          onChangeType={() => {
+            setLinkInfoId(null);
+            setChangeTypeEdgeId(linkInfoEdge.id);
+          }}
+          onDelete={() => {
+            setLinkInfoId(null);
+            setEdgeDeleteConfirmId(linkInfoEdge.id);
+          }}
+        />
+      )}
+
+      {changeTypeEdge && (
+        <LinkTypeModal
+          title="Change link type"
+          confirmLabel="Change type"
+          initial={changeTypeEdge.type}
+          allowParallel={false}
+          fromName={tasks.find((t) => t.id === changeTypeEdge.dependsOnTaskId)?.taskName}
+          toName={tasks.find((t) => t.id === changeTypeEdge.taskId)?.taskName}
+          onSelect={(type) => void changeLinkType(changeTypeEdge.id, type as DependencyType)}
+          onCancel={() => setChangeTypeEdgeId(null)}
         />
       )}
 
@@ -1572,7 +2594,15 @@ export function FlowchartCanvas({
         task={detailTask}
         taskTypes={taskTypes}
         projectId={projectId}
+        showClientChecklist={isFlowchart2Set(flowchartSet)}
+        durationPreds={detailTask && flowchartSet === FLOWCHART_2_SET ? seriesEdges.filter((e) => e.taskId === detailTask.id && !e.soft).flatMap((e) => {
+          const p = tasks.find((t) => t.id === e.dependsOnTaskId);
+          return p ? [{ name: p.taskName, type: e.type, plannedStartDate: p.plannedStartDate, dueDate: p.dueDate }] : [];
+        }) : undefined}
         canEdit={detailEditable}
+        independentPlannedDates={isPastTasksSet(flowchartSet)}
+        checklistStages={isPastTasksSet(flowchartSet)}
+        copiedTask={!!detailTask && !!copiedTaskIds?.has(detailTask.id)}
         canEditChecklist={canEditChecklist}
         userId={pushedByUserId}
         initialTab={detailInitialTab}
@@ -1596,9 +2626,52 @@ export function FlowchartCanvas({
         }}
       />
 
+      {milestoneToRemove && (
+        <ConfirmDialog
+          title={`Remove ${milestoneToRemove.name}?`}
+          description="Its tasks stay on the flowchart — they just stop being grouped under this milestone (and its line goes)."
+          confirmLabel="Remove"
+          variant="danger"
+          busy={removingMilestone}
+          onConfirm={() => handleDeleteMilestone(milestoneToRemove.id)}
+          onCancel={() => setMilestoneToRemove(null)}
+        />
+      )}
+
+      {gridTaskId && (
+        <DelayGridSheet
+          visible
+          taskCode={tasks.find((t) => t.id === gridTaskId)?.taskId ?? ''}
+          taskName={tasks.find((t) => t.id === gridTaskId)?.taskName ?? ''}
+          notes={checklistNotesById.get(gridTaskId) ?? null}
+          constructionNotes={constructionNotesById.get(gridTaskId) ?? null}
+          expected={(() => {
+            const t = tasks.find((x) => x.id === gridTaskId);
+            return t ? expectedDelay(taskDates(t), aboveFor(t)) : null;
+          })()}
+          editable={!viewOnly && (canEdit || detailEditAllowed)}
+          onSave={(pre, con, preNotes, conNotes) => handleSaveGrid(gridTaskId, pre, con, preNotes, conNotes)}
+          onClose={() => setGridTaskId(null)}
+        />
+      )}
+
+      {peekTaskId && (
+        <ChecklistPeek
+          taskName={tasks.find((t) => t.id === peekTaskId)?.taskName ?? ''}
+          // A task with only Construction delays still opens (empty Pre-construction).
+          notes={checklistNotesById.get(peekTaskId) ?? (constructionNotesById.has(peekTaskId) ? EMPTY_CHECKLIST_NOTES : null)}
+          constructionNotes={constructionNotesById.get(peekTaskId) ?? null}
+          stages={isPastBoard}
+          onClose={() => setPeekTaskId(null)}
+        />
+      )}
+
+      <DprPrChooser task={dprTaskId ? tasks.find((t) => t.id === dprTaskId) ?? null : null} onClose={() => setDprTaskId(null)} />
+
       {createTaskOpen && (
         <CreateTaskSheet
           projectId={projectId}
+          flowchartSet={flowchartSet}
           existingTasks={tasks.map((t) => ({ id: t.id, taskId: t.taskId, taskName: t.taskName }))}
           taskTypes={taskTypes}
           onClose={() => setCreateTaskOpen(false)}
@@ -1617,7 +2690,7 @@ export function FlowchartCanvas({
 
       <MilestoneNameModal
         visible={pendingChainTaskIds !== null}
-        suggestedName={`Milestone ${milestones.length + 1}`}
+        suggestedName={`Milestone ${(isPastCopyBoard ? boardMilestones.length : milestones.length) + 1}`}
         taskCount={pendingChainTaskIds?.length ?? 0}
         saving={savingMilestone}
         error={milestoneNameError}

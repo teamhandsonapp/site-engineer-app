@@ -57,8 +57,9 @@ export function formatCardDateRange(start: string | null, due: string | null): s
   const startLabel = formatCardDate(start);
   const dueLabel = formatCardDate(due);
   if (startLabel && dueLabel) return `${startLabel} – ${dueLabel}`;
-  if (startLabel) return startLabel;
-  if (dueLabel) return dueLabel;
+  // Only one date (allowed on Past Tasks): say which one it is.
+  if (startLabel) return `Start ${startLabel}`;
+  if (dueLabel) return `End ${dueLabel}`;
   return 'No planned dates';
 }
 

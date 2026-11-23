@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, View } from 'react-native';
+import { Text } from '../../components/ui/AppText';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '../../lib/AuthContext';
@@ -157,7 +158,7 @@ export default function DrawingsScreen() {
             {current ? (
               <View className="px-4 pt-3">
                 {current.base ? (
-                  <View className="flex-row gap-2 mb-3">
+                  <View className="flex-row flex-wrap gap-2 mb-3">
                     <Button label="Open floor plan" icon="map-outline" size="sm" onPress={() => open(current.base!.id)} />
                     {canEdit ? <Button label="Add department drawing" icon="add" size="sm" variant="secondary" onPress={() => setFormFor(current.base!.id)} /> : null}
                   </View>
@@ -179,7 +180,7 @@ export default function DrawingsScreen() {
                           {isBase ? <Text className="text-2xs font-semibold uppercase tracking-wide text-neutral-400 pt-1">Base plan</Text> : null}
                         </View>
                         <View className="flex-row items-center justify-between mt-2">
-                          <Text className="text-xs text-neutral-500">
+                          <Text className="flex-1 mr-2 text-xs text-neutral-500" numberOfLines={1}>
                             {item.latestRevision === null ? <Text className="text-neutral-400">No PDF yet</Text> : `${revLabel(item.latestRevision)} · ${formatDate(item.latestUploadedAt!)}`}
                             {item.tagCount ? ` · ${item.tagCount} tag${item.tagCount === 1 ? '' : 's'}` : ''}
                           </Text>

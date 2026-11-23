@@ -1,0 +1,20 @@
+# Try to save with an agenda but no tasks or topics: error shown, not saved.
+appId: com.pmcportal.mobile
+---
+- runFlow: _new-meeting-basics.yaml
+- scrollUntilVisible:
+    element:
+      id: meeting-agenda-input
+    direction: UP
+- tapOn:
+    id: meeting-agenda-input
+- inputText: Agenda without items
+- hideKeyboard
+- scrollUntilVisible:
+    element:
+      id: meeting-save
+    direction: DOWN
+- tapOn:
+    id: meeting-save
+- assertVisible: Add at least one task or topic to discuss
+- assertNotVisible: Meeting created.*

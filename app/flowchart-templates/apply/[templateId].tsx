@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { Text, TextInput } from '../../../components/ui/AppText';
+import { KeyboardAvoider } from '../../../components/ui/KeyboardAvoider';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { appRoleFor, useAuth } from '../../../lib/AuthContext';
@@ -189,7 +191,7 @@ export default function ApplyFlowchartTemplateScreen() {
   }
 
   return (
-    <View className="flex-1 bg-neutral-50">
+    <KeyboardAvoider style={{ backgroundColor: '#FAFAFA' }}>
       <Stack.Screen options={{ headerShown: true, title: template?.name ?? 'Apply Template', headerStyle: { backgroundColor: '#0F1F33' }, headerTintColor: '#fff', headerTitleStyle: { fontWeight: '600' } }} />
 
       {loading ? (
@@ -205,7 +207,7 @@ export default function ApplyFlowchartTemplateScreen() {
           <StepHeader step={step} />
 
           {step === 'setup' && (
-            <ScrollView contentContainerClassName="px-4 pt-1 pb-10">
+            <ScrollView contentContainerClassName="px-4 pt-1 pb-10" keyboardShouldPersistTaps="handled">
               <Card className="mb-4">
                 <Text className="text-sm font-semibold text-neutral-900">{template.name}</Text>
                 {template.description && <Text className="text-xs text-neutral-500 mt-1">{template.description}</Text>}
@@ -217,8 +219,8 @@ export default function ApplyFlowchartTemplateScreen() {
                 onPress={() => setProjectPickerOpen((v) => !v)}
                 className="flex-row items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5 mb-1 bg-white"
               >
-                <Text className="text-sm text-neutral-900">{targetProjectName ?? 'Select a project'}</Text>
-                <Text className="text-neutral-400">{projectPickerOpen ? '▲' : '▼'}</Text>
+                <Text className="flex-1 mr-2 text-sm text-neutral-900" numberOfLines={1}>{targetProjectName ?? 'Select a project'}</Text>
+                <Text className="shrink-0 text-neutral-400">{projectPickerOpen ? '▲' : '▼'}</Text>
               </Pressable>
               {projectPickerOpen && (
                 <View className="mb-3">
@@ -262,7 +264,7 @@ export default function ApplyFlowchartTemplateScreen() {
           )}
 
           {step === 'works' && (
-            <ScrollView contentContainerClassName="px-4 pt-1 pb-10">
+            <ScrollView contentContainerClassName="px-4 pt-1 pb-10" keyboardShouldPersistTaps="handled">
               <Pressable onPress={() => setStep('setup')} className="flex-row items-center gap-1 mb-3">
                 <Ionicons name="chevron-back" size={16} color="#0F1F33" />
                 <Text className="text-xs font-semibold text-brand-navy">Back</Text>
@@ -306,10 +308,10 @@ export default function ApplyFlowchartTemplateScreen() {
                               onPress={() => setWorkPickerOpenFor((v) => (v === m.workName ? null : m.workName))}
                               className="flex-row items-center justify-between border border-neutral-200 rounded-lg px-3 py-2 bg-white"
                             >
-                              <Text className="text-xs text-neutral-800">
+                              <Text className="flex-1 mr-2 text-xs text-neutral-800" numberOfLines={1}>
                                 {projectWorks.find((w) => w.id === workExistingChoice[m.workName])?.name ?? 'Select a Work'}
                               </Text>
-                              <Text className="text-neutral-400">{workPickerOpenFor === m.workName ? '▲' : '▼'}</Text>
+                              <Text className="shrink-0 text-neutral-400">{workPickerOpenFor === m.workName ? '▲' : '▼'}</Text>
                             </Pressable>
                             {workPickerOpenFor === m.workName && (
                               <View className="mt-1">
@@ -375,7 +377,7 @@ export default function ApplyFlowchartTemplateScreen() {
           )}
 
           {step === 'preview' && (
-            <ScrollView contentContainerClassName="px-4 pt-1 pb-10">
+            <ScrollView contentContainerClassName="px-4 pt-1 pb-10" keyboardShouldPersistTaps="handled">
               <Pressable onPress={() => setStep(workMatches.some((m) => !m.matchedWorkId) ? 'works' : 'setup')} className="flex-row items-center gap-1 mb-3">
                 <Ionicons name="chevron-back" size={16} color="#0F1F33" />
                 <Text className="text-xs font-semibold text-brand-navy">Back</Text>
@@ -432,7 +434,7 @@ export default function ApplyFlowchartTemplateScreen() {
           )}
         </>
       )}
-    </View>
+    </KeyboardAvoider>
   );
 }
 

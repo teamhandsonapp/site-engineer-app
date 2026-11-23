@@ -12,6 +12,7 @@
   ],
   "exclude": [
     "node_modules",
-    "privacy-policy-page"
+    "privacy-policy-page",
+    "supabase/functions"
   ]
 }

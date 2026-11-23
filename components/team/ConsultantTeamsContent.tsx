@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, View } from 'react-native';
+import { Text, TextInput } from '../ui/AppText';
+import { FormModal } from '../ui/FormModal';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 
@@ -73,8 +75,7 @@ function AddNamePromptModal({
   const [name, setName] = useState('');
   const trimmed = name.trim();
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onCancel}>
-      <Pressable className="flex-1 bg-black/40 items-center justify-center px-6" onPress={onCancel}>
+    <FormModal visible onRequestClose={onCancel}>
         <Pressable onPress={() => {}} style={{ width: '100%', maxWidth: 380 }}>
           <Card>
             <Text className="text-sm font-bold text-neutral-900 mb-3">{title}</Text>
@@ -100,8 +101,7 @@ function AddNamePromptModal({
             </View>
           </Card>
         </Pressable>
-      </Pressable>
-    </Modal>
+    </FormModal>
   );
 }
 
@@ -275,8 +275,8 @@ export function ConsultantTeamsContent() {
         <>
           <Card className="mb-4" style={{ paddingVertical: 4 }}>
             <View className="flex-row items-center justify-between py-3 border-b border-neutral-100">
-              <Text className="text-sm font-bold text-neutral-900">{activeTeam.name} Team</Text>
-              <Text className="text-xs font-semibold text-neutral-400">{activeTeam.members.length} members</Text>
+              <Text className="flex-1 mr-2 text-sm font-bold text-neutral-900" numberOfLines={1}>{activeTeam.name} Team</Text>
+              <Text className="shrink-0 text-xs font-semibold text-neutral-400">{activeTeam.members.length} members</Text>
             </View>
 
             {activeTeam.members.map((member, idx) => (
@@ -284,8 +284,8 @@ export function ConsultantTeamsContent() {
                 key={member.id}
                 className={`flex-row items-center justify-between py-2.5 ${idx < activeTeam.members.length - 1 ? 'border-b border-neutral-50' : ''}`}
               >
-                <Text className="text-sm font-medium text-neutral-800">{member.name}</Text>
-                <Pressable onPress={() => removeMember(member.id)} hitSlop={8} className="w-7 h-7 rounded-full items-center justify-center bg-red-50">
+                <Text className="flex-1 mr-2 text-sm font-medium text-neutral-800" numberOfLines={1}>{member.name}</Text>
+                <Pressable onPress={() => removeMember(member.id)} hitSlop={8} className="w-7 h-7 rounded-full items-center justify-center bg-red-50 shrink-0">
                   <Ionicons name="trash-outline" size={13} color="#DC2626" />
                 </Pressable>
               </View>

@@ -1,4 +1,5 @@
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
+import { Text } from '../../ui/AppText';
 import Svg, { Circle, Path } from 'react-native-svg';
 import type { PieChartDatum } from './types';
 

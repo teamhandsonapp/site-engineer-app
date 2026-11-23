@@ -3,7 +3,8 @@
 // send in Custom Alerts. Search by name/company/phone, filter by category.
 
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, View } from 'react-native';
+import { Text, TextInput } from '../ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CONTACT_CATEGORIES, CONTACT_CATEGORY_LABEL, type ContactCategory } from '../../lib/contacts';

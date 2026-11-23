@@ -81,3 +81,4 @@ privacy-policy-page/.vercel
 
 # Separate git repo (deployed to Vercel on its own)
 /privacy-policy-page/
+node_modules/

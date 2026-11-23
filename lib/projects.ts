@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { fetchAllRows } from './fetchAll';
 
 export interface ProjectOption {
   id: string;
@@ -80,9 +81,9 @@ export async function createProject(fields: NewProjectFields): Promise<string> {
   if (projectError) throw new Error(projectError.message);
 
   if (fields.departments.length > 0) {
-    const { data: existingWorks, error: worksFetchError } = await supabase.from('works').select('code');
-    if (worksFetchError) throw new Error(worksFetchError.message);
-    const taken = new Set((existingWorks ?? []).map((w) => w.code as string));
+    // Every code (lib/fetchAll.ts) — a list cut off at 1000 could reuse a taken code.
+    const existingWorks = await fetchAllRows<{ code: string }>(() => supabase.from('works').select('code').order('code'));
+    const taken = new Set(existingWorks.map((w) => w.code));
     const rows = fields.departments.map((name, i) => ({
       name,
       code: codeFromDepartmentName(name, taken),

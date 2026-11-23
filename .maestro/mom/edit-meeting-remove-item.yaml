@@ -1,0 +1,29 @@
+# Edit a meeting and remove one discussion item.
+# Creates its own test meeting first (agenda + 2 topics), then edits it.
+appId: com.pmcportal.mobile
+---
+- runFlow: create-meeting-topics-only.yaml
+- scrollUntilVisible:
+    element: Edit
+    direction: UP
+- tapOn: Edit
+- extendedWaitUntil:
+    visible: Edit meeting
+    timeout: 10000
+- scrollUntilVisible:
+    element: 2 items to discuss
+    direction: DOWN
+- tapOn:
+    id: discussion-item-remove
+    index: 0
+- assertVisible: 1 item to discuss
+- scrollUntilVisible:
+    element:
+      id: meeting-save
+    direction: DOWN
+- tapOn:
+    id: meeting-save
+- extendedWaitUntil:
+    visible: Meeting updated.*
+    timeout: 10000
+- assertVisible: What will be discussed \(1\)

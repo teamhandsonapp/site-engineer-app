@@ -4,8 +4,9 @@
 // agenda points from invitees and send the final agenda, record the
 // meeting from the mic, and mark attendance.
 
-import { useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, Switch, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 import { DateField } from '../ui/DateField';
@@ -16,14 +17,18 @@ import {
   formatDateLong,
   formatDuration,
   formatTime12,
-  googleCalendarUrl,
   inviteMessage,
   meetingEnd,
   meetingStart,
   openLink,
 } from '../../lib/mom/share';
+import { calendarGuestCount, meetingEventInput, removeMeetingFromCalendar, syncMeetingToCalendar } from '../../lib/mom/googleCalendar';
 import { todayIST } from '../../lib/mom/taskData';
-import type { AttendanceMark, Meeting, MomProjectData, Recipient, SendChannel } from '../../lib/mom/types';
+import { AGENDA_MAX, type AttendanceMark, type DiscussionItem, type Meeting, type MomProjectData, type Recipient, type SendChannel } from '../../lib/mom/types';
+import { AgendaOverview } from './AgendaOverview';
+import { DiscussionItemsEditor } from './DiscussionItemsEditor';
+import { useMomScrollTo } from './scrollContext';
+import { sendMeetingWhatsAppTest, WA_TEST_ENABLED } from '../../lib/mom/whatsappTest';
 import { MeetingRecorder } from './MeetingRecorder';
 import { RecipientPicker } from './RecipientPicker';
 import { SendPanel } from './SendPanel';
@@ -71,6 +76,47 @@ export function MeetingTab({
     [data.meetings]
   );
 
+  // Google Calendar (2026-11-19): meetings whose event is being created/moved right now.
+  const [calendarBusy, setCalendarBusy] = useState<Set<string>>(new Set());
+  const [listNotice, setListNotice] = useState<string | null>(null);
+  const setBusy = (id: string, on: boolean) =>
+    setCalendarBusy((s) => {
+      const next = new Set(s);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  const patchMeeting = (id: string, patch: Partial<Meeting>) =>
+    update((d) => ({ ...d, meetings: d.meetings.map((x) => (x.id === id ? { ...x, ...patch } : x)) })).catch(() => {});
+
+  // Puts the meeting in Google Calendar (or takes it out when switched off).
+  // Never blocks saving: a failure is stored on the meeting and shown with Retry.
+  async function syncCalendar(m: Meeting, previous: Meeting | null, force = false) {
+    if (!m.addToCalendar) {
+      if (!previous?.calendarEventId) return;
+      setBusy(m.id, true);
+      const r = await removeMeetingFromCalendar(m.id);
+      setBusy(m.id, false);
+      await patchMeeting(m.id, r.ok ? { calendarEventId: null, calendarLink: null, calendarError: null } : { calendarError: r.error });
+      return;
+    }
+    // Nothing Google shows has changed: skip, so invitees don't get a needless "updated" email.
+    const same =
+      previous?.calendarEventId &&
+      !previous.calendarError &&
+      JSON.stringify(meetingEventInput(previous, projectName)) === JSON.stringify(meetingEventInput(m, projectName));
+    if (same && !force) return;
+    setBusy(m.id, true);
+    const r = await syncMeetingToCalendar(m, projectName);
+    setBusy(m.id, false);
+    await patchMeeting(
+      m.id,
+      r.ok
+        ? { calendarEventId: r.eventId, calendarLink: r.htmlLink, calendarError: null, calendarAddedAtISO: m.calendarAddedAtISO ?? new Date().toISOString() }
+        : { calendarError: r.error }
+    );
+  }
+
   if (view.kind === 'form') {
     return (
       <MeetingForm
@@ -82,8 +128,12 @@ export function MeetingTab({
             ...d,
             meetings: d.meetings.some((x) => x.id === m.id) ? d.meetings.map((x) => (x.id === m.id ? m : x)) : [...d.meetings, m],
           }));
-          setBanner(view.editing ? 'Meeting updated.' : 'Meeting created. Next: send the invites and add it to Google Calendar.');
+          setBanner(view.editing ? 'Meeting updated.' : 'Meeting created. Next: send the invites.');
           setView({ kind: 'detail', id: m.id });
+          // No automatic WhatsApp send on save: invites go out only from the
+          // Invite card's button (one send path, no duplicate messages).
+          // Google Calendar runs after the save, without holding up the screen.
+          void syncCalendar(m, view.editing);
         }}
         me={me}
       />
@@ -112,12 +162,20 @@ export function MeetingTab({
           setView({ kind: 'list' });
         }}
         onEdit={() => setView({ kind: 'form', editing: m })}
+        calendarBusy={calendarBusy.has(m.id)}
+        onCalendarRetry={() => syncCalendar(m, null, true)}
         onDelete={async () => {
           try {
             await update((d) => ({ ...d, meetings: d.meetings.filter((x) => x.id !== m.id) }));
             setView({ kind: 'list' });
           } catch (err) {
             setSaveError(`Couldn't delete the meeting — ${err instanceof Error ? err.message : 'storage error'}.`);
+            return;
+          }
+          // Cancel the Google event too (Google emails the cancellation).
+          if (m.calendarEventId) {
+            const r = await removeMeetingFromCalendar(m.id);
+            setListNotice(r.ok ? 'Meeting deleted and removed from Google Calendar.' : `Meeting deleted, but it's still in Google Calendar: ${r.error}. Delete it there by hand.`);
           }
         }}
         onChange={(patch) =>
@@ -140,6 +198,11 @@ export function MeetingTab({
 
   return (
     <View>
+      {listNotice && (
+        <Banner tone={listNotice.startsWith("Meeting deleted, but") ? 'error' : 'ok'} onClose={() => setListNotice(null)}>
+          {listNotice}
+        </Banner>
+      )}
       <View className="mb-4">
         <Button label="Create meeting" icon="add-circle-outline" onPress={() => setView({ kind: 'form', editing: null })} />
       </View>
@@ -224,16 +287,42 @@ function MeetingForm({
   const [venue, setVenue] = useState(initial?.venue ?? '');
   const [notes, setNotes] = useState(initial?.notes ?? '');
   const [invitees, setInvitees] = useState<Recipient[]>(initial?.invitees ?? []);
+  const [agenda, setAgenda] = useState(initial?.agenda ?? '');
+  const [addToCalendar, setAddToCalendar] = useState(initial?.addToCalendar ?? true);
+  const [items, setItems] = useState<DiscussionItem[]>(initial?.discussionItems ?? []);
+  const [agendaError, setAgendaError] = useState<string | null>(null);
+  const [itemsError, setItemsError] = useState<string | null>(null);
   const [picker, setPicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Where each section sits inside the form (for "scroll to the first error").
+  const scrollTo = useMomScrollTo();
+  const layoutY = useRef({ form: 0, agenda: 0, items: 0 });
+  const FORM_PAD = 16; // MoM screen's ScrollView padding
 
   async function save() {
-    if (!title.trim()) return setError('Enter a meeting title.');
-    if (!date) return setError('Pick the meeting date.');
-    if (!time) return setError('Pick the meeting time.');
-    if (!venue.trim()) return setError('Enter where the meeting will be held.');
-    if (invitees.length === 0) return setError('Invite at least one person.');
+    // Every problem at once; scroll to the first one (top banner, agenda, then items).
+    const basic = !title.trim()
+      ? 'Enter a meeting title.'
+      : !date
+        ? 'Pick the meeting date.'
+        : !time
+          ? 'Pick the meeting time.'
+          : !venue.trim()
+            ? 'Enter where the meeting will be held.'
+            : invitees.length === 0
+              ? 'Invite at least one person.'
+              : null;
+    const aErr = agenda.trim() ? null : 'Please add the meeting agenda';
+    const iErr = items.length > 0 ? null : 'Add at least one task or topic to discuss';
+    setError(basic);
+    setAgendaError(aErr);
+    setItemsError(iErr);
+    if (basic || aErr || iErr) {
+      scrollTo(basic ? 0 : FORM_PAD + layoutY.current.form + (aErr ? layoutY.current.agenda : layoutY.current.items) - 12);
+      return;
+    }
+    if (!date || !time) return; // narrowed above; keeps TypeScript happy
     setSaving(true);
     try {
     const base: Meeting = initial ?? {
@@ -268,6 +357,10 @@ function MeetingForm({
       venue: venue.trim(),
       notes: notes.trim(),
       invitees,
+      agenda: agenda.trim(),
+      addToCalendar,
+      // Keep minutes already written against items that are still there.
+      discussionItems: items.map((i) => ({ ...(base.discussionItems ?? []).find((o) => o.id === i.id), ...i })),
       attendance: Object.fromEntries(Object.entries(base.attendance).filter(([k]) => keep.has(k))),
     });
     } catch (err) {
@@ -278,7 +371,7 @@ function MeetingForm({
   }
 
   return (
-    <View>
+    <View onLayout={(e) => (layoutY.current.form = e.nativeEvent.layout.y)}>
       <Pressable onPress={onCancel} className="flex-row items-center gap-1 mb-3">
         <Ionicons name="chevron-back" size={16} color={NAVY} />
         <Text className="text-sm font-semibold" style={{ color: NAVY }}>
@@ -289,7 +382,7 @@ function MeetingForm({
       {error && <Banner tone="error" onClose={() => setError(null)}>{error}</Banner>}
 
       <Card className="mb-3 gap-3">
-        <Field label="Meeting title" value={title} onChangeText={setTitle} placeholder="e.g. Weekly site review" />
+        <Field testID="meeting-title-input" label="Meeting title" value={title} onChangeText={setTitle} placeholder="e.g. Weekly site review" />
         <View className="flex-row gap-3">
           <View className="flex-1">
             <DateField label="Date" value={date} minDate={initial ? null : todayIST()} onChange={setDate} />
@@ -306,6 +399,25 @@ function MeetingForm({
             ))}
           </Row>
         </View>
+        {/* Google Calendar — chosen while creating; synced after Save (syncCalendar). */}
+        <Pressable
+          testID="meeting-calendar-toggle"
+          onPress={() => setAddToCalendar((v) => !v)}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: addToCalendar }}
+          className="flex-row items-center gap-3 pt-3 border-t border-neutral-100"
+          style={{ minHeight: 44 }}
+        >
+          <Ionicons name="calendar-outline" size={18} color={NAVY} />
+          <View className="flex-1">
+            <Text className="text-sm font-semibold text-neutral-900">Add to Google Calendar</Text>
+            <Text className="text-2xs text-neutral-500">Adds it to the company Google Calendar and emails the invite to everyone with an email address.</Text>
+          </View>
+          {/* The whole row is the toggle; the switch is display-only so one tap = one change. */}
+          <View pointerEvents="none">
+            <Switch value={addToCalendar} trackColor={{ false: '#D1D5DB', true: '#16A34A' }} thumbColor="#FFFFFF" />
+          </View>
+        </Pressable>
       </Card>
 
       <Card className="mb-3 gap-3">
@@ -318,9 +430,51 @@ function MeetingForm({
             <Chip key={v} label={v} active={venue === v} onPress={() => setVenue(v)} />
           ))}
         </Row>
-        <Field value={venue} onChangeText={setVenue} placeholder="Or type the address / room" />
+        <Field testID="meeting-venue-input" value={venue} onChangeText={setVenue} placeholder="Or type the address / room" />
         <Field label="Notes for invitees (optional)" value={notes} onChangeText={setNotes} multiline placeholder="Anything people should bring or know" />
       </Card>
+
+      {/* Agenda (required) */}
+      <View onLayout={(e) => (layoutY.current.agenda = e.nativeEvent.layout.y)}>
+        <Card className="mb-3">
+          <Text className="text-sm font-bold text-neutral-900 mb-1.5">Agenda</Text>
+          <Field
+            testID="meeting-agenda-input"
+            value={agenda}
+            onChangeText={(v) => {
+              setAgenda(v.slice(0, AGENDA_MAX));
+              if (agendaError && v.trim()) setAgendaError(null);
+            }}
+            maxLength={AGENDA_MAX}
+            multiline
+            placeholder="What is this meeting about?"
+          />
+          <View className="flex-row items-start mt-1">
+            <Text testID="meeting-agenda-error" className="flex-1 text-xs font-semibold" style={{ color: '#DC2626' }}>
+              {agendaError ?? ''}
+            </Text>
+            <Text className="text-2xs text-neutral-400">
+              {agenda.length}/{AGENDA_MAX}
+            </Text>
+          </View>
+        </Card>
+      </View>
+
+      {/* What will be discussed (at least one item) */}
+      <View onLayout={(e) => (layoutY.current.items = e.nativeEvent.layout.y)}>
+        <Card className="mb-3">
+          <Text className="text-sm font-bold text-neutral-900 mb-2">What will be discussed</Text>
+          <DiscussionItemsEditor
+            projectId={projectId}
+            items={items}
+            onChange={(next) => {
+              setItems(next);
+              if (itemsError && next.length) setItemsError(null);
+            }}
+            error={itemsError}
+          />
+        </Card>
+      </View>
 
       <Card className="mb-4">
         <SectionTitle right={<Button small label="Add from Contact Book" icon="person-add-outline" variant="secondary" onPress={() => setPicker(true)} />}>
@@ -340,7 +494,9 @@ function MeetingForm({
         ))}
       </Card>
 
-      <Button label={initial ? 'Save changes' : 'Create meeting'} icon="checkmark" busy={saving} onPress={save} />
+      <View testID="meeting-save">
+        <Button label={initial ? 'Save changes' : 'Create meeting'} icon="checkmark" busy={saving} onPress={save} />
+      </View>
 
       <RecipientPicker
         visible={picker}
@@ -373,6 +529,8 @@ function MeetingDetail({
   onChange,
   saveError,
   clearSaveError,
+  calendarBusy,
+  onCalendarRetry,
 }: {
   meeting: Meeting;
   projectName: string;
@@ -382,6 +540,8 @@ function MeetingDetail({
   onBack: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  calendarBusy: boolean;
+  onCalendarRetry: () => void;
   // Resolves false (and shows saveError) if the change couldn't be stored.
   onChange: (patch: (m: Meeting) => Partial<Meeting>) => Promise<boolean>;
   saveError: string | null;
@@ -394,9 +554,9 @@ function MeetingDetail({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const s = statusOf(m);
 
-  function logSend(what: 'invite' | 'agenda-request' | 'final-agenda', channel: SendChannel, keys: string[]): Promise<boolean> {
+  function logSend(what: 'invite' | 'agenda-request' | 'final-agenda', channel: SendChannel, keys: string[], via?: 'api' | 'link'): Promise<boolean> {
     return onChange((x) => ({
-      sendLog: [...x.sendLog, { what, channel, recipientKeys: keys, atISO: new Date().toISOString() }],
+      sendLog: [...x.sendLog, { what, channel, ...(via ? { via } : {}), recipientKeys: keys, atISO: new Date().toISOString() }],
       ...(what === 'final-agenda' ? { finalAgendaSentAtISO: new Date().toISOString() } : {}),
     }));
   }
@@ -426,25 +586,21 @@ function MeetingDetail({
         </Text>
         <Text className="text-xs text-neutral-600">📍 {m.venue}</Text>
         {m.notes ? <Text className="text-xs text-neutral-500 mt-1">{m.notes}</Text> : null}
-        <View className="flex-row gap-2 mt-3">
-          <View className="flex-1">
-            <Button
-              small
-              label={m.calendarAddedAtISO ? 'Added to Calendar ✓' : 'Add to Google Calendar'}
-              icon="calendar-outline"
-              variant="secondary"
-              onPress={async () => {
-                try {
-                  await openLink(googleCalendarUrl(m, projectName));
-                } catch {
-                  return; // no browser / Calendar app — nothing was added
-                }
-                await onChange(() => ({ calendarAddedAtISO: new Date().toISOString() }));
-              }}
-            />
-          </View>
+        <View className="flex-row items-center gap-2 mt-3">
+          <CalendarStatus meeting={m} busy={calendarBusy} />
           <Button small label="Edit" icon="create-outline" variant="secondary" onPress={onEdit} />
         </View>
+        {/* Retry / add now: failed sync, or a meeting saved before the integration existed. */}
+        {m.addToCalendar && !calendarBusy && (m.calendarError || !m.calendarEventId) && (
+          <View className="flex-row gap-2 mt-2">
+            <Button small label={m.calendarError ? 'Retry Google Calendar' : 'Add to Google Calendar now'} icon="refresh" variant="secondary" onPress={onCalendarRetry} />
+          </View>
+        )}
+        {m.addToCalendar && !calendarBusy && m.calendarEventId && !m.calendarError && m.calendarLink && (
+          <View className="flex-row gap-2 mt-2">
+            <Button small label="Open in Google Calendar" icon="open-outline" variant="secondary" onPress={() => openLink(m.calendarLink!)} />
+          </View>
+        )}
       </Card>
 
       <View className="flex-row rounded-xl bg-neutral-100 p-1 mb-3">
@@ -478,12 +634,14 @@ function MeetingDetail({
             subject={`Meeting: ${m.title} — ${formatDateLong(m.date)}`}
             message={inviteMessage(m, projectName)}
             sentKeys={sentFor('invite')}
-            onSent={(c, keys) => logSend('invite', c, keys)}
+            onSent={(c, keys, via) => logSend('invite', c, keys, via)}
+            apiSend={WA_TEST_ENABLED ? (people) => sendMeetingWhatsAppTest(m, projectName, people) : undefined}
           />
           <SendLog meeting={m} what="invite" />
         </Card>
       )}
 
+      {tab === 'agenda' && <AgendaOverview meeting={m} onSaveItems={(next) => onChange(() => ({ discussionItems: next }))} />}
       {tab === 'agenda' && <AgendaSection meeting={m} projectName={projectName} me={me} onChange={onChange} logSend={logSend} sentFor={sentFor} />}
 
       {tab === 'record' && (
@@ -517,7 +675,29 @@ function MeetingDetail({
   );
 }
 
-function SendLog({ meeting, what }: { meeting: Meeting; what: 'invite' | 'agenda-request' | 'final-agenda' }) {
+// One line under the meeting header: where the Google Calendar event stands.
+function CalendarStatus({ meeting: m, busy }: { meeting: Meeting; busy: boolean }) {
+  const guests = calendarGuestCount(m);
+  const [color, text, icon]: [string, string, keyof typeof Ionicons.glyphMap] = !m.addToCalendar
+    ? ['#6B7280', 'Google Calendar: off', 'calendar-outline']
+    : busy
+      ? ['#6B7280', 'Updating Google Calendar…', 'sync-outline']
+      : m.calendarError
+        ? ['#DC2626', `Not in Google Calendar: ${m.calendarError}`, 'alert-circle-outline']
+        : m.calendarEventId
+          ? ['#15803D', `In Google Calendar · invite emailed to ${guests} ${guests === 1 ? 'person' : 'people'}${guests < m.invitees.length ? ` (${m.invitees.length - guests} without email)` : ''}`, 'checkmark-circle-outline']
+          : ['#6B7280', 'Google Calendar: not added yet', 'calendar-outline'];
+  return (
+    <View testID="meeting-detail-calendar" className="flex-1 flex-row items-center gap-1.5">
+      <Ionicons name={icon} size={14} color={color} />
+      <Text className="text-2xs flex-1" style={{ color }} numberOfLines={3}>
+        {text}
+      </Text>
+    </View>
+  );
+}
+
+function SendLog({ meeting, what }:{ meeting: Meeting; what: 'invite' | 'agenda-request' | 'final-agenda' }) {
   const entries = meeting.sendLog.filter((l) => l.what === what);
   if (entries.length === 0) return null;
   const names = new Map(meeting.invitees.map((i) => [i.key, i.name]));
@@ -530,7 +710,7 @@ function SendLog({ meeting, what }: { meeting: Meeting; what: 'invite' | 'agenda
         .map((l, i) => (
           <Text key={i} className="text-2xs text-neutral-500">
             {new Date(l.atISO).toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} ·{' '}
-            {l.channel === 'whatsapp' ? 'WhatsApp' : 'Email'} → {l.recipientKeys.map((k) => names.get(k) ?? '—').join(', ')}
+            {l.channel === 'whatsapp' ? (l.via === 'api' ? 'WhatsApp API (test number)' : 'WhatsApp') : 'Email'} →{l.recipientKeys.map((k) => names.get(k) ?? '—').join(', ')}
           </Text>
         ))}
     </View>
@@ -564,16 +744,24 @@ function AgendaSection({
   const submissionFor = (key: string) => m.agendaSubmissions.find((s) => s.from === key);
   const received = m.agendaSubmissions.filter((s) => s.points.length > 0).length;
 
+  // Points can be ticked from the meeting's own discussion items (tasks +
+  // topics chosen while creating it) and/or typed as extra lines.
+  const itemTitles = (m.discussionItems ?? []).map((i) => i.title);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+
   function startEdit(key: string) {
     setEditingFor(key);
-    setDraft((submissionFor(key)?.points ?? []).join('\n'));
+    const existing = submissionFor(key)?.points ?? [];
+    setPicked(new Set(existing.filter((p) => itemTitles.includes(p))));
+    setDraft(existing.filter((p) => !itemTitles.includes(p)).join('\n'));
   }
 
   async function saveSubmission(key: string, name: string) {
-    const points = draft
+    const typed = draft
       .split('\n')
       .map((p) => p.replace(/^\s*(\d+[.)]|[-•*])\s*/, '').trim())
       .filter(Boolean);
+    const points = [...itemTitles.filter((t) => picked.has(t)), ...typed.filter((t) => !picked.has(t))];
     const ok = await onChange((x) => ({
       agendaSubmissions: [
         ...x.agendaSubmissions.filter((s) => s.from !== key),
@@ -609,7 +797,7 @@ function AgendaSection({
 
   return (
     <View>
-      <View className="flex-row gap-2 mb-3">
+      <View className="flex-row flex-wrap gap-2 mb-3">
         <Chip label={`1. Collect points (${received}/${people.length})`} active={step === 'collect'} onPress={() => setStep('collect')} />
         <Chip label={`2. Final agenda (${m.finalAgenda.length})`} active={step === 'final'} onPress={() => setStep('final')} />
       </View>
@@ -657,7 +845,42 @@ function AgendaSection({
                 )}
                 {editing && (
                   <View className="mt-2 gap-2">
-                    <Field value={draft} onChangeText={setDraft} multiline placeholder="One point per line" autoFocus />
+                    {itemTitles.length > 0 ? (
+                      <View testID="agenda-points-pick" className="rounded-lg border border-neutral-100 overflow-hidden">
+                        <Text className="text-2xs font-semibold text-neutral-500 px-3 pt-2 pb-1">Select from this meeting’s items</Text>
+                        {itemTitles.map((t) => {
+                          const on = picked.has(t);
+                          return (
+                            <Pressable
+                              key={t}
+                              onPress={() =>
+                                setPicked((prev) => {
+                                  const n = new Set(prev);
+                                  if (n.has(t)) n.delete(t);
+                                  else n.add(t);
+                                  return n;
+                                })
+                              }
+                              accessibilityRole="checkbox"
+                              accessibilityState={{ checked: on }}
+                              className="flex-row items-center gap-2 px-3 border-t border-neutral-100"
+                              style={{ minHeight: 44 }}
+                            >
+                              <Ionicons name={on ? 'checkbox' : 'square-outline'} size={20} color={on ? NAVY : '#D1D5DB'} />
+                              <Text className="flex-1 text-sm text-neutral-900" numberOfLines={2}>
+                                {t}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    ) : null}
+                    <Field
+                      value={draft}
+                      onChangeText={setDraft}
+                      multiline
+                      placeholder={itemTitles.length ? 'Other points (optional) — one per line' : 'One point per line'}
+                    />
                     <View className="flex-row gap-2">
                       <View className="flex-1">
                         <Button small label="Save" icon="checkmark" onPress={() => saveSubmission(p.key, p.name)} />

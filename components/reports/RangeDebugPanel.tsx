@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { computeRangeParamCheck, type TaskParamCheck } from '../../lib/debug/rangeTaskReportParamCheck';
 import type { RangeTaskRow } from '../../lib/reports/rangeTaskReport';
@@ -36,7 +37,7 @@ export function RangeDebugPanel({ rows }: { rows: RangeTaskRow[] }) {
   return (
     <View className="rounded-xl border border-dashed border-amber-300 bg-amber-50 mb-3.5 overflow-hidden">
       <Pressable onPress={() => setOpen((v) => !v)} className="flex-row items-center justify-between px-3.5 py-2.5">
-        <Text className="text-2xs font-bold uppercase tracking-wide text-amber-700">
+        <Text className="flex-1 mr-2 text-2xs font-bold uppercase tracking-wide text-amber-700">
           🐛 Debug: Parameter Check — Tasks with complete data: {tasksComplete}/{tasksTotal}
         </Text>
         <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={16} color="#B45309" />

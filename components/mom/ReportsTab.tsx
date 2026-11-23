@@ -8,7 +8,8 @@
 //  • History: everything sent from the MoM section, newest first.
 
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, Switch, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Switch, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 import { fetchProjectProgress } from '../../lib/projectProgress';
@@ -91,7 +92,7 @@ export function ReportsTab({ projectId, projectName, data, update }: { projectId
 
   return (
     <View>
-      <View className="flex-row gap-2 mb-3">
+      <View className="flex-row flex-wrap gap-2 mb-3">
         <Chip label="Automated" active={section === 'automated'} onPress={() => setSection('automated')} />
         <Chip label="Send manually" active={section === 'manual'} onPress={() => setSection('manual')} />
         <Chip label={`History (${data.history.length})`} active={section === 'history'} onPress={() => setSection('history')} />

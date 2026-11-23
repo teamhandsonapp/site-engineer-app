@@ -6,7 +6,8 @@
 // Drawer's screenLayout, so individual screens didn't need changing.
 
 import type { ReactNode } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { Text } from './ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { appRoleFor, useAuth } from '../lib/AuthContext';
 import { useProject } from '../lib/ProjectContext';
@@ -24,7 +25,6 @@ const PROJECT_SCOPED_ROUTES = new Set([
   'gantt',
   'project-contacts',
   'settings',
-  'site-groups',
   'task-list',
 ]);
 

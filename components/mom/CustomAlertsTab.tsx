@@ -7,7 +7,8 @@
 //    and architect — manually, by WhatsApp / email or as a PDF.
 
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, View } from 'react-native';
+import { Text } from '../ui/AppText';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../ui/Card';
 import { fetchDepartments, type Department } from '../../lib/departments';
@@ -52,7 +53,7 @@ export function CustomAlertsTab({
 
   return (
     <View>
-      <View className="flex-row gap-2 mb-3">
+      <View className="flex-row flex-wrap gap-2 mb-3">
         <Chip label="Department alert" active={section === 'alert'} onPress={() => setSection('alert')} />
         <Chip label="Pending / upcoming tasks" active={section === 'tasks'} onPress={() => setSection('tasks')} />
       </View>
