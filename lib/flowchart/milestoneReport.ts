@@ -252,7 +252,9 @@ export function responsibleFor(c: Pick<DelayCause, 'party' | 'who'>, department:
  */
 export function allDelays(
   rows: Pick<SheetReportRow, 'notes' | 'constructionNotes' | 'department' | 'taskCode' | 'plannedStart' | 'plannedEnd' | 'actualStart' | 'actualEnd'>[],
-  milestoneDelay: number | null = null
+  milestoneDelay: number | null = null,
+  /** Pre-construction with dates (2026-11-25, client): same-date tasks each counted, not merged. */
+  keepSameDates = false
 ): {
   allDelays: AllDelay[];
   byResponsible: { responsible: string; days: number; delays: number }[];
@@ -272,7 +274,7 @@ export function allDelays(
   // PTC-18 and PTC-19, both 22 Aug – 1 Sep) are one piece of work for the delay
   // (2026-11-23, client): only the one with the most delay days entered counts,
   // and its reasons carry all their codes ("PTC-18 / PTC-19").
-  const { skip, codeOf } = sameDateTasks(rows);
+  const { skip, codeOf } = keepSameDates ? { skip: new Set<unknown>(), codeOf: new Map<unknown, string>() } : sameDateTasks(rows);
   for (const r of rows) {
     if (skip.has(r)) continue;
     // When each stage's delay happened: Pre-construction is the wait before the
@@ -438,6 +440,16 @@ export interface MilestoneSummary {
   /** Only one stage's delays are in this report (2026-11-23, client filter), e.g.
    *  'Pre-construction': the days as given, with a Total row. */
   stageOnly?: string;
+  /** Construction only + a date range (2026-11-25, client): each calendar day of
+   *  delay counted once, only days inside the range (constructionDays.ts). */
+  countedOnce?: { total: number; given: number; note: string; short: string };
+  /** Date-range report (2026-11-25, client): no Planned end / Actual end / Difference box. */
+  hideSpan?: boolean;
+  /** Date-range report (2026-11-25, client): every task in the dates with its own
+   *  Pre-con / Const days, listed after the delays; no "Responsible" table. */
+  rangeTasks?: { code: string; name: string; department: string; pre: number; con: number }[];
+  /** Both stages in one report: the Pre-con and Const subtotals. */
+  stageTotals?: { pre: number; con: number };
   /** Set when allDelays is the milestone's delay followed back from its last task
    *  (milestoneChain.ts): the tasks it went through, last task first. */
   traced?: string[];
@@ -579,6 +591,7 @@ export function allDelayDaysText(n: number | null, shared: boolean): string {
 /** The "Total" under All delays / Responsible: the milestone's delay when the days
  *  add up to it, the days given when only one stage is shown, else no Total row. */
 export function delaysTotal(s: MilestoneSummary): number | null {
+  if (s.countedOnce) return s.countedOnce.total;
   if (s.delaysShared) return s.delayDays;
   if (s.stageOnly) return s.delaysGiven;
   return null;
@@ -586,6 +599,7 @@ export function delaysTotal(s: MilestoneSummary): number | null {
 
 /** The note under "All delays": how its days are worked out. */
 export function allDelaysNote(s: MilestoneSummary): string {
+  if (s.countedOnce) return s.countedOnce.note;
   if (s.stageOnly && !s.traced?.length)
     return `${s.stageOnly} delays only: days as given on each task, all tasks added (${s.delaysGiven} day${s.delaysGiven === 1 ? '' : 's'}).`;
   if (s.traced?.length)
@@ -597,6 +611,7 @@ export function allDelaysNote(s: MilestoneSummary): string {
 
 /** Short note for the compact report: where the days come from, in one line. */
 export function compactDelaysNote(s: MilestoneSummary): string {
+  if (s.countedOnce) return s.countedOnce.short;
   if (s.stageOnly && !s.traced?.length) return `${s.stageOnly} delays only: days as given, all tasks added.`;
   return s.traced?.length
     ? `Traced back from ${s.traced[0]} through the tasks above (${s.traced.join(' ← ')}); every day counted once.`
@@ -646,11 +661,11 @@ function compactMilestoneHtml(s: MilestoneSummary, projectName: string, mileston
   </style></head><body>
     <div class="head"><div><h1>${esc(projectName)} — Milestone Report</h1><div class="ms">${esc(milestone)}</div></div><div class="sub">Generated <b>${fmtDay(today.toISOString().slice(0, 10))}</b></div></div>
     <table class="stats"><tr>
-      ${stat('Planned end', fmtDay(s.plannedEnd))}${stat('Actual end', s.finished ? fmtDay(s.actualEnd) : 'Not finished')}${stat('Difference', differenceText(s), tone)}
+      ${s.hideSpan ? '' : `${stat('Planned end', fmtDay(s.plannedEnd))}${stat('Actual end', s.finished ? fmtDay(s.actualEnd) : 'Not finished')}${stat('Difference', differenceText(s), tone)}`}
       ${stat('Tasks', String(s.tasks))}${stat('Delayed', String(s.delayedTasks), '#B91C1C')}${stat('On time', String(s.onTime), '#15803D')}
     </tr></table>
     <div class="cols"><div class="c1"><h2>Delays</h2>${delays}</div>${resp ? `<div class="c2"><h2>Responsible</h2>${resp}</div>` : ''}</div>
-    <div class="note">Difference = actual end − planned end. ${esc(compactDelaysNote(s))}</div>
+    <div class="note">${s.hideSpan ? '' : 'Difference = actual end − planned end. '}${esc(compactDelaysNote(s))}</div>
   </body></html>`;
 }
 
@@ -676,23 +691,30 @@ export function milestoneReportHtml(s: MilestoneSummary, projectName: string, mi
       s.reasons.map((r) => bar(r.reason, r.tasks, r.color)).join('') + (s.noReason ? bar('Not written', s.noReason, '#9CA3AF') : '')
     : '<p class="muted">No delayed tasks.</p>';
   const dayText = (n: number | null) => allDelayDaysText(n, s.delaysShared);
+  const subRow = (label: string, n: number) => `<tr class="sub"><td class="who">${label}</td><td class="r dd">${dayText(n)}</td><td></td></tr>`;
+  const dd = (n: number) => (n ? `${n}d` : '—');
+  const rangeTasksHtml = s.rangeTasks
+    ? `<div class="card tasks newpage"><h2>Delayed tasks in these dates (${s.rangeTasks.length})</h2><table class="list"><thead><tr><th>#</th><th>Task</th><th>Department</th><th class="num">Pre-con</th><th class="num">Const</th><th class="num">Total</th></tr></thead>${s.rangeTasks
+        .map((t, i) => `<tr><td class="num">${i + 1}</td><td><b>${esc(t.code)}</b> · ${esc(t.name)}</td><td>${esc(t.department)}</td><td class="num${t.pre ? ' late' : ''}">${dd(t.pre)}</td><td class="num${t.con ? ' late' : ''}">${dd(t.con)}</td><td class="num${t.pre + t.con ? ' late' : ''}">${dd(t.pre + t.con)}</td></tr>`)
+        .join('')}</table><div class="note">Pre-con = planned start to actual start (both days counted). Const = actual days − planned days. — = no delay.</div></div>`
+    : '';
   const allDelaysHtml = s.allDelays.length
     ? `<table class="ad"><tr><th>Delay</th><th class="r">Days</th><th>Responsible · reason</th></tr>${s.allDelays
         .map(
-          (x) =>
-            `<tr><td><span class="dot" style="background:${x.color}"></span>${esc(x.label)}${x.tasks > 1 ? ` <span class="tk">(${x.tasks} tasks)</span>` : ''}</td><td class="r dd">${dayText(x.days)}${s.delaysShared && x.given ? `<div class="tk">${x.given} given</div>` : ''}</td><td><div class="whos">${esc(x.responsible)}</div>${x.reasons.map((w) => `<div class="why">${esc(w.text)} <span class="tk">${esc(w.code)}</span></div>`).join('')}</td></tr>`
+          (x, i) =>
+            `${s.stageTotals && x.label.startsWith('Const · ') && !s.allDelays[i - 1]?.label.startsWith('Const · ') ? subRow('Pre-construction total', s.stageTotals.pre) : ''}<tr><td><span class="dot" style="background:${x.color}"></span>${esc(x.label)}${x.tasks > 1 ? ` <span class="tk">(${x.tasks} tasks)</span>` : ''}</td><td class="r dd">${dayText(x.days)}${s.delaysShared && x.given ? `<div class="tk">${x.given} given</div>` : ''}</td><td><div class="whos">${esc(x.responsible)}</div>${x.reasons.map((w) => `<div class="why">${esc(w.text)} <span class="tk">${esc(w.code)}</span></div>`).join('')}</td></tr>`
         )
-        .join('')}${delaysTotal(s) !== null ? `<tr><td class="who">Total</td><td class="r dd">${dayText(delaysTotal(s))}</td><td></td></tr>` : ''}</table>
-      <h3 class="eq">Responsible for the delays</h3><table class="ad">${s.byResponsible
+        .join('')}${s.stageTotals ? subRow('Construction total', s.stageTotals.con) : ''}${delaysTotal(s) !== null ? `<tr><td class="who">Total</td><td class="r dd">${dayText(delaysTotal(s))}</td><td></td></tr>` : ''}</table>
+      ${s.rangeTasks ? '' : `<h3 class="eq">Responsible for the delays</h3><table class="ad">${s.byResponsible
         .map((w) => `<tr><td class="who">${esc(w.responsible)}</td><td class="r dd">${dayText(w.days)}</td><td class="tk">${w.delays} delay${w.delays === 1 ? '' : 's'}</td></tr>`)
-        .join('')}${delaysTotal(s) !== null ? `<tr><td class="who">Total</td><td class="r dd">${dayText(delaysTotal(s))}</td><td></td></tr>` : ''}</table>`
+        .join('')}${delaysTotal(s) !== null ? `<tr><td class="who">Total</td><td class="r dd">${dayText(delaysTotal(s))}</td><td></td></tr>` : ''}</table>`}`
     : '<p class="muted">No delays given.</p>';
   const fromAboveHtml = s.fromAboveDays
     ? `<div class="note"><b>Delay from task above:</b> ${s.fromAboveDays} day${s.fromAboveDays === 1 ? '' : 's'} on ${s.fromAboveTasks} task${s.fromAboveTasks === 1 ? '' : 's'} — a late task above made these start late; those days are already counted on the task above, so they are not added again here.</div>`
     : '';
   const delaysCard =
     format !== 'reasons'
-      ? `<div class="card"><h2>All delays (${s.delayedTasks} task${s.delayedTasks === 1 ? '' : 's'} delayed)</h2>${allDelaysHtml}<div class="note">${esc(allDelaysNote(s))}</div>${s.traced ? '' : fromAboveHtml}${equipmentHtml}</div>`
+      ? `<div class="card"><h2>All delays (${s.delayedTasks} task${s.delayedTasks === 1 ? '' : 's'} delayed)</h2>${allDelaysHtml}<div class="note">${esc(allDelaysNote(s))}</div>${s.traced || s.rangeTasks ? '' : fromAboveHtml}${s.rangeTasks ? '' : equipmentHtml}</div>`
       : `<div class="card"><h2>Reasons for delay (${s.delayedTasks} delayed)</h2>${reasons}<div class="note">Delayed tasks per reason; a task with two reasons counts for both.</div>${equipmentHtml}</div>`;
   // No task list in the report (2026-11-22, client).
   return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(projectName)} — ${esc(milestone)}</title><style>
@@ -732,11 +754,12 @@ export function milestoneReportHtml(s: MilestoneSummary, projectName: string, mi
     .ad { width: 100%; border-collapse: collapse; }
     .ad th { text-align: left; font-size: 12px; color: #52514e; padding: 6px; border-bottom: 2px solid #E7E5E0; }
     .ad td { border-bottom: 1px solid #E7E5E0; padding: 8px 6px; font-size: 14px; vertical-align: top; }
+    .ad tr.sub td { background: #F8FAFC; border-top: 1.5px solid #CBD5E1; }
     .ad .r { text-align: right; white-space: nowrap; } .ad .dd { font-weight: 800; color: #B91C1C; width: 22%; }
     .ad .who { font-weight: 700; color: #0F1F33; width: 32%; } .tk { font-size: 11px; color: #6B7280; font-weight: 400; }
     .whos { font-size: 11px; font-weight: 700; color: #6B7280; } .why { font-size: 15px; font-weight: 700; color: #0F1F33; margin-top: 2px; }
     .dot { display: inline-block; width: 10px; height: 10px; border-radius: 5px; margin-right: 8px; }
-    .card.tasks { break-inside: auto; } .tb { border-top: 1px solid #E7E5E0; padding: 8px 0; break-inside: avoid; }
+    .card.tasks { break-inside: auto; } .newpage { break-before: page; page-break-before: always; } .list thead { display: table-header-group; } .tb { border-top: 1px solid #E7E5E0; padding: 8px 0; break-inside: avoid; }
     .th { font-size: 14px; color: #0F1F33; } .th .cd { float: right; font-size: 12px; font-weight: 700; color: #B91C1C; }
     .te { width: 100%; border-collapse: collapse; margin: 6px 0 4px; } .te th { text-align: left; font-size: 11px; color: #52514e; padding: 4px 6px; background: #F1F5F9; }
     .te td { font-size: 12.5px; padding: 4px 6px; border-bottom: 1px solid #F0EFEC; vertical-align: top; } .te .r { text-align: right; white-space: nowrap; }
@@ -744,17 +767,18 @@ export function milestoneReportHtml(s: MilestoneSummary, projectName: string, mi
   </style></head><body>
     <div class="head"><div><h1>${esc(projectName)} — Milestone Report</h1><div class="ms">${esc(milestone)}</div></div><div class="sub">Report generated: <b>${fmtDay(today.toISOString().slice(0, 10))}</b></div></div>
     <div class="card">
-      <table class="span"><tr><th>Planned end</th><th>Actual end</th><th style="text-align:right">Difference</th></tr>
+      ${s.hideSpan ? '' : `<table class="span"><tr><th>Planned end</th><th>Actual end</th><th style="text-align:right">Difference</th></tr>
         <tr><td>${fmtDay(s.plannedEnd)}</td><td>${s.finished ? fmtDay(s.actualEnd) : 'Not finished yet'}</td><td class="days" style="color:${tone}">${esc(differenceText(s))}</td></tr>
-      </table>
+      </table>`}
       <table class="counts">
-        <tr><td>No. of tasks in milestone</td><td class="cv">${s.tasks}</td></tr>
+        <tr><td>No. of tasks ${s.rangeTasks ? 'in these dates' : 'in milestone'}</td><td class="cv">${s.tasks}</td></tr>
         <tr><td>No. of tasks delayed</td><td class="cv" style="color:#B91C1C">${s.delayedTasks}</td></tr>
         <tr><td>No. of tasks completed on time</td><td class="cv" style="color:#15803D">${s.onTime}</td></tr>
       </table>
-      <div class="note">Difference = actual end − planned end.</div>
+      ${s.hideSpan ? "" : `<div class="note">Difference = actual end − planned end.</div>`}
     </div>
     ${delaysCard}
+    ${rangeTasksHtml}
   </body></html>`;
 }
 
@@ -768,8 +792,9 @@ export function exportMilestoneExcel(s: MilestoneSummary, projectName: string, m
     [`${projectName} — Milestone Report`],
     [milestone],
     [],
-    ['Planned end', 'Actual end', 'Difference', 'Tasks', 'Delayed', 'On time'],
-    [fmtDay(s.plannedEnd), s.finished ? fmtDay(s.actualEnd) : 'Not finished', differenceText(s), s.tasks, s.delayedTasks, s.onTime],
+    ...(s.hideSpan
+      ? [['Tasks', 'Delayed', 'On time'], [s.tasks, s.delayedTasks, s.onTime]]
+      : [['Planned end', 'Actual end', 'Difference', 'Tasks', 'Delayed', 'On time'], [fmtDay(s.plannedEnd), s.finished ? fmtDay(s.actualEnd) : 'Not finished', differenceText(s), s.tasks, s.delayedTasks, s.onTime]]),
     [],
     ['Delay', 'Responsible', 'Days'],
     ...s.allDelays.map((x) => [x.label, x.responsible, x.days ?? '']),
@@ -792,9 +817,7 @@ export function exportMilestoneExcel(s: MilestoneSummary, projectName: string, m
     [`${projectName} — Milestone Report`],
     [milestone],
     [],
-    ['Planned end', 'Actual end', 'Difference'],
-    [fmtDay(s.plannedEnd), s.finished ? fmtDay(s.actualEnd) : 'Not finished yet', differenceText(s)],
-    [],
+    ...(s.hideSpan ? [] : [['Planned end', 'Actual end', 'Difference'], [fmtDay(s.plannedEnd), s.finished ? fmtDay(s.actualEnd) : 'Not finished yet', differenceText(s)], []]),
     ['No. of tasks in milestone', s.tasks],
     ['No. of tasks delayed', s.delayedTasks],
     ...(format !== 'reasons' ? [] : s.reasons.map((r) => [`   ${r.reason}`, r.tasks])),

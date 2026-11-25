@@ -44,7 +44,7 @@ export function esc(value: string): string {
 }
 
 const A4_STYLE = `
-  @page { size: A4; margin: 14mm; }
+  @page { size: A4; margin: 14mm; @top-left { content: ""; } @top-center { content: ""; } @top-right { content: ""; } @bottom-left { content: ""; } @bottom-center { content: ""; } @bottom-right { content: ""; } } /* no browser address/date header */
   * { box-sizing: border-box; }
   body { font-family: -apple-system, Helvetica, Arial, sans-serif; color: #111827; margin: 0; padding: 0; font-size: 12px; }
   .sheet { max-width: 182mm; margin: 0 auto; }

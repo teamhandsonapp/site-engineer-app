@@ -5,6 +5,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { formatDateLabel } from '../formatTime';
 import type { FlowchartTask } from './types';
+import { printReportHtml } from './sheetReport';
 
 // Filter panel's own PDF/Print — a plain list of whichever tasks the
 // current Floor/Department/Room filter matched, by explicit request
@@ -59,6 +60,7 @@ function buildHtml(tasks: FlowchartTask[], summary: FilterSummary): string {
       <head>
         <meta charset="utf-8" />
         <style>
+          @page { margin: 12mm; @top-left { content: ""; } @top-center { content: ""; } @top-right { content: ""; } @bottom-left { content: ""; } @bottom-center { content: ""; } @bottom-right { content: ""; } } /* no browser address/date header */
           body { font-family: -apple-system, Helvetica, Arial, sans-serif; color: #111827; padding: 24px; }
           h1 { font-size: 18px; margin: 0 0 2px; }
           .sub { color: #6B7280; font-size: 12px; margin: 0 0 20px; }
@@ -109,6 +111,10 @@ async function getSaveDirectory(): Promise<string> {
 export async function exportFilteredTasksPdf(tasks: FlowchartTask[], summary: FilterSummary): Promise<string> {
   const html = buildHtml(tasks, summary);
   const fileName = 'flowchart-filter-tasks';
+  if (Platform.OS === 'web') {
+    await printReportHtml(html, 'Flowchart Filter - Task List');
+    return 'Choose "Save as PDF" in the print window.';
+  }
 
   if (Platform.OS === 'android') {
     const { base64 } = await Print.printToFileAsync({ html, base64: true });
@@ -141,5 +147,6 @@ export async function exportFilteredTasksPdf(tasks: FlowchartTask[], summary: Fi
 // printAsync) instead of a saved file's share sheet.
 export async function printFilteredTasks(tasks: FlowchartTask[], summary: FilterSummary): Promise<void> {
   const html = buildHtml(tasks, summary);
+  if (Platform.OS === 'web') return printReportHtml(html, 'Flowchart Filter - Task List');
   await Print.printAsync({ html });
 }

@@ -53,6 +53,7 @@ import {
   type SheetReportRow,
   type ReportSummary,
 } from '../../lib/flowchart/sheetReport';
+import { lastTaskDelays, rangeTaskList } from '../../lib/flowchart/constructionDays';
 import { dateRangeLabel, inDateRange, onlyStage, STAGE_ONLY_LABEL, type RangeBy, type StageOnly } from '../../lib/flowchart/reportRange';
 import { DateField } from '../ui/DateField';
 
@@ -606,13 +607,30 @@ export function SheetReportView({
     const raw = new Map(rawRows.map((r) => [r.taskCode, r]));
     const own = rows.map((r) => ({ ...(raw.get(r.taskCode) ?? r), no: r.no }));
     const sum = { ...milestoneSummary(own, todayKey()), ...stageTag };
+    // Date range (2026-11-25, client): the delays of the task that finished last in
+    // the range (Mezzanine Slab Casting for 28 Jul – 24 Sep), with their reasons.
+    if (rangeOn && !levelLabel) {
+      const l = lastTaskDelays(own, stageOn);
+      const parts = [stageOn !== 'con' ? `Pre-construction ${l.pre} days (planned start to actual start, both days counted)` : '', stageOn !== 'pre' ? `Construction ${l.con} days` : ''].filter(Boolean).join(' + ');
+      const note = `Delays of ${l.code ?? '—'}, the task that finished last in these dates: ${parts}${stageOn ? '' : ` = ${l.total} days`}.`;
+      return {
+        ...sum,
+        allDelays: l.allDelays,
+        byResponsible: l.byResponsible,
+        hideSpan: true,
+        // Only the delayed tasks (2026-11-25, client).
+        rangeTasks: rangeTaskList(own).filter((t) => t.pre + t.con > 0),
+        ...(stageOn ? {} : { stageTotals: { pre: l.pre, con: l.con } }),
+        countedOnce: { total: l.total, given: l.total, note, short: note },
+      };
+    }
     // A milestone with a last task (2026-11-23, client): its delay followed back
     // through the tasks above, so the delays add up to exactly the days it is late.
     const last = milestoneLast ? own.find((r) => pastTaskCode(r.taskCode) === milestoneLast) : undefined;
     if (!last || !pastMilestones?.chain || (sum.delayDays ?? 0) <= 0) return sum;
     const t = traceMilestoneDelay(own, pastMilestones.chain, last.taskCode, sum.delayDays!);
     return { ...sum, allDelays: t.allDelays, byResponsible: t.byResponsible, delaysShared: true, traced: t.path };
-  }, [milestoneLabel, rows, rawRows, party, milestoneLast, pastMilestones?.chain, stageOn]);
+  }, [milestoneLabel, levelLabel, rows, rawRows, party, milestoneLast, pastMilestones?.chain, stageOn, rangeOn]);
 
   async function run(kind: 'excel' | 'pdf') {
     setBusy(kind);
@@ -927,9 +945,9 @@ function CompactMilestoneCard({ summary: s }: { summary: MilestoneSummary }) {
   return (
     <View className="rounded-2xl p-4" style={{ backgroundColor: '#fcfcfb', borderWidth: 1, borderColor: BORDER, gap: 12 }}>
       <View className="flex-row flex-wrap" style={{ gap: 8 }}>
-        {stat('Planned end', fmtDay(s.plannedEnd))}
-        {stat('Actual end', s.finished ? fmtDay(s.actualEnd) : 'Not finished')}
-        {stat('Difference', differenceText(s), tone)}
+        {s.hideSpan ? null : stat('Planned end', fmtDay(s.plannedEnd))}
+        {s.hideSpan ? null : stat('Actual end', s.finished ? fmtDay(s.actualEnd) : 'Not finished')}
+        {s.hideSpan ? null : stat('Difference', differenceText(s), tone)}
         {stat('Tasks', String(s.tasks))}
         {stat('Delayed', String(s.delayedTasks), '#B91C1C')}
         {stat('On time', String(s.onTime), '#15803D')}
@@ -1001,7 +1019,7 @@ function MilestoneReportCard({ summary: s, format = 'reasons' }: { summary: Mile
     <View style={{ gap: 12 }}>
       <View className="flex-row">
       <Card title="Milestone summary" minWidth={320}>
-        <View style={{ borderWidth: 1, borderColor: BORDER, borderRadius: 8, overflow: 'hidden', marginBottom: 10 }}>
+        {s.hideSpan ? null : <View style={{ borderWidth: 1, borderColor: BORDER, borderRadius: 8, overflow: 'hidden', marginBottom: 10 }}>
           <View className="flex-row" style={{ paddingHorizontal: 10, paddingVertical: 8, gap: 8, backgroundColor: '#F1F5F9' }}>
             {cell('Planned end', true)}
             {cell('Actual end', true)}
@@ -1012,11 +1030,11 @@ function MilestoneReportCard({ summary: s, format = 'reasons' }: { summary: Mile
             {cell(s.finished ? fmtDay(s.actualEnd) : 'Not finished yet')}
             {cell(differenceText(s), true, true, tone)}
           </View>
-        </View>
-        {countRow('No. of tasks in milestone', s.tasks, INK)}
+        </View>}
+        {countRow(s.rangeTasks ? 'No. of tasks in these dates' : 'No. of tasks in milestone', s.tasks, INK)}
         {countRow('No. of tasks delayed', s.delayedTasks, '#B91C1C')}
         {countRow('No. of tasks completed on time', s.onTime, '#15803D')}
-        <Text style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>Difference = actual end − planned end.</Text>
+        {s.hideSpan ? null : <Text style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>Difference = actual end − planned end.</Text>}
       </Card>
       </View>
       {format !== 'reasons' ? (
@@ -1108,15 +1126,31 @@ function AllDelaysCard({ summary: s }: { summary: MilestoneSummary }) {
               <View style={{ flex: 2 }} />
             </View>
           ) : null}
-          <Text style={{ fontSize: 13, fontWeight: '700', color: INK, marginTop: 14, marginBottom: 2 }}>Responsible for the delays</Text>
-          {s.byResponsible.map((w) => (
+          {s.rangeTasks ? (
+            <>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: INK, marginTop: 14, marginBottom: 2 }}>{`Delayed tasks in these dates (${s.rangeTasks.length})`}</Text>
+              {s.rangeTasks.map((t) => (
+                <View key={t.code} className="flex-row items-center" style={{ gap: 10, paddingVertical: 6, borderTopWidth: 1, borderColor: BORDER }}>
+                  <Text style={{ flex: 3, fontSize: 13, color: '#0F1F33' }}>
+                    <Text style={{ fontWeight: '700' }}>{t.code}</Text> · {t.name}
+                    <Text style={{ fontSize: 11, color: MUTED }}>{`  ${t.department}`}</Text>
+                  </Text>
+                  <Text style={{ flex: 2, textAlign: 'right', fontSize: 12, fontWeight: '700', color: t.pre + t.con ? '#B91C1C' : MUTED }}>
+                    {t.pre + t.con ? `Pre-con ${t.pre}d · Const ${t.con}d · Total ${t.pre + t.con}d` : 'No delay'}
+                  </Text>
+                </View>
+              ))}
+            </>
+          ) : null}
+          {s.rangeTasks ? null : <Text style={{ fontSize: 13, fontWeight: '700', color: INK, marginTop: 14, marginBottom: 2 }}>Responsible for the delays</Text>}
+          {(s.rangeTasks ? [] : s.byResponsible).map((w) => (
             <View key={w.responsible} className="flex-row items-center" style={{ gap: 10, paddingVertical: 7, borderTopWidth: 1, borderColor: BORDER }}>
               <Text style={{ flex: 3, fontSize: 14, fontWeight: '700', color: '#0F1F33' }}>{w.responsible}</Text>
               <Text style={{ flex: 1.3, textAlign: 'right', fontSize: 14, fontWeight: '800', color: w.days ? '#B91C1C' : MUTED }}>{dayText(w.days)}</Text>
               <Text style={{ flex: 2, fontSize: 12, color: MUTED }}>{w.delays} delay{w.delays === 1 ? '' : 's'}</Text>
             </View>
           ))}
-          {delaysTotal(s) !== null ? (
+          {!s.rangeTasks && delaysTotal(s) !== null ? (
             <View className="flex-row items-center" style={{ gap: 10, paddingVertical: 7, borderTopWidth: 1, borderColor: BORDER }}>
               <Text style={{ flex: 3, fontSize: 14, fontWeight: '800', color: '#0F1F33' }}>Total</Text>
               <Text style={{ flex: 1.3, textAlign: 'right', fontSize: 14, fontWeight: '800', color: '#B91C1C' }}>{dayText(delaysTotal(s))}</Text>
@@ -1128,7 +1162,7 @@ function AllDelaysCard({ summary: s }: { summary: MilestoneSummary }) {
         <Text style={{ fontSize: 13, color: MUTED }}>No delays given.</Text>
       )}
       <Text style={{ fontSize: 11, color: MUTED, marginTop: 8 }}>{allDelaysNote(s)}</Text>
-      {s.fromAboveDays && !s.traced ? (
+      {s.fromAboveDays && !s.traced && !s.rangeTasks ? (
         <Text style={{ fontSize: 12, color: INK_2, marginTop: 6 }}>
           <Text style={{ fontWeight: '700' }}>Delay from task above: </Text>
           {`${s.fromAboveDays} day${s.fromAboveDays === 1 ? '' : 's'} on ${s.fromAboveTasks} task${s.fromAboveTasks === 1 ? '' : 's'} — a late task above made these start late; those days are already counted on the task above, so they are not added again here.`}

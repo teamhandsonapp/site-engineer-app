@@ -909,7 +909,7 @@ export function buildTaskReportPdfHtml(
     </section>`;
 
   const style = `
-    @page { size: A4; margin: 10mm; }
+    @page { size: A4; margin: 10mm; @top-left { content: ""; } @top-center { content: ""; } @top-right { content: ""; } @bottom-left { content: ""; } @bottom-center { content: ""; } @bottom-right { content: ""; } } /* no browser address/date header */
     * { box-sizing: border-box; }
     body { font-family: -apple-system, Helvetica, Arial, sans-serif; color: #111827; margin: 0; font-size: 11px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
     .page { page-break-after: always; max-width: 190mm; margin: 0 auto; }
