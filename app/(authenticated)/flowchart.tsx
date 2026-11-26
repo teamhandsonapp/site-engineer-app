@@ -94,6 +94,25 @@ function pastCopyReportGroups() {
           ]
         : [];
     })(),
+    // Line report (2026-11-25, client): Mezzanine Slab Casting down the links to the
+    // Mezzanine toilet slab — PTC-24 → PTC-30 → CIV-07 → CIV-08 → CIV-12 → CIV-17.
+    // Same layout as the 28 Jul – 24 Sep date-range report, ending at CIV-17.
+    {
+      name: 'line-mezz-slab-to-toilet-slab',
+      label: 'Line – Mezzanine Slab Casting to Mezzanine Toilet Slab (PTC-24 → CIV-17)',
+      taskCodes: ['PT-24', 'PT-30', 'CIV-07', 'CIV-08', 'CIV-12', 'CIV-17'],
+      format: 'allDelays' as const,
+      endCode: 'CIV-17',
+    },
+    // Line report (2026-11-25, client): the 9 tasks from 3" Starter casting down to
+    // Roof beam with curing — every task listed, with a Cumulative row.
+    {
+      name: 'line-starter-to-roof-beam',
+      label: 'Line – 3" Starter Casting to Roof Beam with Curing (PTC-30 → CIV-34, 9 tasks)',
+      taskCodes: ['PT-30', 'CIV-01', 'CIV-07', 'CIV-08', 'CIV-12', 'CIV-17', 'CIV-29', 'CIV-06', 'CIV-34'],
+      format: 'allDelays' as const,
+      endCode: 'CIV-34',
+    },
     // L (−4'6") on its own (2026-11-23, client): only that column's tasks —
     // the column with the delay table.
     ...levels
@@ -389,7 +408,7 @@ function FlowchartScreenContent() {
   const boardMilestones = isPastBoard(board) ? milestones.filter((m) => boardTaskList.some((t) => t.milestoneId === m.id)) : milestones;
   // Past Tasks and Past Tasks Copy (2026-11-23, client): every level / milestone
   // report in the "All delays" layout, and each drawn milestone line is a report too.
-  const reportGroups: { name: string; label: string; taskCodes: string[]; taskIds?: Set<string>; format?: 'allDelays' | 'taskDelays'; lastCode?: string }[] = [
+  const reportGroups: { name: string; label: string; taskCodes: string[]; taskIds?: Set<string>; format?: 'allDelays' | 'taskDelays'; lastCode?: string; endCode?: string }[] = [
     ...(board === 'pastcopy'
       ? pastCopyReportGroups()
       : PAST_MILESTONES.map((m) => ({ name: m.name, label: pastMilestoneLabel(m.name), taskCodes: m.taskCodes }))),
@@ -1057,7 +1076,7 @@ function FlowchartScreenContent() {
                 isPastBoard(board)
                   ? {
                       title: board === 'pastcopy' ? (boardMilestones.length ? 'LEVEL / MILESTONE' : 'LEVEL') : 'MILESTONE',
-                      options: reportGroups.map((m) => ({ value: m.name, label: m.label, format: m.format, lastCode: m.lastCode })),
+                      options: reportGroups.map((m) => ({ value: m.name, label: m.label, format: m.format, lastCode: m.lastCode, endCode: m.endCode })),
                       value: pastMilestone,
                       onChange: setPastMilestone,
                       missing: missingReportCodes,

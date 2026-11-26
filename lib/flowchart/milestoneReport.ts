@@ -399,6 +399,10 @@ export function sameReason(a: Set<string>, b: Set<string>): boolean {
 /** 'taskDelays' (2026-11-23, client, Mezzanine Slab Casting milestone): All delays + every task's delays one by one. */
 export type MilestoneFormat = 'reasons' | 'allDelays' | 'taskDelays';
 
+function lineTotalRowHtml(t: { pre: number; con: number }, dd: (n: number) => string): string {
+  return `<tr class="cum"><td></td><td>Line total (each day counted once)</td><td></td><td class="num late">${dd(t.pre)}</td><td class="num late">${dd(t.con)}</td><td class="num late">${dd(t.pre + t.con)}</td></tr>`;
+}
+
 export interface MilestoneSummary {
   tasks: number;
   completed: number;
@@ -447,7 +451,15 @@ export interface MilestoneSummary {
   hideSpan?: boolean;
   /** Date-range report (2026-11-25, client): every task in the dates with its own
    *  Pre-con / Const days, listed after the delays; no "Responsible" table. */
-  rangeTasks?: { code: string; name: string; department: string; pre: number; con: number }[];
+  rangeTasks?: { code: string; name: string; department: string; pre: number; con: number; soFar?: boolean }[];
+  /** What rangeTasks covers in the headings: "these dates" (default) or "this line". */
+  rangeScope?: string;
+  /** Line reports (2026-11-25, client): every task of the line (not only the delayed
+   *  ones) and a "Line total" row (lineTotals). */
+  rangeAll?: boolean;
+  /** Line reports: the line's late days, each calendar day counted once (tasks late
+   *  side by side are late on the same days — 2026-11-25, client: "404 days is more than a year"). */
+  lineTotals?: { pre: number; con: number };
   /** Both stages in one report: the Pre-con and Const subtotals. */
   stageTotals?: { pre: number; con: number };
   /** Set when allDelays is the milestone's delay followed back from its last task
@@ -691,12 +703,13 @@ export function milestoneReportHtml(s: MilestoneSummary, projectName: string, mi
       s.reasons.map((r) => bar(r.reason, r.tasks, r.color)).join('') + (s.noReason ? bar('Not written', s.noReason, '#9CA3AF') : '')
     : '<p class="muted">No delayed tasks.</p>';
   const dayText = (n: number | null) => allDelayDaysText(n, s.delaysShared);
-  const subRow = (label: string, n: number) => `<tr class="sub"><td class="who">${label}</td><td class="r dd">${dayText(n)}</td><td></td></tr>`;
+  // Stage subtotals are worked out from the dates, never "not given": 0 is 0 days.
+  const subRow = (label: string, n: number) => `<tr class="sub"><td class="who">${label}</td><td class="r dd">${n} day${n === 1 ? '' : 's'}</td><td></td></tr>`;
   const dd = (n: number) => (n ? `${n}d` : '—');
   const rangeTasksHtml = s.rangeTasks
-    ? `<div class="card tasks newpage"><h2>Delayed tasks in these dates (${s.rangeTasks.length})</h2><table class="list"><thead><tr><th>#</th><th>Task</th><th>Department</th><th class="num">Pre-con</th><th class="num">Const</th><th class="num">Total</th></tr></thead>${s.rangeTasks
-        .map((t, i) => `<tr><td class="num">${i + 1}</td><td><b>${esc(t.code)}</b> · ${esc(t.name)}</td><td>${esc(t.department)}</td><td class="num${t.pre ? ' late' : ''}">${dd(t.pre)}</td><td class="num${t.con ? ' late' : ''}">${dd(t.con)}</td><td class="num${t.pre + t.con ? ' late' : ''}">${dd(t.pre + t.con)}</td></tr>`)
-        .join('')}</table><div class="note">Pre-con = planned start to actual start (both days counted). Const = actual days − planned days. — = no delay.</div></div>`
+    ? `<div class="card tasks newpage"><h2>${s.rangeAll ? 'Tasks' : 'Delayed tasks'} in ${s.rangeScope ?? 'these dates'} (${s.rangeTasks.length})</h2><table class="list"><thead><tr><th>#</th><th>Task</th><th>Department</th><th class="num">Pre-con</th><th class="num">Const</th><th class="num">Total</th></tr></thead>${s.rangeTasks
+        .map((t, i) => `<tr><td class="num">${i + 1}</td><td><b>${esc(t.code)}</b> · ${esc(t.name)}${t.soFar ? ' <span class="tk">(not finished · so far)</span>' : ''}</td><td>${esc(t.department)}</td><td class="num${t.pre ? ' late' : ''}">${dd(t.pre)}</td><td class="num${t.con ? ' late' : ''}">${dd(t.con)}</td><td class="num${t.pre + t.con ? ' late' : ''}">${dd(t.pre + t.con)}</td></tr>`)
+        .join('')}${s.lineTotals ? lineTotalRowHtml(s.lineTotals, dd) : ''}</table><div class="note">Pre-con = planned start to actual start (both days counted). Const = actual days − planned days. — = no delay.${s.rangeTasks.some((t) => t.soFar) ? ' Not finished: the delay so far, to today (not started: planned start to today).' : ''}${s.lineTotals ? ' Line total = the calendar days the line was late, each day counted once (tasks late on the same days are not added twice).' : ''}</div></div>`
     : '';
   const allDelaysHtml = s.allDelays.length
     ? `<table class="ad"><tr><th>Delay</th><th class="r">Days</th><th>Responsible · reason</th></tr>${s.allDelays
@@ -749,7 +762,7 @@ export function milestoneReportHtml(s: MilestoneSummary, projectName: string, mi
     h3.eq { font-size: 13px; margin: 12px 0 4px; color: #0F1F33; }
     .muted { color: #898781; }
     .list th, .list td { border: 1px solid #DDDCD7; padding: 4px 6px; font-size: 11.5px; vertical-align: top; text-align: left; }
-    .list th { background: #F1F5F9; } td.num { text-align: right; } td.late { color: #B91C1C; font-weight: 600; } tr { break-inside: avoid; }
+    .list th { background: #F1F5F9; } .list tr.cum td { border-top: 2px solid #0F1F33; background: #F8FAFC; font-weight: 800; } td.num { text-align: right; } td.late { color: #B91C1C; font-weight: 600; } tr { break-inside: avoid; }
     .note { font-size: 10px; color: #6B7280; margin-top: 6px; }
     .ad { width: 100%; border-collapse: collapse; }
     .ad th { text-align: left; font-size: 12px; color: #52514e; padding: 6px; border-bottom: 2px solid #E7E5E0; }
@@ -771,7 +784,7 @@ export function milestoneReportHtml(s: MilestoneSummary, projectName: string, mi
         <tr><td>${fmtDay(s.plannedEnd)}</td><td>${s.finished ? fmtDay(s.actualEnd) : 'Not finished yet'}</td><td class="days" style="color:${tone}">${esc(differenceText(s))}</td></tr>
       </table>`}
       <table class="counts">
-        <tr><td>No. of tasks ${s.rangeTasks ? 'in these dates' : 'in milestone'}</td><td class="cv">${s.tasks}</td></tr>
+        <tr><td>No. of tasks ${s.rangeTasks ? `in ${s.rangeScope ?? 'these dates'}` : 'in milestone'}</td><td class="cv">${s.tasks}</td></tr>
         <tr><td>No. of tasks delayed</td><td class="cv" style="color:#B91C1C">${s.delayedTasks}</td></tr>
         <tr><td>No. of tasks completed on time</td><td class="cv" style="color:#15803D">${s.onTime}</td></tr>
       </table>

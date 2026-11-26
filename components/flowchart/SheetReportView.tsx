@@ -53,7 +53,7 @@ import {
   type SheetReportRow,
   type ReportSummary,
 } from '../../lib/flowchart/sheetReport';
-import { lastTaskDelays, rangeTaskList } from '../../lib/flowchart/constructionDays';
+import { UNSPLIT_LABEL, lastTaskDelays, lineDelays, rangeTaskList } from '../../lib/flowchart/constructionDays';
 import { dateRangeLabel, inDateRange, onlyStage, STAGE_ONLY_LABEL, type RangeBy, type StageOnly } from '../../lib/flowchart/reportRange';
 import { DateField } from '../ui/DateField';
 
@@ -458,7 +458,8 @@ export function SheetReportView({
   pastMilestones?: {
     title?: string;
     /** lastCode: the milestone's last task (Past Tasks code, e.g. "PT-24") — its delay is traced back. */
-    options: { value: string; label: string; format?: MilestoneFormat; lastCode?: string }[];
+    /** endCode (line report, 2026-11-25): the line's last task — the date-range layout for its tasks. */
+    options: { value: string; label: string; format?: MilestoneFormat; lastCode?: string; endCode?: string }[];
     value: string | null;
     onChange: (v: string | null) => void;
     /** Task codes of the picked level / milestone not found on the board (or hidden by the Filter). */
@@ -609,17 +610,51 @@ export function SheetReportView({
     const sum = { ...milestoneSummary(own, todayKey()), ...stageTag };
     // Date range (2026-11-25, client): the delays of the task that finished last in
     // the range (Mezzanine Slab Casting for 28 Jul – 24 Sep), with their reasons.
+    // A line report (endCode) works the same for its own tasks, ending at its last task.
+    const endCode = levelLabel ? pastMilestones!.options.find((o) => o.value === pastMilestones!.value)?.endCode ?? null : null;
+    if (endCode) {
+      // Line report (2026-11-25, client): the delays of every task in the line, with
+      // their reasons — the stage totals are the tasks' own delays added up.
+      const l = lineDelays(own, stageOn, todayKey());
+      const list = rangeTaskList(own, todayKey());
+      const parts = [stageOn !== 'con' ? `Pre-construction ${l.pre} days` : '', stageOn !== 'pre' ? `Construction ${l.con} days` : ''].filter(Boolean).join(' + ');
+      const over = l.overGiven.map((o) => `${o.code}: ${o.given} ${o.stage.toLowerCase()} days entered, ${o.late} days late`).join('; ');
+      const note =
+        `Delays of the ${list.length} tasks in this line, each calendar day counted once (tasks late on the same days are not added twice): ${parts}${stageOn ? '' : ` = ${l.total} days`}. Tasks not finished yet: delay so far, to today. ` +
+        `Each reason is shown with the tasks it was written on. Days are the days entered for each reason; the line's late days not covered by days entered are under "${UNSPLIT_LABEL}".` +
+        (over ? ` More days entered than the task was late — ${over}.` : '');
+      return {
+        ...sum,
+        delayedTasks: list.filter((t) => t.pre + t.con > 0).length,
+        onTime: list.filter((t) => !t.soFar && t.pre + t.con === 0).length,
+        allDelays: l.allDelays,
+        byResponsible: l.byResponsible,
+        hideSpan: true,
+        rangeTasks: list,
+        rangeScope: 'this line',
+        rangeAll: true,
+        lineTotals: { pre: l.pre, con: l.con },
+        ...(stageOn ? {} : { stageTotals: { pre: l.pre, con: l.con } }),
+        countedOnce: { total: l.total, given: l.total, note, short: note },
+      };
+    }
     if (rangeOn && !levelLabel) {
-      const l = lastTaskDelays(own, stageOn);
-      const parts = [stageOn !== 'con' ? `Pre-construction ${l.pre} days (planned start to actual start, both days counted)` : '', stageOn !== 'pre' ? `Construction ${l.con} days` : ''].filter(Boolean).join(' + ');
-      const note = `Delays of ${l.code ?? '—'}, the task that finished last in these dates: ${parts}${stageOn ? '' : ` = ${l.total} days`}.`;
+      const l = lastTaskDelays(own, stageOn, endCode, todayKey());
+      const lastRow = own.find((r) => r.taskCode === l.code);
+      const running = !!endCode && !!lastRow && !lastRow.actualEnd;
+      const preHow = lastRow && !lastRow.actualStart ? 'planned start to today, not started yet' : 'planned start to actual start, both days counted';
+      const parts = [stageOn !== 'con' ? `Pre-construction ${l.pre} days (${preHow})` : '', stageOn !== 'pre' ? `Construction ${l.con} days${running && lastRow?.actualStart ? ' so far' : ''}` : ''].filter(Boolean).join(' + ');
+      const whose = endCode ? `the last task of this line${running ? ' (not finished yet, delay so far)' : ''}` : 'the task that finished last in these dates';
+      const note = `Delays of ${l.code ?? '—'}, ${whose}: ${parts}${stageOn ? '' : ` = ${l.total} days`}.`;
       return {
         ...sum,
         allDelays: l.allDelays,
         byResponsible: l.byResponsible,
         hideSpan: true,
         // Only the delayed tasks (2026-11-25, client).
-        rangeTasks: rangeTaskList(own).filter((t) => t.pre + t.con > 0),
+        // A line report lists every task of the line, with a Cumulative row (2026-11-25, client).
+        rangeTasks: rangeTaskList(own, endCode ? todayKey() : undefined).filter((t) => !!endCode || t.pre + t.con > 0),
+        ...(endCode ? { rangeScope: 'this line', rangeAll: true } : {}),
         ...(stageOn ? {} : { stageTotals: { pre: l.pre, con: l.con } }),
         countedOnce: { total: l.total, given: l.total, note, short: note },
       };
@@ -1031,7 +1066,7 @@ function MilestoneReportCard({ summary: s, format = 'reasons' }: { summary: Mile
             {cell(differenceText(s), true, true, tone)}
           </View>
         </View>}
-        {countRow(s.rangeTasks ? 'No. of tasks in these dates' : 'No. of tasks in milestone', s.tasks, INK)}
+        {countRow(s.rangeTasks ? `No. of tasks in ${s.rangeScope ?? 'these dates'}` : 'No. of tasks in milestone', s.tasks, INK)}
         {countRow('No. of tasks delayed', s.delayedTasks, '#B91C1C')}
         {countRow('No. of tasks completed on time', s.onTime, '#15803D')}
         {s.hideSpan ? null : <Text style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>Difference = actual end − planned end.</Text>}
@@ -1128,18 +1163,26 @@ function AllDelaysCard({ summary: s }: { summary: MilestoneSummary }) {
           ) : null}
           {s.rangeTasks ? (
             <>
-              <Text style={{ fontSize: 13, fontWeight: '700', color: INK, marginTop: 14, marginBottom: 2 }}>{`Delayed tasks in these dates (${s.rangeTasks.length})`}</Text>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: INK, marginTop: 14, marginBottom: 2 }}>{`${s.rangeAll ? 'Tasks' : 'Delayed tasks'} in ${s.rangeScope ?? 'these dates'} (${s.rangeTasks.length})`}</Text>
               {s.rangeTasks.map((t) => (
                 <View key={t.code} className="flex-row items-center" style={{ gap: 10, paddingVertical: 6, borderTopWidth: 1, borderColor: BORDER }}>
                   <Text style={{ flex: 3, fontSize: 13, color: '#0F1F33' }}>
                     <Text style={{ fontWeight: '700' }}>{t.code}</Text> · {t.name}
-                    <Text style={{ fontSize: 11, color: MUTED }}>{`  ${t.department}`}</Text>
+                    <Text style={{ fontSize: 11, color: MUTED }}>{`  ${t.department}${t.soFar ? ' · not finished, so far' : ''}`}</Text>
                   </Text>
                   <Text style={{ flex: 2, textAlign: 'right', fontSize: 12, fontWeight: '700', color: t.pre + t.con ? '#B91C1C' : MUTED }}>
                     {t.pre + t.con ? `Pre-con ${t.pre}d · Const ${t.con}d · Total ${t.pre + t.con}d` : 'No delay'}
                   </Text>
                 </View>
               ))}
+              {s.rangeAll ? (
+                <View className="flex-row items-center" style={{ gap: 10, paddingVertical: 8, borderTopWidth: 2, borderColor: '#0F1F33' }}>
+                  <Text style={{ flex: 3, fontSize: 14, fontWeight: '800', color: '#0F1F33' }}>Line total (each day counted once)</Text>
+                  <Text style={{ flex: 2, textAlign: 'right', fontSize: 13, fontWeight: '800', color: '#B91C1C' }}>
+                    {`Pre-con ${s.lineTotals?.pre ?? 0}d · Const ${s.lineTotals?.con ?? 0}d · Total ${(s.lineTotals?.pre ?? 0) + (s.lineTotals?.con ?? 0)}d`}
+                  </Text>
+                </View>
+              ) : null}
             </>
           ) : null}
           {s.rangeTasks ? null : <Text style={{ fontSize: 13, fontWeight: '700', color: INK, marginTop: 14, marginBottom: 2 }}>Responsible for the delays</Text>}

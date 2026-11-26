@@ -156,13 +156,22 @@ export interface RangeTask {
   department: string;
   pre: number;
   con: number;
+  /** Line reports: not finished yet, so the days are the delay so far. */
+  soFar?: boolean;
 }
 
 /** Every task in the date range with its own delay (2026-11-25, client), by actual start. */
-export function rangeTaskList(rows: Pick<SheetReportRow, 'taskCode' | 'taskName' | 'department' | 'plannedStart' | 'plannedEnd' | 'actualStart' | 'actualEnd'>[]): RangeTask[] {
+// `today` (line reports): unfinished tasks count their delay so far (taskStageDaysSoFar).
+export function rangeTaskList(rows: Pick<SheetReportRow, 'taskCode' | 'taskName' | 'department' | 'plannedStart' | 'plannedEnd' | 'actualStart' | 'actualEnd'>[], today?: string): RangeTask[] {
   return [...rows]
     .sort((a, b) => (a.actualStart ?? '9999').localeCompare(b.actualStart ?? '9999') || a.taskCode.localeCompare(b.taskCode, undefined, { numeric: true }))
-    .map((r) => ({ code: r.taskCode, name: r.taskName, department: r.department ?? '', ...taskStageDays(r) }));
+    .map((r) => ({
+      code: r.taskCode,
+      name: r.taskName,
+      department: r.department ?? '',
+      ...(today ? taskStageDaysSoFar(r, today) : taskStageDays(r)),
+      ...(today && !(r.actualStart && r.actualEnd) ? { soFar: true } : {}),
+    }));
 }
 
 // Words that say nothing about which delay it is ("Soil filling" and "Soil compactor"
@@ -199,11 +208,34 @@ export interface LastTaskDelays {
 
 type FullRow = Pick<SheetReportRow, 'notes' | 'constructionNotes' | 'department' | 'taskCode' | 'plannedStart' | 'plannedEnd' | 'actualStart' | 'actualEnd'>;
 
-export function lastTaskDelays(rows: FullRow[], stage: 'pre' | 'con' | null): LastTaskDelays {
+/** A task's delay so far (2026-11-25, line reports): like taskStageDays, but a task
+ *  not started yet counts Pre-con up to today, and one still running counts the
+ *  days it has already gone past its planned length. */
+export function taskStageDaysSoFar(
+  r: Pick<SheetReportRow, 'plannedStart' | 'plannedEnd' | 'actualStart' | 'actualEnd'>,
+  today: string
+): { pre: number; con: number } {
+  if (r.actualStart && r.actualEnd) return taskStageDays(r);
+  if (!r.plannedStart || !r.plannedEnd) return { pre: 0, con: 0 };
+  const startedOrToday = r.actualStart ?? today;
+  const late = dayDiff(r.plannedStart, startedOrToday);
+  const pre = late > 0 ? late + 1 : 0;
+  const con = r.actualStart ? Math.max(0, dayDiff(r.actualStart, today) - dayDiff(r.plannedStart, r.plannedEnd)) : 0;
+  return { pre, con };
+}
+
+/**
+ * The delays of the last task, with their reasons. Date range: the task that
+ * finished last in it. A line report (2026-11-25, client: "Mezzanine Slab to
+ * Mezzanine toilet slab"): `endCode`, the line's last task, finished or not.
+ */
+export function lastTaskDelays(rows: FullRow[], stage: 'pre' | 'con' | null, endCode?: string | null, today = new Date().toISOString().slice(0, 10)): LastTaskDelays {
   const done = rows.filter((r) => r.actualEnd && r.actualStart && r.plannedStart && r.plannedEnd);
-  const last = [...done].sort((a, b) => b.actualEnd!.localeCompare(a.actualEnd!) || b.plannedEnd!.localeCompare(a.plannedEnd!))[0];
+  const last = endCode
+    ? rows.find((r) => r.taskCode === endCode || r.taskCode.replace(/^PTC-/, 'PT-').replace(/^PC-/, '') === endCode)
+    : [...done].sort((a, b) => b.actualEnd!.localeCompare(a.actualEnd!) || b.plannedEnd!.localeCompare(a.plannedEnd!))[0];
   if (!last) return { code: null, pre: 0, con: 0, allDelays: [], byResponsible: [], total: 0 };
-  const { pre, con } = taskStageDays(last);
+  const { pre, con } = endCode ? taskStageDaysSoFar(last, today) : taskStageDays(last);
   const list: AllDelay[] = [];
   const add = (prefix: string, notes: FullRow['notes'] | undefined, days: number) => {
     if (days <= 0) return;
@@ -236,4 +268,109 @@ export function lastTaskDelays(rows: FullRow[], stage: 'pre' | 'con' | null): La
   }
   const total = list.reduce((a, d) => a + (d.days ?? 0), 0);
   return { code: last.taskCode, pre, con, allDelays: list, byResponsible: [...who.values()].sort((a, b) => b.days - a.days), total };
+}
+
+export const UNSPLIT_LABEL = 'Days not entered per reason';
+
+export interface LineDelays extends LastTaskDelays {
+  /** Tasks whose days entered are more than the days they were late (stage tag, code, entered, late). */
+  overGiven: { stage: string; code: string; given: number; late: number }[];
+}
+
+/**
+ * A line report's delays (2026-11-25, client: "for the 9 tasks I need a report like
+ * the 28 Jul – 24 Sep one — it's empty, no reasons"): the delays of EVERY task in
+ * the line, not only its last one. Each reason is listed with the tasks it was
+ * written on, grouped by delay type; days are the days entered for it. A task's
+ * late days with no days entered against a reason go to one "Days not entered per
+ * reason" row (with that task's reasons or "no reason written"), so each stage
+ * adds up to the tasks' own delays (the Cumulative row of the task table).
+ */
+export function lineDelays(rows: FullRow[], stage: 'pre' | 'con' | null, today: string): LineDelays {
+  const list: AllDelay[] = [];
+  const overGiven: LineDelays['overGiven'] = [];
+  const ordered = [...rows].sort(
+    (a, b) => (a.actualStart ?? '9999').localeCompare(b.actualStart ?? '9999') || a.taskCode.localeCompare(b.taskCode, undefined, { numeric: true })
+  );
+  const both = stage === null;
+  const totals = { pre: 0, con: 0 };
+  // Each calendar day counted once (2026-11-25, client: "404 days is more than a
+  // year"): tasks waiting / running late side by side are late on the same days.
+  const lateDays = (r: FullRow, which: 'pre' | 'con', n: number): string[] => {
+    const endKey = which === 'pre' ? r.actualStart ?? today : r.actualEnd ?? today;
+    const end = ms(endKey);
+    return Array.from({ length: n }, (_, i) => key(end - i * DAY));
+  };
+  const run = (which: 'pre' | 'con', prefix: string) => {
+    const days = new Set<string>();
+    let givenAll = 0;
+    const groups = new Map<string, AllDelay>();
+    const unsplit: AllDelay = { label: `${prefix}${UNSPLIT_LABEL}`, color: '#CBD5E1', responsible: '—', days: 0, given: null, tasks: 0, reasons: [] };
+    const addReason = (g: AllDelay, code: string, text: string) => {
+      const same = g.reasons.find((x) => x.text.trim().toLowerCase() === text.trim().toLowerCase());
+      if (same) {
+        if (!same.code.split(', ').includes(code)) same.code += `, ${code}`;
+      } else g.reasons.push({ code, text: text.trim() });
+    };
+    for (const r of ordered) {
+      const late = taskStageDaysSoFar(r, today)[which];
+      if (late <= 0) continue;
+      for (const d of lateDays(r, which, late)) days.add(d);
+      const notes = which === 'pre' ? r.notes : r.constructionNotes;
+      let given = 0;
+      const causes = stageCauses(notes ?? undefined);
+      for (const c of causes) {
+        const k = c.label;
+        const g = groups.get(k) ?? { label: `${prefix}${c.label}`, color: c.color, responsible: responsibleFor(c, r.department), days: null, given: null, tasks: 0, reasons: [] };
+        groups.set(k, g);
+        g.tasks += 1;
+        for (const text of c.texts.length ? c.texts : [c.label]) addReason(g, r.taskCode, text);
+        if (c.days) {
+          g.days = (g.days ?? 0) + c.days;
+          g.given = (g.given ?? 0) + c.days;
+          given += c.days;
+        }
+      }
+      const above = notes?.delayGrid?.[CARRIED_CELL_ID] ?? 0;
+      if (above > 0) {
+        const g = groups.get(FROM_ABOVE_LABEL) ?? { label: `${prefix}${FROM_ABOVE_LABEL}`, color: '#94A3B8', responsible: 'Task above', days: 0, given: 0, tasks: 0, reasons: [] };
+        groups.set(FROM_ABOVE_LABEL, g);
+        g.days = (g.days ?? 0) + above;
+        g.given = (g.given ?? 0) + above;
+        g.tasks += 1;
+        g.reasons.push({ code: r.taskCode, text: `${above} days late start from the task above` });
+        given += above;
+      }
+      if (given > late) overGiven.push({ stage: which === 'pre' ? 'Pre-construction' : 'Construction', code: r.taskCode, given, late });
+      givenAll += given;
+      if (late > given) {
+        unsplit.tasks += 1;
+        addReason(unsplit, r.taskCode, causes.some((c) => c.texts.length) ? 'Reasons written above, days not entered' : 'No reason written');
+      }
+    }
+    totals[which] = days.size;
+    list.push(...[...groups.values()].sort((a, b) => (b.days ?? 0) - (a.days ?? 0) || b.tasks - a.tasks));
+    // The stage's days (each counted once) not covered by the days entered.
+    unsplit.days = Math.max(0, days.size - givenAll);
+    if (unsplit.days > 0 && unsplit.tasks > 0) list.push(unsplit);
+  };
+  if (stage !== 'con') run('pre', both ? 'Pre-con · ' : '');
+  if (stage !== 'pre') run('con', both ? 'Const · ' : '');
+  const who = new Map<string, { responsible: string; days: number; delays: number }>();
+  for (const d of list) {
+    const w = who.get(d.responsible) ?? { responsible: d.responsible, days: 0, delays: 0 };
+    w.days += d.days ?? 0;
+    w.delays += 1;
+    who.set(d.responsible, w);
+  }
+  const last = ordered[ordered.length - 1];
+  return {
+    code: last?.taskCode ?? null,
+    pre: totals.pre,
+    con: totals.con,
+    allDelays: list,
+    byResponsible: [...who.values()].sort((a, b) => b.days - a.days),
+    total: totals.pre + totals.con,
+    overGiven,
+  };
 }
