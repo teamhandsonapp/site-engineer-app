@@ -15,6 +15,16 @@ import { allDelays, reasonWords, responsibleFor, shareDays, stageCauses, type Al
 const DAY = 86_400_000;
 const ms = (k: string) => Date.parse(`${k.slice(0, 10)}T00:00:00Z`);
 const key = (t: number) => new Date(t).toISOString().slice(0, 10);
+/** Working days (2026-11-26, client: "cross check the working days"): Sundays are
+ *  not working days (lib/workingDays.ts; the holidays table is empty). */
+const isSunday = (k: string) => new Date(ms(k)).getUTCDay() === 0;
+/** The days from a to b, both counted. */
+const daysFromTo = (a: string, b: string): string[] => {
+  const out: string[] = [];
+  for (let t = ms(a); t <= ms(b); t += DAY) out.push(key(t));
+  return out;
+};
+const workDaysFromTo = (a: string, b: string) => daysFromTo(a, b).filter((k) => !isSunday(k));
 
 type Row = Pick<SheetReportRow, 'taskCode' | 'department' | 'constructionNotes' | 'plannedStart' | 'plannedEnd' | 'actualStart' | 'actualEnd'>;
 
@@ -162,14 +172,19 @@ export interface RangeTask {
 
 /** Every task in the date range with its own delay (2026-11-25, client), by actual start. */
 // `today` (line reports): unfinished tasks count their delay so far (taskStageDaysSoFar).
-export function rangeTaskList(rows: Pick<SheetReportRow, 'taskCode' | 'taskName' | 'department' | 'plannedStart' | 'plannedEnd' | 'actualStart' | 'actualEnd'>[], today?: string): RangeTask[] {
+export function rangeTaskList(
+  rows: Pick<SheetReportRow, 'taskCode' | 'taskName' | 'department' | 'plannedStart' | 'plannedEnd' | 'actualStart' | 'actualEnd'>[],
+  today?: string,
+  workingDays = false,
+  conWhole = false
+): RangeTask[] {
   return [...rows]
     .sort((a, b) => (a.actualStart ?? '9999').localeCompare(b.actualStart ?? '9999') || a.taskCode.localeCompare(b.taskCode, undefined, { numeric: true }))
     .map((r) => ({
       code: r.taskCode,
       name: r.taskName,
       department: r.department ?? '',
-      ...(today ? taskStageDaysSoFar(r, today) : taskStageDays(r)),
+      ...(today && workingDays ? taskWorkDaysSoFar(r, today, conWhole) : today ? taskStageDaysSoFar(r, today) : taskStageDays(r)),
       ...(today && !(r.actualStart && r.actualEnd) ? { soFar: true } : {}),
     }));
 }
@@ -222,6 +237,36 @@ export function taskStageDaysSoFar(
   const pre = late > 0 ? late + 1 : 0;
   const con = r.actualStart ? Math.max(0, dayDiff(r.actualStart, today) - dayDiff(r.plannedStart, r.plannedEnd)) : 0;
   return { pre, con };
+}
+
+/** taskStageDaysSoFar in working days (Sundays not counted, 2026-11-26, client):
+ *  Pre-con = working days planned start → actual start (both counted) when late;
+ *  Const = actual working days − planned working days. */
+export function taskWorkDaysSoFar(
+  r: Pick<SheetReportRow, 'plannedStart' | 'plannedEnd' | 'actualStart' | 'actualEnd'>,
+  today: string,
+  conWhole = false
+): { pre: number; con: number } {
+  return { pre: workLateDays(r, 'pre', today).length, con: workLateDays(r, 'con', today, conWhole).length };
+}
+
+/** The working days a task was late in one stage. Pre-con: planned start → actual
+ *  start (today if not started). Const: the last working days of its run past its
+ *  planned length (to today if still running). */
+// conWhole (2026-11-26, client: "construction delay for Roof beam is 18 days"): the
+// Construction delay is the whole actual period, actual start → actual end (to today
+// if still running), both days counted, every day.
+function workLateDays(r: Pick<SheetReportRow, 'plannedStart' | 'plannedEnd' | 'actualStart' | 'actualEnd'>, which: 'pre' | 'con', today: string, conWhole = false): string[] {
+  if (!r.plannedStart || !r.plannedEnd) return [];
+  if (which === 'pre') {
+    const start = r.actualStart ?? today;
+    return dayDiff(r.plannedStart, start) > 0 ? workDaysFromTo(r.plannedStart, start) : [];
+  }
+  if (!r.actualStart) return [];
+  if (conWhole) return daysFromTo(r.actualStart, r.actualEnd ?? today);
+  const run = workDaysFromTo(r.actualStart, r.actualEnd ?? today);
+  const over = run.length - workDaysFromTo(r.plannedStart, r.plannedEnd).length;
+  return over > 0 ? run.slice(-over) : [];
 }
 
 /**
@@ -286,7 +331,10 @@ export interface LineDelays extends LastTaskDelays {
  * reason" row (with that task's reasons or "no reason written"), so each stage
  * adds up to the tasks' own delays (the Cumulative row of the task table).
  */
-export function lineDelays(rows: FullRow[], stage: 'pre' | 'con' | null, today: string): LineDelays {
+// workingDays (2026-11-26, client, Level LL + L + ML: "delays should be around 50
+// days, cross check the working days"): Sundays not counted, and a day already
+// counted as a Pre-con delay is not counted again under Construction.
+export function lineDelays(rows: FullRow[], stage: 'pre' | 'con' | null, today: string, workingDays = false, conWhole = false): LineDelays {
   const list: AllDelay[] = [];
   const overGiven: LineDelays['overGiven'] = [];
   const ordered = [...rows].sort(
@@ -297,10 +345,12 @@ export function lineDelays(rows: FullRow[], stage: 'pre' | 'con' | null, today: 
   // Each calendar day counted once (2026-11-25, client: "404 days is more than a
   // year"): tasks waiting / running late side by side are late on the same days.
   const lateDays = (r: FullRow, which: 'pre' | 'con', n: number): string[] => {
+    if (workingDays) return workLateDays(r, which, today, conWhole);
     const endKey = which === 'pre' ? r.actualStart ?? today : r.actualEnd ?? today;
     const end = ms(endKey);
     return Array.from({ length: n }, (_, i) => key(end - i * DAY));
   };
+  const preDays = new Set<string>();
   const run = (which: 'pre' | 'con', prefix: string) => {
     const days = new Set<string>();
     let givenAll = 0;
@@ -313,9 +363,9 @@ export function lineDelays(rows: FullRow[], stage: 'pre' | 'con' | null, today: 
       } else g.reasons.push({ code, text: text.trim() });
     };
     for (const r of ordered) {
-      const late = taskStageDaysSoFar(r, today)[which];
+      const late = (workingDays ? taskWorkDaysSoFar(r, today, conWhole) : taskStageDaysSoFar(r, today))[which];
       if (late <= 0) continue;
-      for (const d of lateDays(r, which, late)) days.add(d);
+      for (const d of lateDays(r, which, late)) if (!(workingDays && !conWhole && which === 'con' && preDays.has(d))) days.add(d);
       const notes = which === 'pre' ? r.notes : r.constructionNotes;
       let given = 0;
       const causes = stageCauses(notes ?? undefined);
@@ -349,6 +399,7 @@ export function lineDelays(rows: FullRow[], stage: 'pre' | 'con' | null, today: 
       }
     }
     totals[which] = days.size;
+    if (which === 'pre') for (const d of days) preDays.add(d);
     list.push(...[...groups.values()].sort((a, b) => (b.days ?? 0) - (a.days ?? 0) || b.tasks - a.tasks));
     // The stage's days (each counted once) not covered by the days entered.
     unsplit.days = Math.max(0, days.size - givenAll);

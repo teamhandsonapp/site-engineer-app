@@ -69,10 +69,18 @@ function pastCopyReportGroups() {
   const short = (label: string) => label.split(/\s+/)[0];
   const combined = levels.slice(0, COMBINED_LEVELS);
   return [
+    // 2026-11-26, client: "Delays should be around 50 days, it's showing 100+ — cross
+    // check the working days." Only the PTC tasks (the Current Status tasks moved into
+    // ML — CIV-09/03/13/22 — are left out of this report), in working days, each late
+    // day counted once; every task listed with its own delay.
     {
       name: combined.map((s) => short(s.label)).join(' + '),
       label: `Level ${combined.map((s) => short(s.label)).join(' + ')} (−7'6" to −2'0")`,
-      taskCodes: combined.flatMap((s) => s.taskCodes),
+      taskCodes: combined.flatMap((s) => s.taskCodes).filter((c) => c.startsWith('PT-')),
+      format: 'allDelays' as const,
+      endCode: 'level',
+      workingDays: true,
+      scope: 'this level',
     },
     // Mezzanine Slab Casting milestone (2026-11-23, client): the LL and L columns,
     // PCC works (PT-23), and Mezzanine Slab Casting (PT-24) as the last task —
@@ -112,6 +120,12 @@ function pastCopyReportGroups() {
       taskCodes: ['PT-30', 'CIV-01', 'CIV-07', 'CIV-08', 'CIV-12', 'CIV-17', 'CIV-29', 'CIV-06', 'CIV-34'],
       format: 'allDelays' as const,
       endCode: 'CIV-34',
+      // Working days (2026-11-26, client: "around 50 days"): the total is the delay of
+      // the line's last finished task (PC-CIV-06); all 9 tasks are still listed.
+      workingDays: true,
+      totalFromLastFinished: true,
+      // Construction delay = the whole actual period (Roof beam 9–26 Nov = 18 days, client).
+      conWhole: true,
     },
     // L (−4'6") on its own (2026-11-23, client): only that column's tasks —
     // the column with the delay table.
@@ -408,7 +422,19 @@ function FlowchartScreenContent() {
   const boardMilestones = isPastBoard(board) ? milestones.filter((m) => boardTaskList.some((t) => t.milestoneId === m.id)) : milestones;
   // Past Tasks and Past Tasks Copy (2026-11-23, client): every level / milestone
   // report in the "All delays" layout, and each drawn milestone line is a report too.
-  const reportGroups: { name: string; label: string; taskCodes: string[]; taskIds?: Set<string>; format?: 'allDelays' | 'taskDelays'; lastCode?: string; endCode?: string }[] = [
+  const reportGroups: {
+    name: string;
+    label: string;
+    taskCodes: string[];
+    taskIds?: Set<string>;
+    format?: 'allDelays' | 'taskDelays';
+    lastCode?: string;
+    endCode?: string;
+    workingDays?: boolean;
+    scope?: string;
+    totalFromLastFinished?: boolean;
+    conWhole?: boolean;
+  }[] = [
     ...(board === 'pastcopy'
       ? pastCopyReportGroups()
       : PAST_MILESTONES.map((m) => ({ name: m.name, label: pastMilestoneLabel(m.name), taskCodes: m.taskCodes }))),
@@ -1076,7 +1102,7 @@ function FlowchartScreenContent() {
                 isPastBoard(board)
                   ? {
                       title: board === 'pastcopy' ? (boardMilestones.length ? 'LEVEL / MILESTONE' : 'LEVEL') : 'MILESTONE',
-                      options: reportGroups.map((m) => ({ value: m.name, label: m.label, format: m.format, lastCode: m.lastCode, endCode: m.endCode })),
+                      options: reportGroups.map((m) => ({ value: m.name, label: m.label, format: m.format, lastCode: m.lastCode, endCode: m.endCode, workingDays: m.workingDays, scope: m.scope, totalFromLastFinished: m.totalFromLastFinished, conWhole: m.conWhole })),
                       value: pastMilestone,
                       onChange: setPastMilestone,
                       missing: missingReportCodes,

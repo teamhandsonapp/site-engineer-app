@@ -399,8 +399,8 @@ export function sameReason(a: Set<string>, b: Set<string>): boolean {
 /** 'taskDelays' (2026-11-23, client, Mezzanine Slab Casting milestone): All delays + every task's delays one by one. */
 export type MilestoneFormat = 'reasons' | 'allDelays' | 'taskDelays';
 
-function lineTotalRowHtml(t: { pre: number; con: number }, dd: (n: number) => string): string {
-  return `<tr class="cum"><td></td><td>Line total (each day counted once)</td><td></td><td class="num late">${dd(t.pre)}</td><td class="num late">${dd(t.con)}</td><td class="num late">${dd(t.pre + t.con)}</td></tr>`;
+function lineTotalRowHtml(t: { pre: number; con: number }, dd: (n: number) => string, label = 'Line total (each day counted once)'): string {
+  return `<tr class="cum"><td></td><td>${label}</td><td></td><td class="num late">${dd(t.pre)}</td><td class="num late">${dd(t.con)}</td><td class="num late">${dd(t.pre + t.con)}</td></tr>`;
 }
 
 export interface MilestoneSummary {
@@ -460,6 +460,12 @@ export interface MilestoneSummary {
   /** Line reports: the line's late days, each calendar day counted once (tasks late
    *  side by side are late on the same days — 2026-11-25, client: "404 days is more than a year"). */
   lineTotals?: { pre: number; con: number };
+  /** Days are working days (Sundays not counted, 2026-11-26, client). */
+  workingDays?: boolean;
+  /** Const = the whole actual construction period (2026-11-26, client). */
+  conWhole?: boolean;
+  /** The task table's total row label (line total from its last finished task). */
+  totalLabel?: string;
   /** Both stages in one report: the Pre-con and Const subtotals. */
   stageTotals?: { pre: number; con: number };
   /** Set when allDelays is the milestone's delay followed back from its last task
@@ -709,7 +715,7 @@ export function milestoneReportHtml(s: MilestoneSummary, projectName: string, mi
   const rangeTasksHtml = s.rangeTasks
     ? `<div class="card tasks newpage"><h2>${s.rangeAll ? 'Tasks' : 'Delayed tasks'} in ${s.rangeScope ?? 'these dates'} (${s.rangeTasks.length})</h2><table class="list"><thead><tr><th>#</th><th>Task</th><th>Department</th><th class="num">Pre-con</th><th class="num">Const</th><th class="num">Total</th></tr></thead>${s.rangeTasks
         .map((t, i) => `<tr><td class="num">${i + 1}</td><td><b>${esc(t.code)}</b> · ${esc(t.name)}${t.soFar ? ' <span class="tk">(not finished · so far)</span>' : ''}</td><td>${esc(t.department)}</td><td class="num${t.pre ? ' late' : ''}">${dd(t.pre)}</td><td class="num${t.con ? ' late' : ''}">${dd(t.con)}</td><td class="num${t.pre + t.con ? ' late' : ''}">${dd(t.pre + t.con)}</td></tr>`)
-        .join('')}${s.lineTotals ? lineTotalRowHtml(s.lineTotals, dd) : ''}</table><div class="note">Pre-con = planned start to actual start (both days counted). Const = actual days − planned days. — = no delay.${s.rangeTasks.some((t) => t.soFar) ? ' Not finished: the delay so far, to today (not started: planned start to today).' : ''}${s.lineTotals ? ' Line total = the calendar days the line was late, each day counted once (tasks late on the same days are not added twice).' : ''}</div></div>`
+        .join('')}${s.lineTotals ? lineTotalRowHtml(s.lineTotals, dd, s.totalLabel ? esc(s.totalLabel) : s.workingDays ? 'Total working days (each day counted once)' : undefined) : ''}</table><div class="note">${s.workingDays ? `Pre-con in working days — Sundays not counted. ` : ''}Pre-con = planned start to actual start (both days counted). ${s.conWhole ? 'Const = the whole construction period, actual start to actual end, both days counted (to today if still running).' : 'Const = actual days − planned days.'} — = no delay.${s.rangeTasks.some((t) => t.soFar) ? ' Not finished: the delay so far, to today (not started: planned start to today).' : ''}${s.totalLabel ? ` ${esc(s.totalLabel)}.` : s.lineTotals ? ` Line total = the ${s.workingDays ? 'working' : 'calendar'} days ${esc(s.rangeScope ?? 'the line')} was late, each day counted once (tasks late on the same days are not added twice${s.workingDays ? '; Const counts only days not already counted under Pre-con' : ''}).` : ''}</div></div>`
     : '';
   const allDelaysHtml = s.allDelays.length
     ? `<table class="ad"><tr><th>Delay</th><th class="r">Days</th><th>Responsible · reason</th></tr>${s.allDelays

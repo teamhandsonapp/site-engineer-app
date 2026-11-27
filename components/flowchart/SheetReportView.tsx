@@ -459,7 +459,8 @@ export function SheetReportView({
     title?: string;
     /** lastCode: the milestone's last task (Past Tasks code, e.g. "PT-24") — its delay is traced back. */
     /** endCode (line report, 2026-11-25): the line's last task — the date-range layout for its tasks. */
-    options: { value: string; label: string; format?: MilestoneFormat; lastCode?: string; endCode?: string }[];
+    /** workingDays (2026-11-26): Sundays not counted; scope: "this level" in the headings. */
+    options: { value: string; label: string; format?: MilestoneFormat; lastCode?: string; endCode?: string; workingDays?: boolean; scope?: string; totalFromLastFinished?: boolean; conWhole?: boolean }[];
     value: string | null;
     onChange: (v: string | null) => void;
     /** Task codes of the picked level / milestone not found on the board (or hidden by the Filter). */
@@ -611,16 +612,29 @@ export function SheetReportView({
     // Date range (2026-11-25, client): the delays of the task that finished last in
     // the range (Mezzanine Slab Casting for 28 Jul – 24 Sep), with their reasons.
     // A line report (endCode) works the same for its own tasks, ending at its last task.
-    const endCode = levelLabel ? pastMilestones!.options.find((o) => o.value === pastMilestones!.value)?.endCode ?? null : null;
+    const opt = levelLabel ? pastMilestones!.options.find((o) => o.value === pastMilestones!.value) : undefined;
+    const endCode = opt?.endCode ?? null;
     if (endCode) {
+      const wd = !!opt?.workingDays;
+      const scope = opt?.scope ?? 'this line';
       // Line report (2026-11-25, client): the delays of every task in the line, with
       // their reasons — the stage totals are the tasks' own delays added up.
-      const l = lineDelays(own, stageOn, todayKey());
-      const list = rangeTaskList(own, todayKey());
+      // totalFromLastFinished (2026-11-26, client): the delays and total are the last
+      // finished task's (by actual end); the table still lists every task.
+      const lastDone = opt?.totalFromLastFinished
+        ? [...own].filter((r) => r.actualStart && r.actualEnd).sort((a, b) => (a.actualEnd ?? '').localeCompare(b.actualEnd ?? '')).pop()
+        : undefined;
+      const cw = !!opt?.conWhole;
+      const l = lineDelays(lastDone ? [lastDone] : own, stageOn, todayKey(), wd, cw);
+      const list = rangeTaskList(own, todayKey(), wd, cw);
       const parts = [stageOn !== 'con' ? `Pre-construction ${l.pre} days` : '', stageOn !== 'pre' ? `Construction ${l.con} days` : ''].filter(Boolean).join(' + ');
       const over = l.overGiven.map((o) => `${o.code}: ${o.given} ${o.stage.toLowerCase()} days entered, ${o.late} days late`).join('; ');
-      const note =
-        `Delays of the ${list.length} tasks in this line, each calendar day counted once (tasks late on the same days are not added twice): ${parts}${stageOn ? '' : ` = ${l.total} days`}. Tasks not finished yet: delay so far, to today. ` +
+      const dayWord = wd ? 'working day (Sundays not counted)' : 'calendar day';
+      const note = lastDone
+        ? `Delay of ${scope}: the delay of its last finished task, ${lastDone.taskCode} (finished ${lastDone.actualEnd}), Pre-construction in working days (Sundays not counted)${cw ? ', Construction = the whole construction period' : ''}: ${parts}${stageOn ? '' : ` = ${l.total} days`}. ` +
+          `Pre-construction = planned start to actual start (both days counted); Construction = ${cw ? 'actual start to actual end, both days counted (to today if still running)' : 'actual working days − planned working days'}. Every task of the line is listed below with its own delay.` +
+          (over ? ` More days entered than the task was late — ${over}.` : '')
+        : `Delays of the ${list.length} tasks in ${scope}, each ${dayWord} counted once (tasks late on the same days are not added twice${wd ? '; a day already counted under Pre-construction is not counted again under Construction' : ''}): ${parts}${stageOn ? '' : ` = ${l.total} days`}. Tasks not finished yet: delay so far, to today. ` +
         `Each reason is shown with the tasks it was written on. Days are the days entered for each reason; the line's late days not covered by days entered are under "${UNSPLIT_LABEL}".` +
         (over ? ` More days entered than the task was late — ${over}.` : '');
       return {
@@ -631,9 +645,12 @@ export function SheetReportView({
         byResponsible: l.byResponsible,
         hideSpan: true,
         rangeTasks: list,
-        rangeScope: 'this line',
+        rangeScope: scope,
         rangeAll: true,
         lineTotals: { pre: l.pre, con: l.con },
+        ...(wd ? { workingDays: true } : {}),
+        ...(cw ? { conWhole: true } : {}),
+        ...(lastDone ? { totalLabel: `Total = delay of ${lastDone.taskCode}, the last finished task` } : {}),
         ...(stageOn ? {} : { stageTotals: { pre: l.pre, con: l.con } }),
         countedOnce: { total: l.total, given: l.total, note, short: note },
       };
@@ -1177,7 +1194,9 @@ function AllDelaysCard({ summary: s }: { summary: MilestoneSummary }) {
               ))}
               {s.rangeAll ? (
                 <View className="flex-row items-center" style={{ gap: 10, paddingVertical: 8, borderTopWidth: 2, borderColor: '#0F1F33' }}>
-                  <Text style={{ flex: 3, fontSize: 14, fontWeight: '800', color: '#0F1F33' }}>Line total (each day counted once)</Text>
+                  <Text style={{ flex: 3, fontSize: 14, fontWeight: '800', color: '#0F1F33' }}>
+                    {s.totalLabel ?? (s.workingDays ? 'Total working days (each day counted once, Sundays not counted)' : 'Line total (each day counted once)')}
+                  </Text>
                   <Text style={{ flex: 2, textAlign: 'right', fontSize: 13, fontWeight: '800', color: '#B91C1C' }}>
                     {`Pre-con ${s.lineTotals?.pre ?? 0}d · Const ${s.lineTotals?.con ?? 0}d · Total ${(s.lineTotals?.pre ?? 0) + (s.lineTotals?.con ?? 0)}d`}
                   </Text>
