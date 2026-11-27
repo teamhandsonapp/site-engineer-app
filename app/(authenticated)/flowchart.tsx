@@ -120,12 +120,9 @@ function pastCopyReportGroups() {
       taskCodes: ['PT-30', 'CIV-01', 'CIV-07', 'CIV-08', 'CIV-12', 'CIV-17', 'CIV-29', 'CIV-06', 'CIV-34'],
       format: 'allDelays' as const,
       endCode: 'CIV-34',
-      // Working days (2026-11-26, client: "around 50 days"): the total is the delay of
-      // the line's last finished task (PC-CIV-06); all 9 tasks are still listed.
+      // Same rule as every milestone report (2026-11-27, client): working days, each
+      // late day counted once (no "last finished task" / "whole period" special rules).
       workingDays: true,
-      totalFromLastFinished: true,
-      // Construction delay = the whole actual period (Roof beam 9–26 Nov = 18 days, client).
-      conWhole: true,
     },
     // L (−4'6") on its own (2026-11-23, client): only that column's tasks —
     // the column with the delay table.

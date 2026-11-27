@@ -4,6 +4,17 @@ import { cellDays, cellNotes, DELAY_GRID_CELLS, DELAY_GRID_TABLES, gridCellId, g
 import { saveWorkbook } from './excelExport';
 import { printReportHtml, type SheetReportRow } from './sheetReport';
 
+/**
+ * Milestone / level / line reports: are Sundays counted as days? (2026-11-27, client:
+ * "the site is working Sundays now, so count Sundays; in future we may not.")
+ * true  = every day counted, Sundays included (now).
+ * false = Sundays left out (set this back if the site stops working Sundays).
+ * Used by lib/flowchart/constructionDays.ts and the report texts.
+ */
+export const SUNDAYS_COUNTED = true;
+/** How the days are counted, for the report notes. */
+export const DAY_RULE = SUNDAYS_COUNTED ? 'Sundays counted' : 'Sundays not counted';
+
 // Milestone report format (2026-11-21, client): when a milestone is picked in
 // Past Tasks → Reports, the report is this, for whatever tasks the milestone
 // holds (the list lives in pastMilestones.ts, so new or changed milestones
@@ -715,7 +726,7 @@ export function milestoneReportHtml(s: MilestoneSummary, projectName: string, mi
   const rangeTasksHtml = s.rangeTasks
     ? `<div class="card tasks newpage"><h2>${s.rangeAll ? 'Tasks' : 'Delayed tasks'} in ${s.rangeScope ?? 'these dates'} (${s.rangeTasks.length})</h2><table class="list"><thead><tr><th>#</th><th>Task</th><th>Department</th><th class="num">Pre-con</th><th class="num">Const</th><th class="num">Total</th></tr></thead>${s.rangeTasks
         .map((t, i) => `<tr><td class="num">${i + 1}</td><td><b>${esc(t.code)}</b> · ${esc(t.name)}${t.soFar ? ' <span class="tk">(not finished · so far)</span>' : ''}</td><td>${esc(t.department)}</td><td class="num${t.pre ? ' late' : ''}">${dd(t.pre)}</td><td class="num${t.con ? ' late' : ''}">${dd(t.con)}</td><td class="num${t.pre + t.con ? ' late' : ''}">${dd(t.pre + t.con)}</td></tr>`)
-        .join('')}${s.lineTotals ? lineTotalRowHtml(s.lineTotals, dd, s.totalLabel ? esc(s.totalLabel) : s.workingDays ? 'Total working days (each day counted once)' : undefined) : ''}</table><div class="note">${s.workingDays ? `Pre-con in working days — Sundays not counted. ` : ''}Pre-con = planned start to actual start (both days counted). ${s.conWhole ? 'Const = the whole construction period, actual start to actual end, both days counted (to today if still running).' : 'Const = actual days − planned days.'} — = no delay.${s.rangeTasks.some((t) => t.soFar) ? ' Not finished: the delay so far, to today (not started: planned start to today).' : ''}${s.totalLabel ? ` ${esc(s.totalLabel)}.` : s.lineTotals ? ` Line total = the ${s.workingDays ? 'working' : 'calendar'} days ${esc(s.rangeScope ?? 'the line')} was late, each day counted once (tasks late on the same days are not added twice${s.workingDays ? '; Const counts only days not already counted under Pre-con' : ''}).` : ''}</div></div>`
+        .join('')}${s.lineTotals ? lineTotalRowHtml(s.lineTotals, dd, s.totalLabel ? esc(s.totalLabel) : s.workingDays ? 'Total working days (each day counted once)' : undefined) : ''}</table><div class="note">${s.workingDays ? `Working days — ${DAY_RULE}. ` : ''}Pre-con = planned start to actual start (both days counted). ${s.conWhole ? 'Const = the whole construction period, actual start to actual end, both days counted (to today if still running).' : 'Const = actual days − planned days.'} — = no delay.${s.rangeTasks.some((t) => t.soFar) ? ' Not finished: the delay so far, to today (not started: planned start to today).' : ''}${s.totalLabel ? ` ${esc(s.totalLabel)}.` : s.lineTotals ? ` Line total = the ${s.workingDays ? 'working' : 'calendar'} days ${esc(s.rangeScope ?? 'the line')} was late, each day counted once (tasks late on the same days are not added twice${s.workingDays ? '; Const counts only days not already counted under Pre-con' : ''}).` : ''}</div></div>`
     : '';
   const allDelaysHtml = s.allDelays.length
     ? `<table class="ad"><tr><th>Delay</th><th class="r">Days</th><th>Responsible · reason</th></tr>${s.allDelays

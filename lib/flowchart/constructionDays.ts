@@ -10,7 +10,7 @@
 // between the reasons entered for it. Pure — no Supabase / React Native imports.
 import type { SheetReportRow } from './sheetReport';
 import { CARRIED_CELL_ID } from './delayGrid';
-import { allDelays, reasonWords, responsibleFor, shareDays, stageCauses, type AllDelay } from './milestoneReport';
+import { allDelays, reasonWords, responsibleFor, shareDays, stageCauses, SUNDAYS_COUNTED, type AllDelay } from './milestoneReport';
 
 const DAY = 86_400_000;
 const ms = (k: string) => Date.parse(`${k.slice(0, 10)}T00:00:00Z`);
@@ -24,7 +24,8 @@ const daysFromTo = (a: string, b: string): string[] => {
   for (let t = ms(a); t <= ms(b); t += DAY) out.push(key(t));
   return out;
 };
-const workDaysFromTo = (a: string, b: string) => daysFromTo(a, b).filter((k) => !isSunday(k));
+// Sundays counted or not: one setting, SUNDAYS_COUNTED in milestoneReport.ts (2026-11-27).
+const workDaysFromTo = (a: string, b: string) => (SUNDAYS_COUNTED ? daysFromTo(a, b) : daysFromTo(a, b).filter((k) => !isSunday(k)));
 
 type Row = Pick<SheetReportRow, 'taskCode' | 'department' | 'constructionNotes' | 'plannedStart' | 'plannedEnd' | 'actualStart' | 'actualEnd'>;
 
@@ -400,6 +401,15 @@ export function lineDelays(rows: FullRow[], stage: 'pre' | 'con' | null, today: 
     }
     totals[which] = days.size;
     if (which === 'pre') for (const d of days) preDays.add(d);
+    // Milestone rule (2026-11-27, client): the stage total comes from the dates only, and
+    // the reason rows always add up to it. More days entered than the stage's days →
+    // the entered days are shared down to fit; fewer (or none) → the rest is under
+    // "Days not entered per reason". So the total never changes because of the reasons.
+    const withDays = [...groups.values()].filter((g) => (g.given ?? 0) > 0);
+    if (givenAll > days.size) {
+      const fit = shareDays(withDays.map((g) => g.given ?? 0), days.size);
+      withDays.forEach((g, i) => (g.days = fit[i]));
+    }
     list.push(...[...groups.values()].sort((a, b) => (b.days ?? 0) - (a.days ?? 0) || b.tasks - a.tasks));
     // The stage's days (each counted once) not covered by the days entered.
     unsplit.days = Math.max(0, days.size - givenAll);
