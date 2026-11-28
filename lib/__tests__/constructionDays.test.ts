@@ -66,7 +66,7 @@ test('pre-construction: days entered, all tasks added, with delay from task abov
 // ─── Milestone rule (2026-11-27, client) ────────────────────────────────────
 // "For a milestone of 10 tasks, take their total working days in the pre-construction
 // and construction phases; the report shows those days even if no reason is given."
-import { lineDelays } from '../flowchart/constructionDays';
+import { lineDelays, rangeTaskList } from '../flowchart/constructionDays';
 
 const task = (taskCode: string, ps: string, pe: string, as: string | null, ae: string | null, conGrid: Record<string, number> = {}) => ({
   taskCode,
@@ -120,4 +120,29 @@ test('milestone: no reasons anywhere still gives the same totals', () => {
   const l = lineDelays(bare, null, '2026-11-27', true);
   expect([l.pre, l.con, l.total]).toEqual([46, 6, 52]);
   expect(l.allDelays.reduce((a, d) => a + (d.days ?? 0), 0)).toBe(52);
+});
+
+test('a task that finished before its planned end has no construction delay (PTC-21)', () => {
+  const list = rangeTaskList(LEVEL.map((r) => ({ ...r, taskName: r.taskCode })), '2026-11-27', true);
+  expect(list.find((t) => t.code === 'PTC-21')).toMatchObject({ pre: 0, con: 0 });
+});
+
+test('no reason written → "No reason for delay — to be added", rows still add up', () => {
+  const bare = LEVEL.map((r) => ({ ...r, constructionNotes: { ...EMPTY_CHECKLIST_NOTES } }));
+  const l = lineDelays(bare, null, '2026-11-27', true);
+  const pre = l.allDelays.filter((d) => d.label.startsWith('Pre-con · '));
+  expect(pre.map((d) => d.label)).toEqual(['Pre-con · No reason for delay — to be added']);
+  expect(pre[0].days).toBe(46);
+  expect(l.allDelays.reduce((a, d) => a + (d.days ?? 0), 0)).toBe(l.total);
+});
+
+test("one task's extra days entered don't hide another task's missing reason", () => {
+  // A: 5 days late with 20 entered; B: 5 days late on other days, no reason.
+  const A = task('A', '2026-09-01', '2026-09-01', '2026-09-01', '2026-09-06', { 'contractor.procurementDelay': 20 });
+  const B = task('B', '2026-10-01', '2026-10-01', '2026-10-01', '2026-10-06');
+  const l = lineDelays([A, B], 'con', '2026-11-27', true);
+  expect(l.con).toBe(10);
+  const by = Object.fromEntries(l.allDelays.map((d) => [d.label, d.days]));
+  expect(by['Procurement delay']).toBe(5);
+  expect(by['No reason for delay — to be added']).toBe(5);
 });

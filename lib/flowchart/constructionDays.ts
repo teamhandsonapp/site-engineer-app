@@ -267,7 +267,10 @@ function workLateDays(r: Pick<SheetReportRow, 'plannedStart' | 'plannedEnd' | 'a
   if (conWhole) return daysFromTo(r.actualStart, r.actualEnd ?? today);
   const run = workDaysFromTo(r.actualStart, r.actualEnd ?? today);
   const over = run.length - workDaysFromTo(r.plannedStart, r.plannedEnd).length;
-  return over > 0 ? run.slice(-over) : [];
+  // Only days after the planned end are late (2026-11-27, client: delays within the
+  // working days only): a task that finished on or before its planned end — e.g.
+  // PTC-21, started 10 days early and took 5 days longer — has no Construction delay.
+  return over > 0 ? run.slice(-over).filter((k) => k > r.plannedEnd!.slice(0, 10)) : [];
 }
 
 /**
@@ -318,6 +321,63 @@ export function lastTaskDelays(rows: FullRow[], stage: 'pre' | 'con' | null, end
 
 export const UNSPLIT_LABEL = 'Days not entered per reason';
 
+export interface MilestonePeriods {
+  plannedStart: string | null;
+  plannedStartCode: string | null;
+  plannedEnd: string | null;
+  plannedEndCode: string | null;
+  plannedDays: number;
+  actualStart: string | null;
+  actualStartCode: string | null;
+  /** null = not finished yet (actual days counted to today). */
+  actualEnd: string | null;
+  actualEndCode: string | null;
+  actualDays: number;
+  today: string;
+}
+
+/**
+ * Planned vs actual period of a milestone / level / line (2026-11-27, client: "take the
+ * first task's planned start and the last task's planned end — total working days; then
+ * the first task's actual start and the last task's actual end — total days").
+ * Both days counted; working days by the same rule as the delays (SUNDAYS_COUNTED).
+ * Not every task finished → the actual period runs to today.
+ */
+export function milestonePeriods(
+  rows: Pick<SheetReportRow, 'taskCode' | 'plannedStart' | 'plannedEnd' | 'actualStart' | 'actualEnd'>[],
+  today: string
+): MilestonePeriods {
+  const pick = (key: 'plannedStart' | 'plannedEnd' | 'actualStart' | 'actualEnd', last: boolean) => {
+    const withDate = rows.filter((r) => r[key]);
+    if (!withDate.length) return { date: null, code: null };
+    const r = withDate.reduce((a, b) => ((last ? b[key]! > a[key]! : b[key]! < a[key]!) ? b : a));
+    return { date: r[key]!.slice(0, 10), code: r.taskCode };
+  };
+  const ps = pick('plannedStart', false);
+  const pe = pick('plannedEnd', true);
+  const as = pick('actualStart', false);
+  const finished = rows.length > 0 && rows.every((r) => r.actualEnd);
+  const ae = finished ? pick('actualEnd', true) : { date: null, code: null };
+  const count = (a: string | null, b: string | null) => (a && b && b >= a ? workDaysFromTo(a, b).length : 0);
+  return {
+    plannedStart: ps.date,
+    plannedStartCode: ps.code,
+    plannedEnd: pe.date,
+    plannedEndCode: pe.code,
+    plannedDays: count(ps.date, pe.date),
+    actualStart: as.date,
+    actualStartCode: as.code,
+    actualEnd: ae.date,
+    actualEndCode: ae.code,
+    actualDays: count(as.date, ae.date ?? today),
+    today,
+  };
+}
+/** 2026-11-27, client: "if no reason is given, say there is no reason for the delay —
+ *  I will add it." The stage's days not covered by entered days, in two rows. */
+export const NO_REASON_ROW = 'No reason for delay — to be added';
+export const DAYS_MISSING_ROW = 'Reason written — days not entered';
+
 export interface LineDelays extends LastTaskDelays {
   /** Tasks whose days entered are more than the days they were late (stage tag, code, entered, late). */
   overGiven: { stage: string; code: string; given: number; late: number }[];
@@ -356,7 +416,11 @@ export function lineDelays(rows: FullRow[], stage: 'pre' | 'con' | null, today: 
     const days = new Set<string>();
     let givenAll = 0;
     const groups = new Map<string, AllDelay>();
-    const unsplit: AllDelay = { label: `${prefix}${UNSPLIT_LABEL}`, color: '#CBD5E1', responsible: '—', days: 0, given: null, tasks: 0, reasons: [] };
+    const unsplit: AllDelay = { label: `${prefix}${DAYS_MISSING_ROW}`, color: '#CBD5E1', responsible: '—', days: 0, given: null, tasks: 0, reasons: [] };
+    const noReason: AllDelay = { label: `${prefix}${NO_REASON_ROW}`, color: '#FCA5A5', responsible: 'Reason not given', days: 0, given: null, tasks: 0, reasons: [] };
+    // Each task's days not covered by the days entered for it (weights for the two rows).
+    let missingWeight = 0;
+    let noReasonWeight = 0;
     const addReason = (g: AllDelay, code: string, text: string) => {
       const same = g.reasons.find((x) => x.text.trim().toLowerCase() === text.trim().toLowerCase());
       if (same) {
@@ -369,6 +433,8 @@ export function lineDelays(rows: FullRow[], stage: 'pre' | 'con' | null, today: 
       for (const d of lateDays(r, which, late)) if (!(workingDays && !conWhole && which === 'con' && preDays.has(d))) days.add(d);
       const notes = which === 'pre' ? r.notes : r.constructionNotes;
       let given = 0;
+      // This task's entered days, per delay row (capped below at the task's own delay).
+      const parts: { g: AllDelay; days: number }[] = [];
       const causes = stageCauses(notes ?? undefined);
       for (const c of causes) {
         const k = c.label;
@@ -377,8 +443,8 @@ export function lineDelays(rows: FullRow[], stage: 'pre' | 'con' | null, today: 
         g.tasks += 1;
         for (const text of c.texts.length ? c.texts : [c.label]) addReason(g, r.taskCode, text);
         if (c.days) {
-          g.days = (g.days ?? 0) + c.days;
           g.given = (g.given ?? 0) + c.days;
+          parts.push({ g, days: c.days });
           given += c.days;
         }
       }
@@ -386,17 +452,29 @@ export function lineDelays(rows: FullRow[], stage: 'pre' | 'con' | null, today: 
       if (above > 0) {
         const g = groups.get(FROM_ABOVE_LABEL) ?? { label: `${prefix}${FROM_ABOVE_LABEL}`, color: '#94A3B8', responsible: 'Task above', days: 0, given: 0, tasks: 0, reasons: [] };
         groups.set(FROM_ABOVE_LABEL, g);
-        g.days = (g.days ?? 0) + above;
         g.given = (g.given ?? 0) + above;
         g.tasks += 1;
         g.reasons.push({ code: r.taskCode, text: `${above} days late start from the task above` });
+        parts.push({ g, days: above });
         given += above;
       }
       if (given > late) overGiven.push({ stage: which === 'pre' ? 'Pre-construction' : 'Construction', code: r.taskCode, given, late });
-      givenAll += given;
-      if (late > given) {
-        unsplit.tasks += 1;
-        addReason(unsplit, r.taskCode, causes.some((c) => c.texts.length) ? 'Reasons written above, days not entered' : 'No reason written');
+      // A task's reasons never count more days than the task itself was late
+      // (2026-11-27, client): more entered → shared down to its own delay.
+      const fitTask = given > late ? shareDays(parts.map((p) => p.days), late) : parts.map((p) => p.days);
+      parts.forEach((p, i) => (p.g.days = (p.g.days ?? 0) + fitTask[i]));
+      const counted = Math.min(given, late);
+      givenAll += counted;
+      if (late > counted) {
+        if (causes.some((c) => c.texts.length)) {
+          unsplit.tasks += 1;
+          missingWeight += late - counted;
+          addReason(unsplit, r.taskCode, 'Reason written — enter the days');
+        } else {
+          noReason.tasks += 1;
+          noReasonWeight += late - counted;
+          addReason(noReason, r.taskCode, 'No reason written yet');
+        }
       }
     }
     totals[which] = days.size;
@@ -405,15 +483,21 @@ export function lineDelays(rows: FullRow[], stage: 'pre' | 'con' | null, today: 
     // the reason rows always add up to it. More days entered than the stage's days →
     // the entered days are shared down to fit; fewer (or none) → the rest is under
     // "Days not entered per reason". So the total never changes because of the reasons.
-    const withDays = [...groups.values()].filter((g) => (g.given ?? 0) > 0);
+    const withDays = [...groups.values()].filter((g) => (g.days ?? 0) > 0);
     if (givenAll > days.size) {
-      const fit = shareDays(withDays.map((g) => g.given ?? 0), days.size);
+      const fit = shareDays(withDays.map((g) => g.days ?? 0), days.size);
       withDays.forEach((g, i) => (g.days = fit[i]));
     }
     list.push(...[...groups.values()].sort((a, b) => (b.days ?? 0) - (a.days ?? 0) || b.tasks - a.tasks));
-    // The stage's days (each counted once) not covered by the days entered.
-    unsplit.days = Math.max(0, days.size - givenAll);
-    if (unsplit.days > 0 && unsplit.tasks > 0) list.push(unsplit);
+    // The stage's days (each counted once) not covered by the days entered, split
+    // between "No reason for delay" and "Reason written — days not entered" by the
+    // tasks' own uncovered days, so every row adds up to the stage total.
+    const left = Math.max(0, days.size - Math.min(givenAll, days.size));
+    const [noDays, missDays] = shareDays([noReasonWeight, missingWeight], left);
+    unsplit.days = missDays;
+    noReason.days = noDays;
+    if (missDays > 0 && unsplit.tasks > 0) list.push(unsplit);
+    if (noDays > 0 && noReason.tasks > 0) list.push(noReason);
   };
   if (stage !== 'con') run('pre', both ? 'Pre-con · ' : '');
   if (stage !== 'pre') run('con', both ? 'Const · ' : '');

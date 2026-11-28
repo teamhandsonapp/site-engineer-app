@@ -54,7 +54,7 @@ import {
   type SheetReportRow,
   type ReportSummary,
 } from '../../lib/flowchart/sheetReport';
-import { UNSPLIT_LABEL, lastTaskDelays, lineDelays, rangeTaskList } from '../../lib/flowchart/constructionDays';
+import { DAYS_MISSING_ROW, NO_REASON_ROW, lastTaskDelays, lineDelays, milestonePeriods, rangeTaskList } from '../../lib/flowchart/constructionDays';
 import { dateRangeLabel, inDateRange, onlyStage, STAGE_ONLY_LABEL, type RangeBy, type StageOnly } from '../../lib/flowchart/reportRange';
 import { DateField } from '../ui/DateField';
 
@@ -641,7 +641,7 @@ export function SheetReportView({
           `Pre-construction = planned start to actual start (both days counted); Construction = ${cw ? 'actual start to actual end, both days counted (to today if still running)' : 'actual working days − planned working days'}. Every task of the line is listed below with its own delay.` +
           (over ? ` More days entered than the task was late — ${over}.` : '')
         : `Delays of the ${list.length} tasks in ${scope}, each ${dayWord} counted once (tasks late on the same days are not added twice${wd ? '; a day already counted under Pre-construction is not counted again under Construction' : ''}): ${parts}${stageOn ? '' : ` = ${l.total} days`}. Tasks not finished yet: delay so far, to today. ` +
-        `Each reason is shown with the tasks it was written on. Days are the days entered for each reason (shared down to fit when more were entered than the stage's days); days not covered by days entered are under "${UNSPLIT_LABEL}", so the reasons always add up to the totals.` +
+        `Each reason is shown with the tasks it was written on. Days are the days entered for each reason (shared down to fit when more were entered than the stage's days); days with no reason are under "${NO_REASON_ROW}", and days with a reason but no days entered under "${DAYS_MISSING_ROW}", so the rows always add up to the totals.` +
         (over ? ` More days entered than the task was late — ${over}.` : '');
       return {
         ...sum,
@@ -650,6 +650,7 @@ export function SheetReportView({
         allDelays: l.allDelays,
         byResponsible: l.byResponsible,
         hideSpan: true,
+        periods: milestonePeriods(own, todayKey()),
         rangeTasks: list,
         rangeScope: scope,
         rangeAll: true,
@@ -983,6 +984,37 @@ export function SheetReportView({
 // Milestone report on screen (2026-11-21): same content as its PDF / Excel.
 // Compact milestone report (2026-11-23, client: "one page, compact, no reasons"):
 // the summary in one row, Delays and Responsible side by side, no reason text.
+/** Planned vs actual period (2026-11-27, client): first task's start → last task's end. */
+function PeriodsBlock({ summary: s }: { summary: MilestoneSummary }) {
+  const p = s.periods;
+  if (!p) return null;
+  const at = (d: string | null, code: string | null) => (d ? `${fmtDay(d)}  (${code})` : '—');
+  const days = (n: number, soFar = false) => `${n} day${n === 1 ? '' : 's'}${soFar ? ' so far' : ''}`;
+  const line = (label: string, from: string, to: string, n: string, head = false) => (
+    <View className="flex-row" style={{ gap: 8, paddingHorizontal: 10, paddingVertical: 7, backgroundColor: head ? '#F1F5F9' : undefined, borderTopWidth: head ? 0 : 1, borderColor: BORDER }}>
+      <Text style={{ width: 64, fontSize: 12, fontWeight: '800', color: INK }}>{label}</Text>
+      <Text style={{ flex: 1, fontSize: 12, fontWeight: head ? '700' : '500', color: head ? MUTED : INK }}>{from}</Text>
+      <Text style={{ flex: 1, fontSize: 12, fontWeight: head ? '700' : '500', color: head ? MUTED : INK }}>{to}</Text>
+      <Text style={{ width: 120, textAlign: 'right', fontSize: 12, fontWeight: '800', color: head ? MUTED : INK }}>{n}</Text>
+    </View>
+  );
+  return (
+    <View style={{ marginBottom: 10 }}>
+      <View style={{ borderWidth: 1, borderColor: BORDER, borderRadius: 8, overflow: 'hidden' }}>
+        {line('', 'From (first task)', 'To (last task)', 'Total working days', true)}
+        {line('Planned', at(p.plannedStart, p.plannedStartCode), at(p.plannedEnd, p.plannedEndCode), days(p.plannedDays))}
+        {line(
+          'Actual',
+          at(p.actualStart, p.actualStartCode),
+          p.actualEnd ? at(p.actualEnd, p.actualEndCode) : `Not finished — to today, ${fmtDay(p.today)}`,
+          p.actualStart ? days(p.actualDays, !p.actualEnd) : '—'
+        )}
+      </View>
+      <Text style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>{`Planned = first task's planned start to last task's planned end; Actual = first task's actual start to last task's actual end. Both days counted, ${DAY_RULE}.`}</Text>
+    </View>
+  );
+}
+
 function CompactMilestoneCard({ summary: s }: { summary: MilestoneSummary }) {
   const tone = s.delayDays === null ? MUTED : (s.delayDays ?? 0) > 0 ? '#B91C1C' : '#15803D';
   const dayText = (n: number | null) => allDelayDaysText(n, s.delaysShared);
@@ -1002,6 +1034,7 @@ function CompactMilestoneCard({ summary: s }: { summary: MilestoneSummary }) {
     delaysTotal(s) !== null ? row(k, <Text style={{ fontSize: 13, fontWeight: '800', color: '#0F1F33' }}>Total</Text>, dayText(delaysTotal(s)), true) : null;
   return (
     <View className="rounded-2xl p-4" style={{ backgroundColor: '#fcfcfb', borderWidth: 1, borderColor: BORDER, gap: 12 }}>
+      <PeriodsBlock summary={s} />
       <View className="flex-row flex-wrap" style={{ gap: 8 }}>
         {s.hideSpan ? null : stat('Planned end', fmtDay(s.plannedEnd))}
         {s.hideSpan ? null : stat('Actual end', s.finished ? fmtDay(s.actualEnd) : 'Not finished')}
@@ -1077,6 +1110,7 @@ function MilestoneReportCard({ summary: s, format = 'reasons' }: { summary: Mile
     <View style={{ gap: 12 }}>
       <View className="flex-row">
       <Card title="Milestone summary" minWidth={320}>
+        <PeriodsBlock summary={s} />
         {s.hideSpan ? null : <View style={{ borderWidth: 1, borderColor: BORDER, borderRadius: 8, overflow: 'hidden', marginBottom: 10 }}>
           <View className="flex-row" style={{ paddingHorizontal: 10, paddingVertical: 8, gap: 8, backgroundColor: '#F1F5F9' }}>
             {cell('Planned end', true)}

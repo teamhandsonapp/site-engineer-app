@@ -460,6 +460,20 @@ export interface MilestoneSummary {
   countedOnce?: { total: number; given: number; note: string; short: string };
   /** Date-range report (2026-11-25, client): no Planned end / Actual end / Difference box. */
   hideSpan?: boolean;
+  /** Planned vs actual period: first task's start → last task's end (2026-11-27, client). */
+  periods?: {
+    plannedStart: string | null;
+    plannedStartCode: string | null;
+    plannedEnd: string | null;
+    plannedEndCode: string | null;
+    plannedDays: number;
+    actualStart: string | null;
+    actualStartCode: string | null;
+    actualEnd: string | null;
+    actualEndCode: string | null;
+    actualDays: number;
+    today: string;
+  };
   /** Date-range report (2026-11-25, client): every task in the dates with its own
    *  Pre-con / Const days, listed after the delays; no "Responsible" table. */
   rangeTasks?: { code: string; name: string; department: string; pre: number; con: number; soFar?: boolean }[];
@@ -687,8 +701,10 @@ function compactMilestoneHtml(s: MilestoneSummary, projectName: string, mileston
     .t tr.tot td { border-top: 1.5px solid #0F1F33; border-bottom: none; font-weight: 800; color: #0F1F33; } .t tr.tot td.r { color: #B91C1C; }
     .who { font-size: 9.5px; color: #6B7280; margin-left: 14px; } .dot { display: inline-block; width: 8px; height: 8px; border-radius: 4px; margin-right: 6px; }
     .note { font-size: 9px; color: #6B7280; margin-top: 6px; } .muted { color: #898781; }
+    ${PERIODS_CSS}
   </style></head><body>
     <div class="head"><div><h1>${esc(projectName)} — Milestone Report</h1><div class="ms">${esc(milestone)}</div></div><div class="sub">Generated <b>${fmtDay(today.toISOString().slice(0, 10))}</b></div></div>
+    ${periodsHtml(s)}
     <table class="stats"><tr>
       ${s.hideSpan ? '' : `${stat('Planned end', fmtDay(s.plannedEnd))}${stat('Actual end', s.finished ? fmtDay(s.actualEnd) : 'Not finished')}${stat('Difference', differenceText(s), tone)}`}
       ${stat('Tasks', String(s.tasks))}${stat('Delayed', String(s.delayedTasks), '#B91C1C')}${stat('On time', String(s.onTime), '#15803D')}
@@ -794,9 +810,11 @@ export function milestoneReportHtml(s: MilestoneSummary, projectName: string, mi
     .te { width: 100%; border-collapse: collapse; margin: 6px 0 4px; } .te th { text-align: left; font-size: 11px; color: #52514e; padding: 4px 6px; background: #F1F5F9; }
     .te td { font-size: 12.5px; padding: 4px 6px; border-bottom: 1px solid #F0EFEC; vertical-align: top; } .te .r { text-align: right; white-space: nowrap; }
     .te .dd { font-weight: 800; color: #B91C1C; } .te tr.fa td { color: #4B5563; font-style: italic; } .te tr.fa .dd { color: #4B5563; }
+    ${PERIODS_CSS}
   </style></head><body>
     <div class="head"><div><h1>${esc(projectName)} — Milestone Report</h1><div class="ms">${esc(milestone)}</div></div><div class="sub">Report generated: <b>${fmtDay(today.toISOString().slice(0, 10))}</b></div></div>
     <div class="card">
+      ${periodsHtml(s)}
       ${s.hideSpan ? '' : `<table class="span"><tr><th>Planned end</th><th>Actual end</th><th style="text-align:right">Difference</th></tr>
         <tr><td>${fmtDay(s.plannedEnd)}</td><td>${s.finished ? fmtDay(s.actualEnd) : 'Not finished yet'}</td><td class="days" style="color:${tone}">${esc(differenceText(s))}</td></tr>
       </table>`}
@@ -812,6 +830,37 @@ export function milestoneReportHtml(s: MilestoneSummary, projectName: string, mi
   </body></html>`;
 }
 
+/** The planned vs actual period table (PDF), or '' when the report has none. */
+export function periodsHtml(s: MilestoneSummary): string {
+  const p = s.periods;
+  if (!p) return '';
+  const at = (d: string | null, code: string | null, what: string) => (d ? `${fmtDay(d)} <span class="pc">(${esc(code ?? '')} ${what})</span>` : '—');
+  const days = (n: number, soFar = false) => `${n} day${n === 1 ? '' : 's'}${soFar ? ' so far' : ''}`;
+  return `<table class="periods"><tr><th></th><th>From (first task)</th><th>To (last task)</th><th class="r">Total working days</th></tr>
+    <tr><td><b>Planned</b></td><td>${at(p.plannedStart, p.plannedStartCode, 'planned start')}</td><td>${at(p.plannedEnd, p.plannedEndCode, 'planned end')}</td><td class="r"><b>${days(p.plannedDays)}</b></td></tr>
+    <tr><td><b>Actual</b></td><td>${at(p.actualStart, p.actualStartCode, 'actual start')}</td><td>${p.actualEnd ? at(p.actualEnd, p.actualEndCode, 'actual end') : `Not finished yet — to today, ${fmtDay(p.today)}`}</td><td class="r"><b>${p.actualStart ? days(p.actualDays, !p.actualEnd) : '—'}</b></td></tr>
+  </table><div class="note">Planned = the first task's planned start to the last task's planned end; Actual = the first task's actual start to the last task's actual end. Both days counted, ${DAY_RULE}.</div>`;
+}
+const PERIODS_CSS = `.periods { width: 100%; border-collapse: collapse; margin: 0 0 10px; } .periods th { text-align: left; font-size: 10.5px; color: #52514e; padding: 4px 6px; background: #F1F5F9; }
+    .periods td { font-size: 12px; padding: 5px 6px; border-bottom: 1px solid #F0EFEC; } .periods .r { text-align: right; white-space: nowrap; } .periods .pc { font-size: 10px; color: #6B7280; }`;
+
+/** Excel rows for the planned vs actual period. */
+function periodsRows(s: MilestoneSummary): (string | number)[][] {
+  const p = s.periods;
+  if (!p) return [];
+  return [
+    ['', 'From (first task)', 'To (last task)', 'Total working days'],
+    ['Planned', p.plannedStart ? `${fmtDay(p.plannedStart)} (${p.plannedStartCode})` : '—', p.plannedEnd ? `${fmtDay(p.plannedEnd)} (${p.plannedEndCode})` : '—', p.plannedDays],
+    [
+      'Actual',
+      p.actualStart ? `${fmtDay(p.actualStart)} (${p.actualStartCode})` : '—',
+      p.actualEnd ? `${fmtDay(p.actualEnd)} (${p.actualEndCode})` : `Not finished — to today ${fmtDay(p.today)}`,
+      p.actualStart ? p.actualDays : '',
+    ],
+    [],
+  ];
+}
+
 export function printMilestoneReport(s: MilestoneSummary, projectName: string, milestone: string, fileName?: string, format: MilestoneFormat = 'reasons'): Promise<void> {
   return printReportHtml(milestoneReportHtml(s, projectName, milestone, new Date(), format), fileName);
 }
@@ -822,6 +871,7 @@ export function exportMilestoneExcel(s: MilestoneSummary, projectName: string, m
     [`${projectName} — Milestone Report`],
     [milestone],
     [],
+    ...periodsRows(s),
     ...(s.hideSpan
       ? [['Tasks', 'Delayed', 'On time'], [s.tasks, s.delayedTasks, s.onTime]]
       : [['Planned end', 'Actual end', 'Difference', 'Tasks', 'Delayed', 'On time'], [fmtDay(s.plannedEnd), s.finished ? fmtDay(s.actualEnd) : 'Not finished', differenceText(s), s.tasks, s.delayedTasks, s.onTime]]),
@@ -847,6 +897,7 @@ export function exportMilestoneExcel(s: MilestoneSummary, projectName: string, m
     [`${projectName} — Milestone Report`],
     [milestone],
     [],
+    ...periodsRows(s),
     ...(s.hideSpan ? [] : [['Planned end', 'Actual end', 'Difference'], [fmtDay(s.plannedEnd), s.finished ? fmtDay(s.actualEnd) : 'Not finished yet', differenceText(s)], []]),
     ['No. of tasks in milestone', s.tasks],
     ['No. of tasks delayed', s.delayedTasks],
